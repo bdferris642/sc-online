@@ -1,4 +1,15 @@
-.myExpSetCreatorFn=function(inputExpData,organism,minExpCells=0,inputPdata=NULL,inputFdata=NULL,addExtraAnno=T,server=T,redownload_files=T,ncores=5){
+.myExpSetCreatorFn=function(inputExpData,
+                            organism,minExpCells=0,
+                            inputPdata=NULL,
+                            inputFdata=NULL,
+                            addExtraAnno=T,
+                            server=T,
+                            redownload_files=T,
+                            ncores=5){
+  # inputExpData: Ngene x Ncell dgCMatrix of RNA counts
+  # organism: str, "human", "macaque", or "mouse"
+  # minExpCells: int, minimum number of cells that a gene must be expressed in to be included in the output
+
   require(scran)
   require(DropletUtils)
   require(Matrix)
@@ -128,6 +139,8 @@
         tmpFilter=c(tmpFilter,apply(assays(res)[["counts"]][i:min(i+10000-1,nrow(res)),],1,function(x) sum(x>0)))
       }
     } else {
+      # calculates a filter for rows in the "counts" matrix, 
+      # where rows with more nonzero values will have higher values in the tmpFilter vector.
       tmpFilter=apply(assays(res)[["counts"]],1,function(x) sum(x>0))
     }
     
