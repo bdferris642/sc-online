@@ -96,12 +96,13 @@
   
   gns=.extraMouseGeneAnnoAdderFn()
   
-  {
+  if(!file.exists("~/serverFiles/IEG_gene_symbols")){
     #library(googleCloudStorageR)
     stop("Error! file serverFiles/IEG_gene_symbols is missing")
-    
-    IEGenes=read.table("~/serverFiles/IEG_gene_symbols",sep="\t",stringsAsFactors = F)
   }
+
+  IEGenes=read.table("~/serverFiles/IEG_gene_symbols",sep="\t",stringsAsFactors = F)
+
   
   gns=gns[tolower(gns$gene_name) %in% tolower(IEGenes$V1),]
   
