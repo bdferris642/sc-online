@@ -1,6 +1,7 @@
 
 require(EnsDb.Hsapiens.v86)
 require(EnsDb.Mmusculus.v79)
+# TODO: place in single Consts file
 ANNOTATABLE_ORGANISMS = c("human", "macaque", "mouse")
 browser()
 MACAQUE_SPECIES_NAME = "fascicularis" 
@@ -198,6 +199,7 @@ ORGANISM_TO_ENSDB_MAP = c("human"=EnsDb.Hsapiens.v86,
   return(list(cc.s=cc.s,cc.g2m=cc.g2m))
 }
 
+# TODO: DRY .extra<ORGANISM>GeneAnnoAdderFns; code is repeated 
 .extraHumanGeneAnnoAdderFn=function(inputGeneNames=NULL){
   #require(EnsDb.Hsapiens.v75)
   require(EnsDb.Hsapiens.v86)
