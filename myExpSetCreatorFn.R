@@ -142,7 +142,7 @@ ANNO_COLS_TO_PREFIX = c(
     
   # Alert the user if the genome is not annotatable 
   } else {
-      warning(paste(organism, "is not in", ANNOTATABLE_ORGANISMS, sep=" "))
+      warning(paste(organism, "is not in", list(ANNOTATABLE_ORGANISMS), sep=" "))
     }
   
 
