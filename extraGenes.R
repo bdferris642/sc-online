@@ -1,3 +1,42 @@
+
+require(EnsDb.Hsapiens.v86)
+require(EnsDb.Mmusculus.v79)
+# TODO: place in single Consts file
+ANNOTATABLE_ORGANISMS = c("human", "macaque", "mouse")
+browser()
+MACAQUE_SPECIES_NAME = "fascicularis" 
+
+.getLatestEnsdb=function(organism){
+  # organism: str, an organism name in the AnnotationHub
+
+  # Outputs an EnsDb object, the latest version of the genome with Ensembl annotations
+  # TODO: ensure this is the case
+
+  library(AnnotationHub)
+  hub <- AnnotationHub()
+  avail.resources=query(hub, c(organism))
+  avail.resources=data.frame(id=avail.resources$ah_id,
+                              desc=avail.resources$description,
+                              genome=avail.resources$genome,
+                              title=avail.resources$title,
+                              stringsAsFactors = F)
+  avail.resources=avail.resources[grepl("Ensembl",avail.resources$desc),]
+  # assumes the last row is the latest version
+  # TODO: ensure that this is always the case
+  return(hub[[avail.resources$id[nrow(avail.resources)]]])
+}
+
+.getLatestMacaqueEnsdb=function(){
+  return(.getLatestEnsdb(MACAQUE_SPECIES_NAME))
+}
+
+# TODO: prespecify a version of the Macaca fascicularis genome
+ORGANISM_TO_ENSDB_MAP = c("human"=EnsDb.Hsapiens.v86, 
+                          "macaque"= .getLatestMacaqueEnsdb(), 
+                          "mouse"=EnsDb.Mmusculus.v79)
+                        
+
+
 .extraMitoGenes=function(organism){
   #organism: Human, Mouse
   
@@ -160,6 +199,7 @@
   return(list(cc.s=cc.s,cc.g2m=cc.g2m))
 }
 
+# TODO: DRY .extra<ORGANISM>GeneAnnoAdderFns; code is repeated 
 .extraHumanGeneAnnoAdderFn=function(inputGeneNames=NULL){
   #require(EnsDb.Hsapiens.v75)
   require(EnsDb.Hsapiens.v86)
@@ -282,16 +322,7 @@
 }
 
 .extraMacaqueGeneAnnoAdderFn=function(inputGeneNames=NULL){
-  library(AnnotationHub)
-  hub <- AnnotationHub()
-  avail.resources=query(hub, c("fascicularis"))
-  avail.resources=data.frame(id=avail.resources$ah_id,
-                              desc=avail.resources$description,
-                              genome=avail.resources$genome,
-                              title=avail.resources$title,
-                              stringsAsFactors = F)
-  avail.resources=avail.resources[grepl("Ensembl",avail.resources$desc),]
-  ensdb <- hub[[avail.resources$id[nrow(avail.resources)]]]
+  ensdb = ORGANISM_TO_ENSDB_MAP["macaque"]
   
   if(!dir.exists("~/serverFiles")){
     dir.create("~/serverFiles",recursive = T)
