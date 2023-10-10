@@ -1,4 +1,4 @@
-.extraMitoGenes=function(organism,redownload_files=T){
+.extraMitoGenes=function(organism){
   #organism: Human, Mouse
   
   if(tolower(organism)=="human"){
@@ -18,7 +18,7 @@
   return(gns)
 }
 
-.extrarRNAGenes=function(organism,redownload_files=T){
+.extrarRNAGenes=function(organism){
   #organism: Human, Mouse
   
   if(tolower(organism)=="human"){
@@ -38,7 +38,7 @@
   return(gns)
 }
 
-.extraRibosomalProteinGenes=function(organism,redownload_files=T){
+.extraRibosomalProteinGenes=function(organism){
   #organism: Human, Mouse
   
   if(tolower(organism)=="human"){
@@ -58,7 +58,7 @@
   return(gns)
 }
 
-.extraOXPHOSGenes=function(organism,inputGeneset=NULL,server=F){
+.extraOXPHOSGenes=function(organism,inputGeneset=NULL){
   #organism: Human, Mouse
   
   if(tolower(organism)=="human"){
@@ -90,7 +90,7 @@
   return(gns)
 }
 
-.extraIEGGenes=function(organism,server=F){
+.extraIEGGenes=function(organism){
   #organism: Human, Mouse
   
   gns=.extraMouseGeneAnnoAdderFn()
@@ -160,7 +160,7 @@
   return(list(cc.s=cc.s,cc.g2m=cc.g2m))
 }
 
-.extraHumanGeneAnnoAdderFn=function(inputGeneNames=NULL,server=T,redownload_files=T){
+.extraHumanGeneAnnoAdderFn=function(inputGeneNames=NULL){
   #require(EnsDb.Hsapiens.v75)
   require(EnsDb.Hsapiens.v86)
   
@@ -228,7 +228,7 @@
   return(gns)
 }
 
-.extraMouseGeneAnnoAdderFn=function(inputGeneNames=NULL,server=T){
+.extraMouseGeneAnnoAdderFn=function(inputGeneNames=NULL){
   require(EnsDb.Mmusculus.v79)
   
   if(!dir.exists("~/serverFiles")){
@@ -281,7 +281,7 @@
   return(gns)
 }
 
-.extraMacaqueGeneAnnoAdderFn=function(inputGeneNames=NULL,server=T){
+.extraMacaqueGeneAnnoAdderFn=function(inputGeneNames=NULL){
   library(AnnotationHub)
   hub <- AnnotationHub()
   avail.resources=query(hub, c("fascicularis"))
@@ -334,7 +334,7 @@
   return(gns)
 }
 
-.extraQCAnnoAdderFn=function(inputExpSet,organism,server=F,redownload_files=T,ncores=5){
+.extraQCAnnoAdderFn=function(inputExpSet,organism,ncores=5){
   
   {
     x=counts(inputExpSet)
@@ -381,23 +381,18 @@
   
   inputExpSet$QC_MT.pct=.extraMitoPctFn(inputData=inputExpSet,
                                         organism = organism,
-                                        redownload_files=redownload_files,
                                         recalculate_nUMI = F)
   inputExpSet$QC_IEG.pct=.extraIEGPctFn(inputData=inputExpSet,
                                         organism = organism,
-                                        server = server,
                                         recalculate_nUMI = F)
   inputExpSet$QC_OXPHOS.pct=.extraOXPHOSPctFn(inputData = inputExpSet,
                                               organism = organism,
-                                              server=server,
                                               recalculate_nUMI = F)
   inputExpSet$QC_rRNA.pct=.extrarRNAPctFn(inputData = inputExpSet,
                                           organism = organism,
-                                          redownload_files=redownload_files,
                                           recalculate_nUMI = F)
   inputExpSet$QC_RibosomalProtein.pct=.extraRPctFn(inputData=inputExpSet,
                                                     organism = organism,
-                                                    redownload_files=redownload_files,
                                                     recalculate_nUMI = F)
                                                     
   tmpMedian=c()
@@ -457,10 +452,10 @@
   return(inputExpSet)
 }
 
-.extraMitoPctFn=function(inputData,organism,inputMTgenes=NULL,inputGeneName=NULL,redownload_files=T,recalculate_nUMI=T){
+.extraMitoPctFn=function(inputData,organism,inputMTgenes=NULL,inputGeneName=NULL,recalculate_nUMI=T){
   
   rwNames=tolower(row.names(inputData))
-  x=.extraMitoGenes(organism = organism,redownload_files=redownload_files)
+  x=.extraMitoGenes(organism = organism)
   if(sum(grepl("\\.",rwNames))>0){
     rwNames=strsplit(rwNames,"\\.")
     rwNames=unlist(lapply(rwNames,function(x)x[1]))
@@ -523,10 +518,10 @@
   return(res)
 }
 
-.extraIEGPctFn=function(inputData,organism,inputIEGgenes=NULL,inputGeneName=NULL,server=F,recalculate_nUMI=T){
+.extraIEGPctFn=function(inputData,organism,inputIEGgenes=NULL,inputGeneName=NULL,recalculate_nUMI=T){
   
   rwNames=tolower(row.names(inputData))
-  x=.extraIEGGenes(organism = organism,server = server)
+  x=.extraIEGGenes(organism = organism)
   if(sum(colnames(x)=="entrezid")>0){
     colnames(x)[colnames(x)=="entrezid"]="entrezgene_id"
   }
@@ -592,10 +587,10 @@
   return(res)
 }
 
-.extraOXPHOSPctFn=function(inputData,organism,inputGeneset=NULL,inputGeneName_col=NULL,server=T,recalculate_nUMI=T,standardize_gene_names=T){
+.extraOXPHOSPctFn=function(inputData,organism,inputGeneset=NULL,inputGeneName_col=NULL,recalculate_nUMI=T,standardize_gene_names=T){
   
   rwNames=tolower(row.names(inputData))
-  x=.extraOXPHOSGenes(organism = organism,server = server,inputGeneset=inputGeneset)
+  x=.extraOXPHOSGenes(organism = organism,inputGeneset=inputGeneset)
   if(sum(grepl("\\.",rwNames))>0){
     rwNames=strsplit(rwNames,"\\.")
     rwNames=unlist(lapply(rwNames,function(x)x[1]))
@@ -666,10 +661,10 @@
   return(res)
 }
 
-.extrarRNAPctFn=function(inputData,organism,inputrRNAgenes=NULL,inputGeneName=NULL,redownload_files=T,recalculate_nUMI=T){
+.extrarRNAPctFn=function(inputData,organism,inputrRNAgenes=NULL,inputGeneName=NULL,recalculate_nUMI=T){
   
   rwNames=tolower(row.names(inputData))
-  x=.extrarRNAGenes(organism = organism,redownload_files=redownload_files)
+  x=.extrarRNAGenes(organism = organism)
   if(sum(grepl("\\.",rwNames))>0){
     rwNames=strsplit(rwNames,"\\.")
     rwNames=unlist(lapply(rwNames,function(x)x[1]))
@@ -733,13 +728,13 @@
 }
 
 # for every cell, calculate the pct rRNA protein
-.extraRPctFn=function(inputData,organism,inputRPgenes=NULL,inputGeneName=NULL,redownload_files=T,recalculate_nUMI=T){
+.extraRPctFn=function(inputData,organism,inputRPgenes=NULL,inputGeneName=NULL,recalculate_nUMI=T){
   
   # Convert row names of inputData to lowercase
   rwNames=tolower(row.names(inputData))
 
   # Get ribosomal protein genes if not provided
-  x=.extraRibosomalProteinGenes(organism = organism,redownload_files=redownload_files)
+  x=.extraRibosomalProteinGenes(organism = organism)
   
   # If row names contain dot, remove the dot and everything after it
   if(sum(grepl("\\.",rwNames))>0){
