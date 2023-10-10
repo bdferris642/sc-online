@@ -1,4 +1,18 @@
-.myExpSetCreatorFn=function(inputExpData,organism,minExpCells=0,inputPdata=NULL,inputFdata=NULL,addExtraAnno=T,server=T,redownload_files=T,ncores=5){
+.myExpSetCreatorFn=function(inputExpData,
+                            organism,
+                            minExpCells=0,
+                            inputPdata=NULL,
+                            inputFdata=NULL,
+                            addExtraAnno=T,
+                            ncores=5){
+  # inputExpData: Ngene x Ncell dgCMatrix of RNA counts
+  # organism: str, "human", "macaque", or "mouse"
+  # minExpCells: int, minimum number of cells that a gene must be expressed in to be included in the output
+  # inputPdata
+  # inputFdata:  
+  # addExtraAnno: bool, whether to add extra columns to the output
+  # ncores: int, number of cores to use
+
   require(scran)
   require(DropletUtils)
   require(Matrix)
@@ -44,11 +58,11 @@
   }
   
   if(tolower(organism)=="human"){
-    tmpName=.extraHumanGeneAnnoAdderFn(row.names(inputExpData),server = server)
+    tmpName=.extraHumanGeneAnnoAdderFn(row.names(inputExpData))
   } else if (tolower(organism)=="mouse"){
-    tmpName=.extraMouseGeneAnnoAdderFn(row.names(inputExpData),server = server)
+    tmpName=.extraMouseGeneAnnoAdderFn(row.names(inputExpData))
   } else if(tolower(organism)=="macaque"){
-    tmpName=.extraMacaqueGeneAnnoAdderFn(row.names(inputExpData),server = server)
+    tmpName=.extraMacaqueGeneAnnoAdderFn(row.names(inputExpData))
   } else {
     warning("unknown organism!")
   }
@@ -77,7 +91,7 @@
       fd$QC_mtGenes="No"
       fd$QC_mtGenes[fd$ensembl_gene_id %in% mymito.genes$ensembl_gene_id]="Yes"
       
-      myIEG.genes=.extraIEGGenes(organism=organism,server = server)
+      myIEG.genes=.extraIEGGenes(organism=organism)
       fd$QC_IEG_Genes="No"
       fd$QC_IEG_Genes[fd$ensembl_gene_id %in% myIEG.genes$ensembl_gene_id]="Yes"
     }
@@ -123,11 +137,16 @@
   if(minExpCells>0){
     tmpFilter=c()
     
+    
+    # calculate a filter for rows in the "counts" matrix, 
+    # where rows with more nonzero values will have higher values in the tmpFilter vector.
+    # If the dataset is large, do in chunks
     if(nrow(res)>10000){
       for(i in seq(1,nrow(res),10000)){
         tmpFilter=c(tmpFilter,apply(assays(res)[["counts"]][i:min(i+10000-1,nrow(res)),],1,function(x) sum(x>0)))
       }
     } else {
+      
       tmpFilter=apply(assays(res)[["counts"]],1,function(x) sum(x>0))
     }
     
@@ -136,10 +155,9 @@
   }
   
   
-  
+  # Adds QC columns to the output
   if(addExtraAnno){
-    #inputExpSet = res;organism=organism;server=server;redownload_files=redownload_files
-    res=.extraQCAnnoAdderFn(inputExpSet = res,organism=organism,server=server,redownload_files=redownload_files,ncores=ncores)
+    res=.extraQCAnnoAdderFn(inputExpSet = res,organism=organism,ncores=ncores)
   }
   
   for(i in 1:ncol(colData(res))){
