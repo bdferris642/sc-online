@@ -286,11 +286,6 @@
     nbt@assays$RNA@meta.features=.fData(inputData=inputData)
   }
   
-
-  # Take all genes in > 3 cells, all cells with > 1k genes, use an expression threshold of 1
-  # Cell type is encoded in the second _ field, 
-  # will be stored in nbt@ident and also placed in the "orig.ident" field of object@data.info
-  
   return(nbt)
 }
 
@@ -303,40 +298,21 @@
   res=list()
   if(class(object)=="Seurat"){
     res=Seurat::SplitObject(object,split.by = colName)
-  } else{
-
-    # TODO: confirm that this code never runs...possibly delete
-    if(F){
-      pd=colData(object)[,colName]
-      res=summary(counts(object))
-      res=split(res,pd[res[,2]])
-      res_pd=split(as.data.frame(colData(object)),pd)
-      res=lapply(1:length(res),function(x){
-        y=Matrix::sparseMatrix(i = res[[x]][,1],
-                               j = as.numeric(as.factor(as.character(res[[x]][,2]))),
-                               x = res[[x]][,3],dims = c(nrow(object),nrow(res_pd[[x]])))
-        row.names(y)=row.names(object)
-        colnames(y)=row.names(res_pd[[x]])
-        y=SingleCellExperiment(assays = list(counts = y),colData = res_pd[[x]],rowData=as.data.frame(rowData(object)))
-        return(y)
-        
-      })
-    }
+  } 
+  else { 
     
-    
-    if(T){
     # TODO: test if the following code works and is performant 
     # res_list = split(object, object$colData[, colName])
     # names(res_list) = unique(object$colData[, colName])
 
     # pd is Phenotypic Data, i.e. the colData of the object
-      pd=colData(object)[,colName]
+    pd=colData(object)[,colName]
     # 
-      for(i in unique(pd)){
+    for(i in unique(pd)){
         res=c(res,list(object[,which(pd==i)]))
         names(res)[length(res)]=i
-      }
     }
+    
     
   }
   return(res)
