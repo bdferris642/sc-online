@@ -55,7 +55,7 @@ source("~/sc-online/utils.R")
   dataset_source$madeCluster=colData(dataset_source)[,source_label_col]
   dataset_target$madeCluster=colData(dataset_target)[,target_label_col]
   
-  #dsSource=dataset_source;dsTarget=dataset_target;cellType_source=colData(dataset_source)[,source_label_col];cellType_target=colData(dataset_target)[,target_label_col];covariates=covariates;calculate_depth_per_gene=calculate_depth_per_gene;source_batch_label=source_batch_label_col;target_batch_label=target_batch_label_col;indScaling=indScaling
+  
   res_seurat=.extraHarmony_dataset_integratorFn(
     dsSource=dataset_source,
     dsTarget=dataset_target,
@@ -178,7 +178,19 @@ source("~/sc-online/utils.R")
   return(res)
 }
 
-.myLabelTransfer_aligned=function(pca_source,meta_source,pca_target,meta_target,source_label_col,source_data=NULL,target_data=NULL,target_label_col=NULL,nPCs=NULL,n.adaptiveKernel=5,nPropIter=3,return_seurat_obj=T){
+.myLabelTransfer_aligned=function(
+  pca_source,
+  meta_source,
+  pca_target,
+  meta_target,
+  source_label_col,
+  source_data=NULL,
+  target_data=NULL,
+  target_label_col=NULL,
+  nPCs=NULL,
+  n.adaptiveKernel=5,
+  nPropIter=3,
+  return_seurat_obj=T){
   
   #pca_source: aligned pc space for the source dataset
   #meta_source: meta data for the source dataset
@@ -249,7 +261,13 @@ source("~/sc-online/utils.R")
   row.names(harmony_embeddings)=c(row.names(pca_source),row.names(pca_target))
   
   
-  res=.myKnnLabelTransferFn(inputPCAembeddings=harmony_embeddings,meta_data=meta_data,training_idx=training_idx,label_col=label_col,n.adaptiveKernel=n.adaptiveKernel,nPropIter=nPropIter)
+  res=.myKnnLabelTransferFn(
+    inputPCAembeddings=harmony_embeddings,
+    meta_data=meta_data,
+    training_idx=training_idx,
+    label_col=label_col,
+    n.adaptiveKernel=n.adaptiveKernel,
+    nPropIter=nPropIter)
   
   resTest=res$test_labels
   
@@ -325,9 +343,15 @@ source("~/sc-online/utils.R")
 
 # Plotting Functions
 # TODO: move plotting functions to separate module
-.mycellAssignHeatmap_binary=function(input_labelTransfer_object,confidenceLevel=0.8,target_cluster_col="Cluster"){
+.mycellAssignHeatmap_binary=function(
+  input_labelTransfer_object,
+  confidenceLevel=0.8,
+  target_cluster_col="Cluster"){
   require(ggplot2)
-  lbls=input_labelTransfer_object$test_labels[,grepl("inferred_",colnames(input_labelTransfer_object$test_labels))&!grepl("_max",colnames(input_labelTransfer_object$test_labels))]
+  lbls=input_labelTransfer_object$test_labels[
+    ,grepl(
+      "inferred_",colnames(input_labelTransfer_object$test_labels))&!grepl(
+        "_max",colnames(input_labelTransfer_object$test_labels))]
   lblIndx=apply(lbls,1,function(x) if(sum(!is.na(x))>0){if(max(x,na.rm = T)>confidenceLevel){which(x==max(x))[1]}else{NA}}else{NA})
   lbls=gsub("inferred_","",colnames(lbls))[lblIndx]
   
@@ -338,13 +362,22 @@ source("~/sc-online/utils.R")
   for(i in 1:nrow(lbls)){
     lbls$proportion[i]=lbls$count[i]/sum(lbls$count[lbls$cluster==lbls$cluster[i]],na.rm = T)
   }
-  p=ggplot(lbls,aes(inferred,cluster,fill=proportion))+geom_tile(color="black")+scale_fill_gradient(low="white",high="red")+theme(axis.text.x = element_text(angle = 90,hjust=1,vjust=1))
+  p=ggplot(
+    lbls,aes(inferred,cluster,fill=proportion))+geom_tile(
+      color="black")+scale_fill_gradient(
+        low="white",high="red")+theme(
+          axis.text.x = element_text(angle = 90,hjust=1,vjust=1))
   return(p)
 }
 
-.mycellAssignHeatmap_prob=function(input_labelTransfer_object,confidenceLevel=0.8,target_cluster_col="Cluster"){
+.mycellAssignHeatmap_prob=function(
+  input_labelTransfer_object,
+  confidenceLevel=0.8,
+  target_cluster_col="Cluster"){
   require(ggplot2)
-  lbls=input_labelTransfer_object$test_labels[,grepl("inferred_",colnames(input_labelTransfer_object$test_labels))&!grepl("_max",colnames(input_labelTransfer_object$test_labels))]
+  lbls=input_labelTransfer_object$test_labels[
+    ,grepl("inferred_",colnames(input_labelTransfer_object$test_labels))&!grepl(
+      "_max",colnames(input_labelTransfer_object$test_labels))]
   lbls[lbls<confidenceLevel]=0
   lbls$cluster_name=input_labelTransfer_object$test_labels[,target_cluster_col]
   lbls=reshape2::melt(lbls,"cluster_name")
@@ -357,15 +390,28 @@ source("~/sc-online/utils.R")
   colnames(lbls)[colnames(lbls)=="variable"]="Inferred"
   lbls$Inferred=gsub("inferred_","",lbls$Inferred)
   
-  p=ggplot(lbls,aes(Inferred,cluster_name,fill=fraction))+geom_tile(color="black")+scale_fill_gradient(low="white",high="red")+theme(axis.text.x = element_text(angle = 90,hjust=1,vjust=1))
+  p=ggplot(lbls,
+    aes(Inferred,cluster_name,fill=fraction))+geom_tile(
+      color="black")+scale_fill_gradient(
+        low="white",high="red")+theme(
+          axis.text.x = element_text(angle = 90,hjust=1,vjust=1))
   return(p)
 }
 
 # Helper Functions
-.myKnnLabelTransferFn=function(inputPCAembeddings,meta_data,training_idx,label_col,n.adaptiveKernel=5,nPropIter=3,NNmethod="annoy",n.trees=50){
+.myKnnLabelTransferFn=function(
+  inputPCAembeddings,
+  meta_data,
+  training_idx,
+  label_col,
+  n.adaptiveKernel=5,
+  nPropIter=3,
+  NNmethod="annoy",
+  n.trees=50){
   
   #training_idx: the row index of training data in the inputPCAembedings
-  #label_col: the column in the meta_data that specifies the cell labels (labels of test cells can be set as unknown; the labels of test sets would be excluded from the propagation step)
+  #label_col: the column in the meta_data that specifies the cell labels 
+  # (labels of test cells can be set as unknown; the labels of test sets would be excluded from the propagation step)
   
   training_data=inputPCAembeddings[training_idx,]
   training_labels=meta_data[training_idx,]
@@ -500,7 +546,19 @@ source("~/sc-online/utils.R")
   return(list(test_labels=res_testset,training_labels=res_training,combined_labels=res))
 }
 
-.extraHarmony_dataset_integratorFn=function(dsSource,dsTarget,cellType_source,cellType_target,covariates=c("depth_per_gene"),calculate_depth_per_gene=T,source_batch_label=NULL,target_batch_label=NULL,inputVarGenes=NULL,ds_specific_hvg=T,indScaling=F){
+.extraHarmony_dataset_integratorFn=function(
+  dsSource,
+  dsTarget,
+  cellType_source,
+  cellType_target,
+  covariates=c("depth_per_gene"),
+  calculate_depth_per_gene=T,
+  source_batch_label=NULL,
+  target_batch_label=NULL,
+  inputVarGenes=NULL,
+  ds_specific_hvg=T,
+  indScaling=F){
+  
   require(Seurat)
   require(ggplot2)
   require(ggalluvial)
