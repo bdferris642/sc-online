@@ -1,8 +1,9 @@
 
 .mycBindFn=function(inputList,batchNames=NULL,verbose_level=1){
-  #cbinds multiple singleCellExpression datasets with differring number of rows.
-  #inputList: the list of datasets to be merged
-  #batchNames: the batch name to be assigned to each dataset. length(batchNames)==length(inputList)
+  # Todo: rename this function to something more descriptive
+  # binds multiple singleCellExpression datasets columnwise with differring number of rows.
+  # inputList: the list of datasets to be merged
+  # batchNames: list, nullable. the batch name to be assigned to each dataset. length(batchNames)==length(inputList)
   res_m=""
   if(!is.null(batchNames)){
     if(length(inputList)==1){
@@ -15,17 +16,18 @@
         res_m=.extracBindDetailFn(x1=res_m,x2=inputList[[i]],batchNames=c("",batchNames[i]))
       }
     }
-  } else {
+  } 
+  else {
     if(length(inputList)==1){
       res_m=inputList[[1]]
     } else if(length(inputList)==2){
       res_m=.extracBindDetailFn(x1=inputList[[1]],x2=inputList[[2]],batchNames = c("",""))
+      # otherwise iteratively bind the datasets by running extracBindDetailFn in a loop
+      # TODO: investigate whether this is the most efficient way to go about this.....
     } else if(length(inputList)>2){
-      #x1=inputList[[1]];x2=inputList[[2]];batchNames = c("","")
       res_m=.extracBindDetailFn(x1=inputList[[1]],x2=inputList[[2]],batchNames = c("",""))
       for(i in 3:length(inputList)){
         
-        #x1=res_m;x2=inputList[[i]];batchNames=c("","")
         res_m=.extracBindDetailFn(x1=res_m,x2=inputList[[i]],batchNames=c("",""))
         if(verbose_level>1){
           print(paste("dataset:",i,"; nrow:",nrow(res_m),"; ncol",ncol(res_m)))
@@ -117,9 +119,25 @@
 }
 
 .extracBindDetailFn=function(x1,x2,batchNames){
+    # x1: SingleCellExperiment or Seurat object
+    # x2: SingleCellExperiment or Seurat object
+    # batchNames: column of strings of length 2, 
+    # containing the batch names for x1 and x2 respectively
+    # there is no requirement of the same rows or columns in x1 and x2
+
+    # outputs: 
+    # x_m: SingleCellExperiment object with x1 and x2 bound columnwise
+    # and with the number of rows equal to the union of the rows in x1 and x2
+    # the colData of this matrix will have an $anno_batch column.
+    # that uses the `batchNames` argument's elements to indicate the batch of each cell
+    
+
   require(Matrix)
   
+  # tmp1 stores the row names present in x1, and not in x2
   tmp1=setdiff(row.names(x1),row.names(x2))
+
+  # get fd_, pd_, and expr_ for x1 and x2
   if(class(x1)=="SingleCellExperiment"){
     fd1=rowData(x1)
     expr1=counts(x1)
@@ -144,23 +162,34 @@
     stop("Unrecognized dataset class!")
   }
   
+  # get the feature data for the rows in x1 that are NOT in x2
   tmpAnno1=fd1[which(row.names(x1) %in% tmp1),]
   
+  # tmpMat1 is a sparse matrix with the same number of rows present in x1, and not in x2
+  # and the same number of columns as x2
   tmpMat1=sparseMatrix(i=NULL,j=NULL,dims = c(length(tmp1),ncol(x2)))
   row.names(tmpMat1)=tmp1
   
+  # since they have the same number of cols, you can row bind expr2 and tmpMat1
+  # now x2_c has the same number of rows as union(x1, 2)
   x2_c=rbind(expr2,tmpMat1)
-  
   x2_c_pd=as.data.frame(pd2)
+  # plyr::rbind.fill rbinds a list of data frames filling missing columns with NA.
+  # the missing columns will be genes that are only in x1
   x2_c_fd=as.data.frame(plyr::rbind.fill(as.data.frame(fd2),as.data.frame(tmpAnno1)))
   x2_c=SingleCellExperiment(assays = list(counts = x2_c),colData = x2_c_pd,rowData=x2_c_fd)
   
+  # tmp2 is the rows in x2 that are not in x1
+  # tmpAnno2 is the feature data for the rows in x2 that are not in x1
   tmp2=setdiff(row.names(x2),row.names(x1))
   tmpAnno2=fd2[which(row.names(x2) %in% tmp2),]
-  
+  # tmpMat2 is a sparse matrix with the same number of rows as genese x2, and not in x1
+  # and same number of cols as x1
   tmpMat2=sparseMatrix(i=NULL,j=NULL,dims = c(length(tmp2),ncol(x1)))
   row.names(tmpMat2)=tmp2
   
+  # you can now row bind expr1 and tmpMat2
+  # now x1_c has the same number of rows as as union(x1, 2)
   x1_c=rbind(expr1,tmpMat2)
   
   x1_c_pd=as.data.frame(pd1)
@@ -169,8 +198,10 @@
   
   x2_c=x2_c[match(row.names(x1_c),row.names(x2_c)),]
   
+  # after matching, all row names should align
   if(all(row.names(x2_c)==row.names(x1_c))){
     
+    # if the batches have names, prepend them to the column names to make an `anno_batch` column
     if(batchNames[1]!=""){
       row.names(colData(x1_c))=paste0(batchNames[1],"_",colnames(x1_c))
       colnames(x1_c)=paste0(batchNames[1],"_",colnames(x1_c))
@@ -183,17 +214,26 @@
       x2_c$anno_batch=batchNames[2]
     }
     
+    # now just cbind
     x_m_exp=cbind(counts(x1_c),counts(x2_c))
     pd_m_exp=plyr::rbind.fill(as.data.frame(colData(x1_c)),as.data.frame(colData(x2_c)))
     fd=as.data.frame(rowData(x1_c))
     x_m=SingleCellExperiment(assays=list(counts=x_m_exp),colData=pd_m_exp,rowData=fd)
-  } else {
+  } 
+  else {
     stop("Error in the merging!")
   }
   return(x_m)
 }
 
-.extraDoubletMakerFn=function(inputData,label_col,sel_labels,cells_per_group=30){
+.extraDoubletMakerFn=function(
+    inputData,
+    label_col,
+    sel_labels,
+    cells_per_group=30){
+# inputData: 
+# label_col: str, the column name in inputData 
+
   print("Adding the doublet data...")
   selCells=list()
   for(i in unique(sel_labels)){
@@ -257,7 +297,10 @@
   expM=cbind(expInput,doublet_exp)
   pdM=rbind(as.data.frame(colData(inputData)),pd)
   
-  res=SingleCellExperiment(assays = list(counts = expM),colData = pdM,rowData=fd)
+  res=SingleCellExperiment(
+    assays=list(counts=expM),
+    colData=pdM,
+    rowData=fd)
   
   print("Doublet data is added.")
   return(res)
