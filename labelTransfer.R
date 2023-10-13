@@ -1,5 +1,81 @@
 source("~/sc-online/utils.R")
 
+library(lisi)
+
+# 2. Statistics
+#   a. Is batch LISI significantly different from <number of batches>? (non-parametric)
+#   b. For each column in the combined space, is cell type LISI significantly different from 1? (non-parametric)
+#   c. For each column in the source space, is source cell type LISI significantly different from 1? (non-parametric)
+#   d. For each column in the source space, is normalized source cell type LISI significantly different from 0? (possibly parametric)
+#   e. (If target not null): For each column in the target space, is target cell type LISI significantly different from 1? (non-parametric)
+#   f. (If target not null): For each column in the target space, is normalized target cell type LISI significantly different from 0? (possibly parametric)
+#   g. For each column AND cell type in the combined space, is cell type LISI significantly differnet from 1? (non-parametric)
+#   h. For each column AND cell type in the source space, is cell type LISI significantly differnet from 1? (non-parametric)
+
+
+setClass(
+  "lisiEvaluator"
+  slots=list(
+    # input arguments
+    source_embeddings="data.frame",
+    target_embeddings="data.frame",
+    combined_embeddings="data.frame",
+    source_cell_classes="data.frame",
+    target_cell_classes="data.frame",
+    annotations="data.frame",
+    batch_column="character",
+    
+    # computed values from initialization
+    batch_lisi="data.frame",
+    source_cell_class_lisi="data.frame",
+    target_cell_class_lisi="data.frame",
+    combined_cell_class_lisi="data.frame",
+    batch_p_values="data.frame", 
+    normalized_source_cell_class_lisi="data.frame",
+    normalized_target_cell_class_lisi="data.frame",
+
+    # computed values from methods
+    # columns like <batch>_<cell_class_column>_<annotation>_lisi_p_value
+      # where <batch> in {source, target, combined}
+      # <cell_class_column> in colnames(source_cell_classes) - <batch_column> + <all>
+      # <annotation> in unique(cell_class_column) + "all"
+      # and lisi_p_value is the p-value is BH corrected within a <batch>_<cell_class_column> group
+    cell_class_lisi_p_values="data.frame",
+    normalized_cell_class_lisi_p_values = "data.frame"
+  )
+)
+
+createLisiEvaluator = function(
+  source_embeddings,
+  target_embeddings,
+  combined_embeddings,
+  source_cell_classes,
+  target_cell_classes,
+  annotations,
+  batch_column
+){
+# Inputs:
+# source_embeddings: data.frame 
+# target_embeddings: data.frame
+# 3. combined embeddings (these need row names)
+# 4. source cell classes. Can be multiple columns / levels of classification.
+# 5. target cell classes (if they exist). Can be multiple columns / levels of classification.
+# 6. target annotations. Can be multiple columns / levels of classification.
+# Note: (4)-(6) should have same number of columns
+
+# Methods
+# 1. Initialization
+#   a. compute LISI for both batch and each cell class category in the combined space
+#   b. compute LISI for each cell class category in the source space
+#   c. Normalize (b) by (a) for normalized source cell class LISI 
+#   d. If target annotations are not null, compute LISI for each cell class category in the target space
+#   e. If target annotations are not null, Normalize (d) by (a) for normalized target cell class LISI
+
+}
+
+
+
+
 .myLabelTransfer_harmony=function(
   dataset_source,
   dataset_target,
@@ -17,8 +93,7 @@ source("~/sc-online/utils.R")
   doubletGroups=NULL,
   nPCs=30,
   n.adaptiveKernel=5,
-  nPropIter=3,
-  ncores=1){
+  nPropIter=3){
   
   #dataset_source: dataset whose labels will be transfered
   #dataset_target: dataset for which we are predicting the cell types 
@@ -892,4 +967,6 @@ source("~/sc-online/utils.R")
   
   return(umap.output)
 }
+
+
 
