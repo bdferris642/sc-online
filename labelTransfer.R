@@ -2,16 +2,6 @@ source("~/sc-online/utils.R")
 
 library(lisi)
 
-# 2. Statistics
-#   a. Is batch LISI significantly different from <number of batches>? (non-parametric)
-#   b. For each column in the combined space, is cell type LISI significantly different from 1? (non-parametric)
-#   c. For each column in the source space, is source cell type LISI significantly different from 1? (non-parametric)
-#   d. For each column in the source space, is normalized source cell type LISI significantly different from 0? (possibly parametric)
-#   e. (If target not null): For each column in the target space, is target cell type LISI significantly different from 1? (non-parametric)
-#   f. (If target not null): For each column in the target space, is normalized target cell type LISI significantly different from 0? (possibly parametric)
-#   g. For each column AND cell type in the combined space, is cell type LISI significantly differnet from 1? (non-parametric)
-#   h. For each column AND cell type in the source space, is cell type LISI significantly differnet from 1? (non-parametric)
-
 
 setClass(
   "lisiEvaluator"
