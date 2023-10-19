@@ -1,3 +1,10 @@
 macosko_data_libraries.txt
 test_libs.txt
 libs.txt
+.DS_Store
+missing_from_vireo.txt
+vireo_output.txt
+pd_libraries_20221126_20231005.txt
+scp_uger_to_gcp.sh
+names_w_vireo.txt
+.gitignore
