@@ -388,3 +388,43 @@
   return(fd)
 }
 
+downsampleListAfterStart <- function(a_list, start_ind, step){
+    # return every value of a_list from 1:start_ind, then every step-th value after that
+    # a_list: list
+    # stard_ind: int, the index after which to start downsampling
+    # step: int, the step size for downsampling
+    return(
+        c(a_list[1:start_ind], 
+        a_list[(start_ind+1):length(a_list)][seq(1, length(a_list)-start_ind, step)]))
+}
+
+getFracAssignableDemuxlet=function(df){
+    # df: dataframe with columns `BEST` and `PRB.SNG1` 
+    return(sum((df$PRB.SNG1 >= 0.9) & (substr(df$BEST, 1, 3) == 'SNG')) / nrow(df))
+}
+
+getFracAssignableVireo=function(df){
+
+    nrows=nrow(df)
+    df = df[!df$donor_id %in% c('unassigned', 'doublet'), ]
+    return(sum(df$prob_max >= 0.9) / nrows)
+}
+
+orderDFByColRank=function(df, col, asc=FALSE, log_y_axis=FALSE){
+    # rank order by `col`
+    if(asc){
+        df$rank = rank(df[[col]], ties.method = "first")     
+    } else {
+        df$rank = rank(-df[[col]], ties.method = "first") 
+    }
+    df=df[order(df$rank), ]
+    if(log_y_axis){ 
+        df[[col]] = log10(df[[col]]+1)
+    }
+
+    return(df)
+}
+
+unquote=function(colname){
+  return(!!rlang::sym(colname))
+}

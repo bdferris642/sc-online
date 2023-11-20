@@ -4,7 +4,7 @@ library(lisi)
 
 
 setClass(
-  "lisiEvaluator"
+  "lisiEvaluator",
   slots=list(
     # input arguments
     source_embeddings="data.frame",
