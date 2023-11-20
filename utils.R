@@ -424,7 +424,3 @@ orderDFByColRank=function(df, col, asc=FALSE, log_y_axis=FALSE){
 
     return(df)
 }
-
-unquote=function(colname){
-  return(!!rlang::sym(colname))
-}

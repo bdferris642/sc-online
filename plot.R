@@ -183,6 +183,45 @@ plotColorLines = function(x, y_list, line_color_by_list=NULL, clab=NULL, cmap=vi
 }
 
 
+# Function to plot the heatmap with numbers inside
+plotConfusionHeatmap = function(prop_table, xlab='', ylab='', title='', 
+    plot_width=10, plot_height=11, fig_filename=NULL) {
+  options(repr.plot.width=plot_width, repr.plot.height=plot_height)
+  
+  # Prepare matrix with rounded proportions for display
+  display_matrix <- matrix(sprintf("%.2f", prop_table), nrow = nrow(prop_table))
+
+  # Create a color palette from viridis with 100 levels mapped between 0 and 1
+  color_palette <- viridis(101, alpha = 1, begin = 0, end = 1)
+
+  labs = lapply(strsplit(rownames(prop_table), '_'), function(x) x[[length(x)]])
+  # Plot the heatmap
+  p <- pheatmap(
+      prop_table,
+      color = color_palette,
+      #breaks = seq(0, 1, length.out = 101), # set breaks between a specific range
+      cluster_rows = FALSE,
+      cluster_cols = FALSE,
+      display_numbers = display_matrix,
+      number_color='White',
+      fontsize = 12,
+      fontsize_number = 10,
+      labels_row=labs,
+      labels_col=labs,
+      main=title
+  )
+  grid.text(xlab, x=0.43, y=0.05, rot=0)
+  grid.text(ylab, x=0.95, y=0.53, rot=0)
+
+
+  print(p)
+
+  if (!is.null(fig_filename)) {
+      ggsave(fig_filename, width=plot_width, height=plot_height, dpi=600)
+  }
+}
+
+
 plotHistGrid=function(
     df_list,
     col,
@@ -343,6 +382,16 @@ plotHistColorGrid=function(
     }
 }
 
+plotDfSummary = function(df, fig_filename, width=800, height=600){
+    
+    grid_table = tableGrob(summary_df)
+
+    png(fig_filename, width = width, height = height)
+    grid.draw(grid_table)
+    dev.off()
+
+}
+
 plotHistColorSingle = function(
     df,
     name,
@@ -381,7 +430,6 @@ plotHistColorSingle = function(
     )
 }
 
-
 plotKneeColorLines=function(
     df_list,
     plot_col, 
@@ -416,6 +464,121 @@ plotKneeColorLines=function(
         return(knee_plot_data)
     }
 }
+
+plotKneeSingle=function(
+    df,
+    name,
+    plot_col='nUMI',
+    color_col='is_in_filtered',
+    clab="Called Cell", cmap="RdBu", 
+    xlim=c(1, 1e6), # oh it will absolutely throw an error if xlim[[1]]==0
+    ylim=c(0.5, 5.5), 
+    clim=c(.15, 0.8), # I just like these shades of Blue and Red
+    log_x_axis=TRUE, 
+    log_y_axis=TRUE,
+    asc=FALSE,
+    plot_width=12,
+    plot_height=8, 
+    xlab=NULL, ylab=NULL, title=NULL, 
+    downsample_step=1000, downsample_start_ind=10000, show_legend=TRUE,
+    return_plot_data=FALSE, reverse=FALSE,
+    display_plot_repr=TRUE, fig_filename=NULL,
+    title_font_size=16,
+    axis_label_font_size=14,
+    tick_label_font_size=11,
+    discretize_color_col=TRUE
+){
+
+        if (is.null(xlab)){
+            xlab = 'Rank'
+        }
+
+        if (is.null(ylab)){
+            if (log_y_axis) {
+                ylab_prefix = 'log10 '
+            } else{
+                ylab_prefix = ''
+            }
+            ylab = paste0(ylab_prefix, plot_col)
+        }
+
+        if (is.null(title)){
+            title = paste0('Knee Plot for library ', name)
+        }
+        
+        # TODO: update getKneePlotData to take in a list of plot_cols, not just one
+
+        df_list = list()
+        df_list[[name]]=df
+        xy = getKneePlotData(
+            df_list=df_list, 
+            plot_col=plot_col, 
+            asc=asc, 
+            log_y_axis=log_y_axis, 
+            downsample_step=downsample_step, 
+            downsample_start_ind=downsample_start_ind
+        )
+        xc = getKneePlotData(
+            df_list=df_list, 
+            plot_col=color_col, 
+            asc=asc, 
+            log_y_axis=FALSE, 
+            downsample_step=downsample_step, 
+            downsample_start_ind=downsample_start_ind
+        )
+        x=xy[[1]]
+        y=xy[[2]][[1]] # will be a list of a single element, whose length will be length(x)
+        c=xc[[2]][[1]] # will be a list of a single element, whose length will be length(x)
+
+        if (discretize_color_col) {c = as.factor(c)}
+
+        plot_data = data.frame(
+            x=x,
+            y=y,
+            color_col=c
+        )
+
+        if (is.numeric(plot_data$color_col)) {
+            color_scale = selectColorScale(cmap, TRUE, clim, clab, num_factors=NULL, reverse=reverse)
+        } else {
+            color_scale = selectColorScale(cmap, FALSE, clim, clab, num_factors=length(levels(factor(plot_data$color_col))), reverse=reverse)
+        }
+
+        # Create the ggplot
+        p <- ggplot(plot_data, aes(x = x, y = y,  color = color_col)) +
+            geom_line() +
+            color_scale
+
+        if(log_x_axis){
+            p = p + scale_x_log10()
+        }
+        p = p +
+            xlab(xlab) +
+            ylab(ylab) +
+            ggtitle(title) +
+            theme_minimal() +
+            coord_cartesian(ylim = ylim, xlim=xlim)
+
+        if (show_legend) {
+            leg_pos = "right"
+        } else {
+            leg_pos = "none"
+        }
+
+        p = p+theme(
+            plot.title = element_text(
+                    hjust = 0.5,                                        # This centers the title
+                    size = title_font_size),                            # Change plot title font size
+            axis.title.x = element_text(size = axis_label_font_size),   # Change x axis label font size
+            axis.title.y = element_text(size = axis_label_font_size),   # Change y axis label font size
+            axis.text.x = element_text(size = tick_label_font_size),    # Change x axis tick labels font size (optional)
+            axis.text.y = element_text(size = tick_label_font_size),    # Change y axis tick labels font size (optional)
+            legend.position = leg_pos                               # Change legend position
+        )
+
+        print(p)
+
+    }
 
 plotOverlappingProbabilityHistograms = function(
     long_df,
