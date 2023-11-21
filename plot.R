@@ -12,7 +12,7 @@ library(rlang)
 library(tidyr)
 library(viridis)
 library(viridisLite)
-
+library(textplot)
 
 getKneePlotData=function(
     df_list,
@@ -185,7 +185,7 @@ plotColorLines = function(x, y_list, line_color_by_list=NULL, clab=NULL, cmap=vi
 
 # Function to plot the heatmap with numbers inside
 plotConfusionHeatmap = function(prop_table, xlab='', ylab='', title='', 
-    plot_width=10, plot_height=11, fig_filename=NULL) {
+    plot_width=10, plot_height=12, fig_filename=NULL) {
   options(repr.plot.width=plot_width, repr.plot.height=plot_height)
   
   # Prepare matrix with rounded proportions for display
@@ -217,8 +217,18 @@ plotConfusionHeatmap = function(prop_table, xlab='', ylab='', title='',
   print(p)
 
   if (!is.null(fig_filename)) {
-      ggsave(fig_filename, width=plot_width, height=plot_height, dpi=600)
+      ggsave(fig_filename, plot=p, width=plot_width, height=plot_height, dpi=600)
   }
+}
+
+plotDfSummary = function(df, fig_filename){
+    width=800
+    height=30*nrow(df)
+
+    png(fig_filename, width = width, height = height)
+    grid_table = tableGrob(df)
+    grid.draw(grid_table)
+    dev.off()
 }
 
 
@@ -377,19 +387,10 @@ plotHistColorGrid=function(
                 plot=final_plot, 
                 width=plot_width, 
                 height=plot_height,
+                bg = 'white',
                 dpi=600)
         }
     }
-}
-
-plotDfSummary = function(df, fig_filename, width=800, height=600){
-    
-    grid_table = tableGrob(summary_df)
-
-    png(fig_filename, width = width, height = height)
-    grid.draw(grid_table)
-    dev.off()
-
 }
 
 plotHistColorSingle = function(
@@ -578,6 +579,10 @@ plotKneeSingle=function(
 
         print(p)
 
+        if (!is.null(fig_filename)){
+            ggsave(fig_filename, width=plot_width, height=plot_height, dpi=600, bg='white')
+        }
+
     }
 
 plotOverlappingProbabilityHistograms = function(
@@ -620,45 +625,6 @@ plotOverlappingProbabilityHistograms = function(
     labs(title = title, x = "Value", y = "Probability")
   
   print(p)
-}
-
-plotScatterColorSingle=function(
-    df,
-    name,
-    x_col,
-    y_col,
-    color_col,
-    title=NULL,
-    xlab=NULL,
-    ylab=NULL,
-    clab=NULL,
-    xlim=c(0, 1),
-    ylim=c(0, 1),
-    clim=c(0, 1),
-    plot_height=8,
-    plot_width=8,
-    fig_filename=NULL
-){
-    df_list = list()
-    title_list = list()
-    df_list[[name]]=df
-    title_list[[name]]=title
-
-    plotScatterColorGrid(
-        df_list=df_list,
-        x_col=x_col,
-        y_col=y_col,
-        color_col=color_col,
-        title_list=title_list,
-        xlim=xlim,
-        ylim=ylim,
-        clim=clim,
-        nrows=1, 
-        ncols=1, 
-        plot_width=plot_width,
-        plot_height=plot_height,
-        fig_filename=fig_filename
-    )
 }
 
 plotScatterColorGrid=function(
@@ -712,7 +678,7 @@ plotScatterColorGrid=function(
                 title = title_list[[name]]
             }
 
-            p = ggplot(cd, aes_string(x=x_col, y=y_col, color=color_col)) +
+            p = ggplot(df, aes_string(x=x_col, y=y_col, color=color_col)) +
                 geom_point(alpha=0.5) +
                 scale_color_viridis_c(limits = clim) +
                 scale_x_continuous(breaks = seq(xlim[1], xlim[2], 1)) +
@@ -751,49 +717,44 @@ plotScatterColorGrid=function(
     }
 }
 
-#     options(repr.plot.width=16, repr.plot.height=12)
+plotScatterColorSingle=function(
+    df,
+    name,
+    x_col,
+    y_col,
+    color_col,
+    title=NULL,
+    xlab=NULL,
+    ylab=NULL,
+    clab=NULL,
+    xlim=c(0, 1),
+    ylim=c(0, 1),
+    clim=c(0, 1),
+    plot_height=8,
+    plot_width=8,
+    fig_filename=NULL
+){
+    df_list = list()
+    title_list = list()
+    df_list[[name]]=df
+    title_list[[name]]=title
 
-#     xlim=c(6, 17)
-#     ylim=c(0, 1)
-
-#     # For every 9 dataframes, create a 3x3 plotting layout
-#     #par(mfrow = c(3, 3))
-#     for (i in seq(1, n, 9)) {  
-#     plot_list = list()
-#     for (j in 0:8) {
-#         if (i+j > n) break
-        
-#         name = names(donor_ids_list)[i+j]    
-#         sce = sce_list[[name]]
-#         cd = colData(sce)
-#         donor_ids = donor_ids_list[[name]]
-#         cd$log_nRead = log(cd$nRead)
-
-#         cd = as.data.frame(cd)
-#         cd$prob_donor = donor_ids$prob_max
-#         cd = cd[cd$prob_doublet < (1/3),]
-            
-#         p = ggplot(cd, aes(x=log_nRead, y=prob_donor, color=pct_intronic)) +
-#             geom_point(alpha=0.5) +
-#             scale_color_viridis() +
-#             facet_grid((i+j)%%3 ~ (i+j)%/%3) + 
-#             ggtitle(paste(name, '\nVireo Max P(Donor) vs log(nRead)\nOverall Frac P(Donor) > 0.9: ', round(as.numeric(frac_gte_90_list[name]), 2))) + 
-#             coord_cartesian(xlim=xlim, ylim=ylim)
-
-        
-#         # # color legend on top right
-#         if (j==5){
-#             p = p + theme(legend.position = "right")
-#         } else {
-#             p = p + theme(legend.position = "none")
-#         }
-        
-#         plot_list[[j+1]] = p
-
-#     }
-#     do.call(grid.arrange, plot_list)
-#     }
-# }
+    plotScatterColorGrid(
+        df_list=df_list,
+        x_col=x_col,
+        y_col=y_col,
+        color_col=color_col,
+        title_list=title_list,
+        xlim=xlim,
+        ylim=ylim,
+        clim=clim,
+        nrows=1, 
+        ncols=1, 
+        plot_width=plot_width,
+        plot_height=plot_height,
+        fig_filename=fig_filename
+    )
+}
 
 
 plotStackedBarByGroup=function(
