@@ -2,8 +2,7 @@
 require(EnsDb.Hsapiens.v86)
 require(EnsDb.Mmusculus.v79)
 # TODO: place in single Consts file
-ANNOTATABLE_ORGANISMS = c("human", "macaque", "mouse")
-browser()
+ANNOTATABLE_ORGANISMS = c("human", "mouse") #TODO: investigate "macaque" issue
 MACAQUE_SPECIES_NAME = "fascicularis" 
 
 .getLatestEnsdb=function(organism){
@@ -32,7 +31,7 @@ MACAQUE_SPECIES_NAME = "fascicularis"
 
 # TODO: prespecify a version of the Macaca fascicularis genome
 ORGANISM_TO_ENSDB_MAP = c("human"=EnsDb.Hsapiens.v86, 
-                          "macaque"= .getLatestMacaqueEnsdb(), 
+                          #"macaque"= .getLatestMacaqueEnsdb(), # TODO: investigate macaque not being able to download from hub
                           "mouse"=EnsDb.Mmusculus.v79)
                         
 
