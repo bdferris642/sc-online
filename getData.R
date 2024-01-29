@@ -1,0 +1,283 @@
+library(SingleCellExperiment)
+library(Seurat)
+
+
+getSeuratVarFeatureIntersectByCol = function(
+    seurat_obj,
+    subset_col,
+    original_nfeatures,
+    n_subsets_to_cover=NULL
+){
+    
+    hvgs = list()
+
+    unique_ids = unique(seurat_obj@meta.data[[subset_col]])
+
+    if (is.null(n_subsets_to_cover)){
+        n_subsets_to_cover = floor(length(unique_ids)/2)
+    }
+
+    i=1
+    for (id in unique_ids) {
+        print(paste("Subset", id, "--", i, "of", length(unique_ids)))
+        i = i + 1
+        
+        seurat_subset = seurat_obj[, seurat_obj[[subset_col]] == id]
+        
+        if (ncol(seurat_subset) < 2){next}
+        
+        suppressWarnings({
+            seurat_subset = FindVariableFeatures(
+                seurat_subset, nfeatures=original_nfeatures, verbose = FALSE)
+        })
+        
+        hvgs[[id]] = getSeuratVarFeatures(seurat_subset)
+        
+    }
+
+    common_hvgs = getCommonStrings(hvgs, n_subsets_to_cover)
+    print(paste("Number of HVGs in common across", n_subsets_to_cover, "--", length(common_hvgs)))
+
+    return(common_hvgs)
+}
+
+
+
+harmonizeSeuratObjList = function(
+    seurat_obj_list,
+    hvgs=NULL
+){
+    # Given a list of seurat objects whose names correspond to different datasets...
+    
+    # (1) FindVariableFeatures for all, union across a subset of donors (at least half)
+    # (2) ScaleData, grouping by "donor_id"
+    # (3) RunPCA
+    # (4) RunHarmony
+    
+    # Return the merged, harmonized Seurat objects
+
+
+    # TODO fix this, it doesn't change the original dataset entries in the metadata
+    dataset_names = names(seurat_obj_list)
+    for (name in dataset_names) {
+        seurat_obj = seurat_obj_list[[name]]
+        seurat_obj@meta.data$dataset = name
+    }
+
+    # can skip the time-consuming hvg step if they have been precomputed and provided as an argument. 
+    # Otherwise...
+    if (is.null(hvgs)){
+        dataset_hvgs = list()
+        for (name in dataset_names) {
+            seurat_obj = seurat_obj_list[[name]]
+            seurat_obj$dataset = name
+
+            dataset_hvgs[[name]] = getSeuratVarFeatureIntersectByCol(
+                seurat_obj=seurat_obj,
+                subset_col="donor_id",
+                original_nfeatures=2500)
+        }
+        
+        # Union dataset_hvgs
+        hvgs = Reduce(union, dataset_hvgs)
+    }
+
+    # Combine
+    seurat_merged = (
+        mergeSeuratListWithMetadata(seurat_obj_list) %>%
+        NormalizeData() %>%
+        ScaleData(split.by = "donor_id", features=hvgs, verbose=F) %>% # assuming different donor_ids between datasets....
+        RunPCA(verbose=F, npcs=50, features=hvgs)
+    )
+
+    # Harmonize
+    options(repr.plot.width=7, repr.plot.heigh=7)
+    seurat_merged = RunHarmony(
+        object=seurat_merged, 
+        group.by.vars="donor_id",
+        dims.use = 1:50,
+        early_stop = F,
+        max_iter=20,
+        plot_convergence = TRUE
+    )
+    
+    # Return the merged, harmonized Seurat objects
+    return(seurat_merged)
+    
+}
+
+
+loadCbSceList = function(
+    dir_list=calico_libs,
+    filter_out_unclean=TRUE,
+    filter_out_unassignable=TRUE){
+    options(repr.plot.width = 8, repr.plot.height=8)
+
+    # load cb sce's, filter out unassignable cells
+    cb_sce_list = list()
+    for (name in dir_list) {
+
+        if (short_lib_names[[name]] %in% SHORT_LIBS_TO_SKIP){
+            next
+        }
+
+        cb_sce = readRDS(file.path(BASE_PATH, name, CB_SCE_BASENAME))
+        cd = as.data.frame(colData(cb_sce))
+
+        # add / update some columns 
+        cd$log10_nUMI = log10(cd$nUMI + 1)    
+        
+        cd$QC_MT.pct[is.na(cd$QC_MT.pct)] = 0
+        
+        cd$pct_intronic = cd$pct_intronic * 100
+        
+        cd$prob_max = cd$prob_donor 
+        
+        cd$library = name
+        
+        cd$short_library = as.character(short_lib_names[cd$library])
+
+        cd$short_donor_id = gsub(".*[-_]", "", cd$donor_id)
+
+        log10_nUMI_threshold = log10_nUMI_thresholds[[name]]
+        cd$sort = dapi_nurr[[name]]
+        cd$log10_nUMI_threshold = log10_nUMI_threshold
+        
+        # add is_clean and is_assignable columns
+        cd$is_clean = 1
+        cd$is_assignable = 1
+
+        cd$is_clean[cd$log10_nUMI < log10_nUMI_threshold] = 0
+        cd$is_clean[cd$pct_intronic < PCT_INTRONIC_MIN] = 0
+        cd$is_clean[cd$QC_MT.pct >= PCT_MT_MAX] = 0
+
+        v = read.table(file.path(BASE_PATH, name, VIREO_DONOR_IDS_BASENAME), header = TRUE, sep = "\t")
+        v = v %>% filter(cell %in% colnames(cb_sce))
+        v_assignable = v %>% filter(! donor_id %in% c("unassigned", "doublet"))
+        cd$is_assignable[! colnames(cb_sce) %in% v_assignable$cell] = 0
+        cd$is_assignable_and_clean = cd$is_assignable & cd$is_clean
+
+        # create new colnames of donor_id_barcode in the coldata
+        # also add the pure barcode as a column
+        cd = (cd %>% 
+            mutate(
+                barcode = colnames(cb_sce),
+                donor_id_barcode = paste(donor_id, colnames(cb_sce), sep="_"),
+                donor_sort = paste(donor_id, sort, sep="_")
+            )
+        )
+        rownames(cd) = cd$donor_id_barcode
+        colnames(cb_sce) = cd$donor_id_barcode
+        
+        if(filter_out_unclean){
+            cb_sce=cb_sce[, cd$is_clean==1]
+            cd = cd[cd$is_clean==1,]
+        }
+        if(filter_out_unassignable){
+            cb_sce=cb_sce[, cd$is_assignable==1]
+            cd = cd[cd$is_assignable==1,]
+        }
+
+        colData(cb_sce) = DataFrame(cd)
+        cb_sce_list[[name]] = cb_sce
+    }
+    return(cb_sce_list)
+}
+
+mergeSeuratListWithMetadata = function(seurat_obj_list, cell_ids=NULL, project=NULL){
+
+    if (is.null(project)){
+        project = "merged"
+    }
+    
+    if (is.null(cell_ids)){
+        seurat_merged = Reduce(function(x, y) merge(x, y, project=project), 
+            seurat_obj_list)
+    } else {
+        seurat_merged = Reduce(function(x, y) merge(x, y, project=project), 
+            add.cell.ids=cell_ids, 
+            seurat_obj_list)
+    }
+    
+    md = lapply(seurat_obj_list, function(x){
+        x@meta.data$orig.row.names = rownames(x@meta.data)
+        x@meta.data
+    })
+    
+    md = do.call(rbind, md)
+    rownames(md) = md$orig.row.names
+    md$orig.row.names = NULL
+    seurat_merged@meta.data = md
+    return(seurat_merged)
+}
+
+
+
+
+rawSceToHarmonizedSeurat = function(
+    sce_list,
+    n_donors_hvg = 12,
+    split_col = "donor_id",
+    n_var_features = 5000,
+    n_dims_use = 50,
+    res = 1.0,
+    harmony_group_by_vars = "donor_id",
+    project = NULL
+){
+
+    # find variable genes within each donor
+    donor_hvgs = list()
+    donor_seurat_objs = list()
+    
+    for (donor_id in names(sce_list)) {
+        
+        donor_sce = sce_list[[donor_id]]
+        donor_seurat = sceToSeurat(donor_sce, donor_id)
+        donor_seurat = (
+            Seurat::NormalizeData(object=donor_seurat[rowSums(donor_seurat) > 0, ]) %>%
+            FindVariableFeatures(nfeatures = n_var_features)
+        )
+        donor_seurat_objs[[donor_id]] = donor_seurat
+        donor_hvgs[[donor_id]] = donor_seurat@assays$RNA@var.features
+    }
+
+    # Get list of genes occuring in some number of donors within a sort.
+    hvgs = getCommonStrings(donor_hvgs, n_donors_hvg)
+    print(paste("Number of HVGs in common across", n_donors_hvg, "--", length(hvgs)))
+
+    # Combine  
+    seurat_merged = mergeSeuratListWithMetadata(donor_seurat_objs, project)
+    
+    # At the combined level
+    # Subset to HVGs and Scale
+    # remove second normalization. See:
+    #https://docs.google.com/document/d/1p22HGFJK86-scFkPY817iHdnxurdWIaZ8HWBuXdJNxg/edit#bookmark=id.oefjnhz4ot00
+    seurat_merged = (seurat_merged %>%
+        #Seurat::NormalizeData() %>% 
+        ScaleData(split.by = split_col, features = hvgs)
+    )
+
+    # (6) PCA
+    seurat_merged = RunPCA(object=seurat_merged, features=hvgs, verbose=F, npcs=n_dims_use)
+
+
+    # (7) Harmony (integrating donor)
+    seurat_merged = RunHarmony(
+        object=seurat_merged, 
+        group.by.vars=harmony_group_by_vars,
+        dims.use = 1:n_dims_use,
+        early_stop = F,
+        max_iter=25,
+        plot_convergence = TRUE
+    )
+
+    # (8) Cluster
+    # (9) UMAP
+    seurat_merged = (seurat_merged %>%
+        FindNeighbors(dims = 1:n_dims_use, reduction="harmony") %>%
+        FindClusters(resolution = res) %>%
+        RunUMAP(dims = 1:n_dims_use, verbose=F, reduction="harmony")
+    )
+
+    return(seurat_merged)
+}
