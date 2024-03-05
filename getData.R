@@ -1,6 +1,12 @@
 library(SingleCellExperiment)
 library(Seurat)
 
+source("~/sc-online/utils.R")
+
+getSeuratVarFeatures = function(sobj){
+    # the magical incantation that returns the slot of the attribute of the slot that actually holds the list of variable feature -_-
+    return(sobj@assays$RNA@var.features)
+}
 
 getSeuratVarFeatureIntersectByCol = function(
     seurat_obj,
@@ -110,18 +116,29 @@ harmonizeSeuratObjList = function(
 loadCbSceList = function(
     dir_list=calico_libs,
     filter_out_unclean=TRUE,
-    filter_out_unassignable=TRUE){
-    options(repr.plot.width = 8, repr.plot.height=8)
+    filter_out_unassignable=TRUE,
+    pct_mt_max=10,
+    pct_intronic_min=20,
+    log10_nUMI_threshold_list=NULL,
+    short_lib_names=NULL,
+    dapi_nurr=NULL,
+    base_path="/mnt/accessory/seq_data/calico",
+    cb_sce_basename="cb_sce.rds",
+    vireo_donor_ids_basename="donor_ids.tsv"
+    ){
+
+    if (is.null(log10_nUMI_threshold_list)){
+        log10_nUMI_threshold_list = list()
+        for (name in dir_list) {
+            log10_nUMI_threshold_list[[name]] = 3
+        }
+    }
 
     # load cb sce's, filter out unassignable cells
     cb_sce_list = list()
     for (name in dir_list) {
 
-        if (short_lib_names[[name]] %in% SHORT_LIBS_TO_SKIP){
-            next
-        }
-
-        cb_sce = readRDS(file.path(BASE_PATH, name, CB_SCE_BASENAME))
+        cb_sce = readRDS(file.path(base_path, name, cb_sce_basename))
         cd = as.data.frame(colData(cb_sce))
 
         # add / update some columns 
@@ -135,23 +152,33 @@ loadCbSceList = function(
         
         cd$library = name
         
-        cd$short_library = as.character(short_lib_names[cd$library])
+        if (is.null(short_lib_names)){
+            cd$short_library = name
+        } else {
+            cd$short_library = as.character(short_lib_names[cd$library])
+        }
+
+        if (is.null(dapi_nurr)){
+            cd$sort = NULL
+        } else {
+            cd$sort = dapi_nurr[[name]]
+        }
 
         cd$short_donor_id = gsub(".*[-_]", "", cd$donor_id)
 
-        log10_nUMI_threshold = log10_nUMI_thresholds[[name]]
-        cd$sort = dapi_nurr[[name]]
+        log10_nUMI_threshold = log10_nUMI_threshold_list[[name]]
         cd$log10_nUMI_threshold = log10_nUMI_threshold
+        
         
         # add is_clean and is_assignable columns
         cd$is_clean = 1
         cd$is_assignable = 1
 
         cd$is_clean[cd$log10_nUMI < log10_nUMI_threshold] = 0
-        cd$is_clean[cd$pct_intronic < PCT_INTRONIC_MIN] = 0
-        cd$is_clean[cd$QC_MT.pct >= PCT_MT_MAX] = 0
+        cd$is_clean[cd$pct_intronic < pct_intronic_min] = 0
+        cd$is_clean[cd$QC_MT.pct >= pct_mt_max] = 0
 
-        v = read.table(file.path(BASE_PATH, name, VIREO_DONOR_IDS_BASENAME), header = TRUE, sep = "\t")
+        v = read.table(file.path(base_path, name, vireo_donor_ids_basename), header = TRUE, sep = "\t")
         v = v %>% filter(cell %in% colnames(cb_sce))
         v_assignable = v %>% filter(! donor_id %in% c("unassigned", "doublet"))
         cd$is_assignable[! colnames(cb_sce) %in% v_assignable$cell] = 0
@@ -185,6 +212,16 @@ loadCbSceList = function(
 }
 
 mergeSeuratListWithMetadata = function(seurat_obj_list, cell_ids=NULL, project=NULL){
+
+    # Harmonize metadata columns
+    all_colnames = unique(unlist(lapply(seurat_obj_list, function(x) colnames(x@meta.data))))
+    seurat_obj_list = lapply(seurat_obj_list, function(x) {
+        missing_cols = setdiff(all_colnames, colnames(x@meta.data))
+        if(length(missing_cols) > 0){
+            x@meta.data[missing_cols] = NA
+        }
+        return(x)
+    })
 
     if (is.null(project)){
         project = "merged"
@@ -225,13 +262,20 @@ rawSceToHarmonizedSeurat = function(
     project = NULL
 ){
 
+    if (is.null(n_donors_hvg)){
+        n_donors_hvg = floor(length(sce_list)/2)
+    }
+
     # find variable genes within each donor
     donor_hvgs = list()
     donor_seurat_objs = list()
     
     for (donor_id in names(sce_list)) {
-        
+                
         donor_sce = sce_list[[donor_id]]
+
+        if (ncol(donor_sce) < 2){next}
+
         donor_seurat = sceToSeurat(donor_sce, donor_id)
         donor_seurat = (
             Seurat::NormalizeData(object=donor_seurat[rowSums(donor_seurat) > 0, ]) %>%
@@ -280,4 +324,14 @@ rawSceToHarmonizedSeurat = function(
     )
 
     return(seurat_merged)
+}
+
+sceToSeurat = function(sce, project=NULL){
+  sobj = CreateSeuratObject(counts = assays(sce)$counts, project=project)
+  cd = as.data.frame(colData(sce))
+  new_metadata = merge(sobj@meta.data, cd, by = "row.names")
+  rownames(new_metadata) = new_metadata$Row.names
+  new_metadata$Row.names = NULL
+  sobj@meta.data = new_metadata 
+  return(sobj)
 }

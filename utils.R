@@ -398,6 +398,30 @@ downsampleListAfterStart <- function(a_list, start_ind, step){
         a_list[(start_ind+1):length(a_list)][seq(1, length(a_list)-start_ind, step)]))
 }
 
+# get list of genes occurring in at least half of donor_sorts within a sort.
+getCommonStrings <- function(list_of_lists, n) {
+  # Create an empty list to store string occurrences
+  string_occurrences <- list()
+
+  # Iterate over each sublist
+  for (sublist in list_of_lists) {
+    # For each string in the sublist, increment its count in string_occurrences
+    for (string in unique(sublist)) {
+      if (!is.null(string_occurrences[[string]])) {
+        string_occurrences[[string]] <- string_occurrences[[string]] + 1
+      } else {
+        string_occurrences[[string]] <- 1
+      }
+    }
+  }
+
+  # Filter the strings that occur at least n times
+  common_strings <- names(string_occurrences)[string_occurrences >= n]
+
+  return(common_strings)
+}
+
+
 getFracAssignableDemuxlet=function(df){
     # df: dataframe with columns `BEST` and `PRB.SNG1` 
     return(sum((df$PRB.SNG1 >= 0.9) & (substr(df$BEST, 1, 3) == 'SNG')) / nrow(df))
@@ -409,6 +433,86 @@ getFracAssignableVireo=function(df){
     df = df[!df$donor_id %in% c('unassigned', 'doublet'), ]
     return(sum(df$prob_max >= 0.9) / nrows)
 }
+
+getFracExpSeurat = function(
+    seurat_obj,
+    gene_list,
+    initial_grouping_col = 'donor_id',
+    final_grouping_col = 'anno'
+){
+    # given a seurat object and a set of genes,
+    # determines the average fraction of cells in each `anno` that express each gene
+
+    # currently averages over cells in donors, then anno
+    # TODO: make grouping more flexible
+
+    # get a col for each gene, row for each cell
+    bin_counts_df = as.data.frame(t(seurat_obj@assays$RNA@counts[gene_list,])>1)
+
+    # add grouping cols
+    bin_counts_df[[initial_grouping_col]] = seurat_obj@meta.data[[initial_grouping_col]]
+    bin_counts_df[[final_grouping_col]] = seurat_obj@meta.data[[final_grouping_col]]
+
+
+    out_df = (bin_counts_df %>%
+        group_by(!!rlang::sym(initial_grouping_col), !!rlang::sym(final_grouping_col)) %>% 
+        summarize_all(mean) %>% 
+        group_by(!!rlang::sym(final_grouping_col)) %>% 
+        summarize_all(mean) %>% 
+        as.data.frame()
+    )
+
+    rownames(out_df) = out_df[[final_grouping_col]]
+    out_df = out_df[, !colnames(out_df) %in% c(initial_grouping_col, final_grouping_col)]
+
+    return(out_df)
+}
+
+getMeanExpSeurat = function(
+    seurat_obj,
+    gene_list,
+    slot='scale.data',
+    scale_split='donor_id',
+    initial_grouping_col = 'donor_id',
+    final_grouping_col = 'anno',
+    do_normalize=FALSE,
+    do_scale=FALSE
+){
+    # given a seurat object and a set of genes,
+    # determines the mean normalized expression within each `anno`
+
+    # currently averages over cells in donors, then anno
+    # TODO: make grouping more flexible
+
+    if (do_normalize){
+        seurat_obj = NormalizeData(seurat_obj)
+    }
+    if (do_scale){
+        seurat_obj = ScaleData(seurat_obj, features=gene_list, split.by=scale_split)
+    }
+
+    rna = slot(seurat_obj@assays$RNA, slot)
+
+    # get a col for each gene, row for each cell
+    df = as.data.frame(t(rna[gene_list,]))
+    df[[initial_grouping_col]] = seurat_obj@meta.data[[initial_grouping_col]]
+    df[[final_grouping_col]] = seurat_obj@meta.data[[final_grouping_col]]
+
+    out_df = (df %>%
+        group_by(!!rlang::sym(initial_grouping_col), !!rlang::sym(final_grouping_col)) %>% 
+        summarize_all(mean) %>% 
+        group_by(!!rlang::sym(final_grouping_col)) %>% 
+        summarize_all(mean) %>% 
+        as.data.frame()
+    )
+
+    rownames(out_df) = out_df[[final_grouping_col]]
+    out_df = out_df[, !colnames(out_df) %in% c(initial_grouping_col, final_grouping_col)]
+
+    return(out_df)
+
+}
+
 
 orderDFByColRank=function(df, col, asc=FALSE, log_y_axis=FALSE){
     # rank order by `col`
