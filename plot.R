@@ -14,6 +14,28 @@ library(viridis)
 library(viridisLite)
 library(textplot)
 
+DimPlotIntegration = function(
+    seurat_obj, 
+    reduction="umap",
+    dataset_col="dataset",
+    source_label='tk',
+    target_label='me',
+    source_cluster_col="madeCluster",
+    target_cluster_col="seurat_clusters",
+    label=FALSE
+){
+    seurat_obj_source = seurat_obj[, seurat_obj[[dataset_col]] == source_label]
+    seurat_obj_target = seurat_obj[, seurat_obj[[dataset_col]] == target_label]
+    print(
+        DimPlot(seurat_obj, reduction=reduction, group.by=dataset_col, label=label) 
+        + ggtitle(paste('Joint', reduction, 'plot')))
+    print(
+        DimPlot(seurat_obj_source, reduction=reduction, group.by=source_cluster_col, label=label)
+        + ggtitle(paste("Source", reduction, 'plot')))
+    print(DimPlot(seurat_obj_target, reduction=reduction, group.by=target_cluster_col, label=label)
+        + ggtitle(paste("Target", reduction, 'plot')))
+}
+
 getKneePlotData=function(
     df_list,
     plot_col,
@@ -834,4 +856,8 @@ selectColorScale = function(cmap, is_numeric, clim = c(0, 1), clab='', num_facto
             return(scale_color_manual(name = clab, values = discrete_colors))
         }
     }
+}
+
+setwh = function(w, h){
+    options(repr.plot.width = w, repr.plot.height = h)
 }
