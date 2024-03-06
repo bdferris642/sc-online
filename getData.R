@@ -124,7 +124,8 @@ loadCbSceList = function(
     dapi_nurr=NULL,
     base_path="/mnt/accessory/seq_data/calico",
     cb_sce_basename="ingested_data/cb_data_sce_FPR_0.01.rds",
-    vireo_donor_ids_basename="vireo_outs/donor_list/donor_ids.tsv"
+    vireo_donor_ids_basename="vireo_outs/donor_list/donor_ids.tsv",
+    unclean_cells_basename = "ingested_data/unclean_cells.csv"
     ){
 
     if (is.null(log10_nUMI_threshold_list)){
@@ -189,14 +190,17 @@ loadCbSceList = function(
         cd = (cd %>% 
             mutate(
                 barcode = colnames(cb_sce),
-                donor_id_barcode = paste(donor_id, colnames(cb_sce), sep="_"),
-                donor_sort = paste(donor_id, sort, sep="_")
+                donor_id_barcode = paste(donor_id, colnames(cb_sce), sep="_")
             )
         )
         rownames(cd) = cd$donor_id_barcode
         colnames(cb_sce) = cd$donor_id_barcode
         
         if(filter_out_unclean){
+            #keep track of who you're filtering out
+            cd_to_toss = cd[cd$is_clean==0,]
+            write.csv(cd_to_toss, file.path(base_path, name, unclean_cells_basename))
+
             cb_sce=cb_sce[, cd$is_clean==1]
             cd = cd[cd$is_clean==1,]
         }
