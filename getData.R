@@ -123,8 +123,8 @@ loadCbSceList = function(
     short_lib_names=NULL,
     dapi_nurr=NULL,
     base_path="/mnt/accessory/seq_data/calico",
-    cb_sce_basename="cb_sce.rds",
-    vireo_donor_ids_basename="donor_ids.tsv"
+    cb_sce_basename="ingested_data/cb_data_sce_FPR_0.01.rds",
+    vireo_donor_ids_basename="vireo_outs/donor_list/donor_ids.tsv"
     ){
 
     if (is.null(log10_nUMI_threshold_list)){
