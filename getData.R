@@ -125,7 +125,9 @@ loadCbSceList = function(
     base_path="/mnt/accessory/seq_data/calico",
     cb_sce_basename="ingested_data/cb_data_sce_FPR_0.01.rds",
     vireo_donor_ids_basename="vireo_outs/donor_list/donor_ids.tsv",
-    unclean_cells_basename = "ingested_data/unclean_cells.csv"
+    unclean_cells_basename = "ingested_data/unclean_cells.csv",
+    n_donors_list = NULL,
+    num_cells_cutoff = 15
     ){
 
     if (is.null(log10_nUMI_threshold_list)){
@@ -181,7 +183,22 @@ loadCbSceList = function(
 
         v = read.table(file.path(base_path, name, vireo_donor_ids_basename), header = TRUE, sep = "\t")
         v = v %>% filter(cell %in% colnames(cb_sce))
+        
         v_assignable = v %>% filter(! donor_id %in% c("unassigned", "doublet"))
+
+        if (!is.null(n_donors_list)){
+            # get top donors, and subset to those with num assignable cells > num_cells_cutoff
+            n_donors = n_donors_list[[name]]
+            v_donor_counts = (v_assignable 
+                %>% group_by(donor_id) 
+                %>% summarize(n_cells = n()) 
+                %>% filter(n_cells >= num_cells_cutoff)
+                %>% arrange(desc(n_cells))
+            )
+            v_donor_counts = v_donor_counts[1:n_donors,]
+            v_assignable = v_assignable %>% filter(donor_id %in% v_donor_counts$donor_id)
+    
+        }
         cd$is_assignable[! colnames(cb_sce) %in% v_assignable$cell] = 0
         cd$is_assignable_and_clean = cd$is_assignable & cd$is_clean
 
