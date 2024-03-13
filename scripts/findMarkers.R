@@ -1,0 +1,68 @@
+### INPUTS
+# `base-path`, str, absolute path to a dir containing a seurat object
+# `read-basename`, str, basename of the Seurat object in `base-path`. Used to name the output file with the _markers suffix
+# `ncores`, int, number of cores to use
+# `cluster-col`, str, name of the column in the Seurat object that contains cluster assignments
+# `logfc-threshold`, float, log fold change threshold for Seurat's FindAllMarkers
+# `min-pct`, float, minimum percent of cells in a cluster that must express a gene for it to be considered a marker
+
+### OUTPUTS
+# creates a dataframe using Seurat's FindAllMarkers, saves that dataframe to `out_path`
+
+library(future)
+library(qs)
+library(getopt)
+library(Seurat)
+
+spec <- matrix(c(
+  'base-path', 'b', 1, "character",
+  'cluster-col', 'c', 1, "character",
+  'ncores', 'n', 1, "integer",
+  'read-basename', 'r', 1, "character",
+  'log-fc-thresh', 'f', 1, "numeric",
+  'min-pct', 'p', 1, "numeric"
+), byrow = TRUE, ncol = 4)
+opt <- getopt(spec)
+
+read_basename = opt[['read-basename']]
+ncores = opt[['ncores']]
+base_path = ifelse(
+    is.null(opt[['base-path']]), 
+    "/mnt/accessory/seq_data/pd_all", 
+    opt[['base-path']])
+cluster_col = ifelse(
+    is.null(opt[['cluster-col']]), 
+    "seurat_clusters", 
+    opt[['cluster-col']])
+logfc_threshold = ifelse(
+    is.null(opt[['log-fc-thresh']]), 
+    0.1, 
+    opt[['log-fc-thresh']])
+min_pct = ifelse(
+    is.null(opt[['min-pct']]), 
+    0.01, 
+    opt[['min-pct']]
+  )
+
+plan(strategy = "multicore", workers = ncores)
+options(future.globals.maxSize = 10000 * 1024^2) # Increase limit to 10,000 MiB
+
+
+# remove .qs suffix from read_basename. Will use this slogan in writing the output.
+slogan = gsub("\\.qs$", "", read_basename)
+read_path = file.path(base_path, read_basename)
+marker_path = file.path(base_path, paste0(slogan, "_markers.qs"))
+print(paste('Run Slogan =', slogan))
+print(paste('Reading Seurat object at', read_path, '...'))
+s_obj = qread(read_path)
+
+Idents(s_obj) = s_obj[[cluster_col]]
+
+print(paste('Collecting markers and saving to', marker_path, '...'))
+# Find all markers; adjust parameters as needed
+markers = FindAllMarkers(
+  s_obj, 
+  logfc.threshold=logfc_threshold, min.pct=min_pct,
+  only.pos=TRUE, verbose=TRUE, return.thresh=0.05)
+
+qsave(markers, marker_path)
