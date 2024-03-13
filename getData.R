@@ -288,30 +288,30 @@ rawSceToHarmonizedSeurat = function(
     }
 
     # find variable genes within each donor
-    donor_hvgs = list()
-    donor_seurat_objs = list()
+    id_hvgs = list()
+    id_seurat_objs = list()
     
-    for (donor_id in names(sce_list)) {
+    for (id in names(sce_list)) {
                 
-        donor_sce = sce_list[[donor_id]]
+        id_sce = sce_list[[id]]
 
-        if (ncol(donor_sce) < 2){next}
+        if (ncol(id_sce) < 2){next}
 
-        donor_seurat = sceToSeurat(donor_sce, donor_id)
-        donor_seurat = (
-            Seurat::NormalizeData(object=donor_seurat[rowSums(donor_seurat) > 0, ]) %>%
+        id_seurat = sceToSeurat(id_sce, project=id)
+        id_seurat = (
+            Seurat::NormalizeData(object=id_seurat[rowSums(id_seurat) > 0, ]) %>%
             FindVariableFeatures(nfeatures = n_var_features)
         )
-        donor_seurat_objs[[donor_id]] = donor_seurat
-        donor_hvgs[[donor_id]] = donor_seurat@assays$RNA@var.features
+        id_seurat_objs[[id]] = id_seurat
+        id_hvgs[[id]] = id_seurat@assays$RNA@var.features
     }
 
     # Get list of genes occuring in some number of donors within a sort.
-    hvgs = getCommonStrings(donor_hvgs, n_donors_hvg)
+    hvgs = getCommonStrings(id_hvgs, n_donors_hvg)
     print(paste("Number of HVGs in common across", n_donors_hvg, "--", length(hvgs)))
 
     # Combine  
-    seurat_merged = mergeSeuratListWithMetadata(donor_seurat_objs, project)
+    seurat_merged = mergeSeuratListWithMetadata(id_seurat_objs, project)
     
     # At the combined level
     # Subset to HVGs and Scale
