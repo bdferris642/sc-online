@@ -51,7 +51,7 @@ options(future.globals.maxSize = 10000 * 1024^2) # Increase limit to 10,000 MiB
 # remove .qs suffix from read_basename. Will use this slogan in writing the output.
 slogan = gsub("\\.qs$", "", read_basename)
 read_path = file.path(base_path, read_basename)
-marker_path = file.path(base_path, paste0(slogan, "_markers.qs"))
+marker_path = file.path(base_path, paste0(slogan, "_markers_", cluster_col, ".qs"))
 print(paste('Run Slogan =', slogan))
 print(paste('Reading Seurat object at', read_path, '...'))
 s_obj = qread(read_path)
