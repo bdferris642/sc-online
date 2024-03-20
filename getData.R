@@ -3,6 +3,41 @@ library(Seurat)
 
 source("~/sc-online/utils.R")
 
+
+getPercentNonZeroGeneListByCluster = function(
+    sobj,
+    cluster_col,
+    gene_list
+){
+    # take in a seurat object, a gene list, and the column of the seurat object containing cluster info
+    # then get a matrix of percent non-zero expression of each gene in each cluster
+    # get the percent non-zero expression of each gene in each cluster
+    
+    gene_list_incl = intersect(gene_list, rownames(sobj@assays$RNA@counts))
+    if (length(gene_list) - length(gene_list_incl) > 0) {
+        print(paste("Warning: ", length(gene_list) - length(gene_list_incl), " genes not found in seurat object"))
+        print(setdiff(gene_list, gene_list_incl))
+    }
+
+    sobj = sobj[gene_list_incl,]
+    counts = sobj@assays$RNA@counts
+    clusters = sort(unique(sobj@meta.data[[cluster_col]]))
+
+    percent_nonzero = matrix(0, nrow = length(gene_list_incl), ncol = length(clusters))
+    rownames(percent_nonzero) = gene_list_incl
+    colnames(percent_nonzero) = clusters
+
+    for(cluster in clusters) {
+        cells_in_cluster = sobj@meta.data[[cluster_col]] == cluster
+        data_in_cluster = counts[, cells_in_cluster]
+        percent_nonzero[, cluster] = 100 * rowSums(data_in_cluster > 0) / ncol(data_in_cluster) 
+    }
+
+    return(percent_nonzero)
+
+}
+
+
 getSeuratVarFeatures = function(sobj){
     # the magical incantation that returns the slot of the attribute of the slot that actually holds the list of variable feature -_-
     return(sobj@assays$RNA@var.features)
