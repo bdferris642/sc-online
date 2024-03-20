@@ -13,6 +13,7 @@ source("~/sc-online/getData.R")
 library(caret)
 library("DropletUtils")
 library(dplyr)
+library(getopt)
 library(ggplot2)
 library(grid)
 library(gridExtra)
@@ -35,17 +36,78 @@ library(xml2)
 library(viridis)
 library(viridisLite)
 
+############## ARGUMENTS ##############
+
+spec = matrix(c(
+    'write-slogan', 's', 1, "character",
+    'res', 'r', 1, "numeric",
+    'base-path', 'b', 1, "character",
+    'cb-sce-basename', 'cb', 1, "character",
+    'pct-intronic-min', 'pi', 1, "numeric",
+    'pct-mt-max', 'pm', 1, "numeric",
+    'summary-basename', 'sb', 1, "character",
+    'calico-libs', 'cl', 1, "character",
+    'gtex-libs', 'gl', 1, "character"
+), byrow = TRUE, ncol = 4)
+opt <- getopt(spec)
+
+WRITE_SLOGAN = opt[['write-slogan']]
+if (is.null(WRITE_SLOGAN)) {
+    stop("MUST PROVIDE AN OUTPUT WRITE SLOGAN")
+}
+
+RES = ifelse(
+    is.null(opt[['res']]), 
+    0.5, 
+    opt[['res']])
+BASE_PATH = ifelse(
+    is.null(opt[['base-path']]), 
+    "/mnt/accessory/seq_data", 
+    opt[['base-path']])
+
+CB_SCE_BASENAME = ifelse(
+    is.null(opt[['cb-sce-basename']]), 
+    "ingested_data_no_subset/cb_data_sce_FPR_0.01.rds", 
+    opt[['cb-sce-basename']])
+
+PCT_INTRONIC_MIN = ifelse(
+    is.null(opt[['pct-intronic-min']]), 
+    20, 
+    opt[['pct-intronic-min']])
+
+PCT_MT_MAX = ifelse(
+    is.null(opt[['pct-mt-max']]), 
+    10, 
+    opt[['pct-mt-max']])
+
+SUMMARY_BASENAME = ifelse(
+    is.null(opt[['summary-basename']]),
+    'vireo_outs/donor_list/summary.tsv',
+    opt[['summary-basename']]
+)
+
+CALICO_LIBS_LONG_PATH = ifelse(
+    is.null(opt[['calico-libs']]),
+    "~/calico-libs-long.txt",
+    opt[['calico-libs']]
+)
+
+GTEX_LIBS_LONG_PATH = ifelse(
+    is.null(opt[['gtex-libs']]),
+    "~/gtex-libs-long.txt",
+    opt[['gtex-libs']]
+)
+
 ############## CONSTANTS ##############
 
-BASE_PATH = "/mnt/accessory/seq_data"
+OUTPUT_DIR = "pd_all"
+dir.create(file.path(BASE_PATH, OUTPUT_DIR, WRITE_SLOGAN), showWarnings = FALSE)
 
-VIREO_DONOR_IDS_BASENAME = 'vireo_outs/no_subset/donor_ids.tsv'
-CB_SCE_BASENAME = "ingested_data_no_subset/cb_data_sce_FPR_0.01.rds"
-SUMMARY_BASENAME = 'vireo_outs/donor_list/summary.tsv'
+write_basename_dapi = file.path(OUTPUT_DIR, WRITE_SLOGAN, "cb_sce_donor_list_dapi.qs")
+write_basename_dapi_harmonized = file.path(OUTPUT_DIR, WRITE_SLOGAN, "seurat_dapi_harmonized.qs")
 
-# Set relatively conservative thresholds for initial filtering
-PCT_INTRONIC_MIN = 20
-PCT_MT_MAX = 10
+write_basename_nurr = file.path(OUTPUT_DIR, WRITE_SLOGAN, "cb_sce_donor_list_nurr.qs") 
+write_basename_nurr_harmonized = file.path(OUTPUT_DIR, WRITE_SLOGAN, "seurat_nurr_harmonized.qs") 
 
 EARLY_LIBS = list(
     "pPDsHSrSNiPoold221126A1"
@@ -90,7 +152,7 @@ EARLY_LIBS = list(
 
 print("Loading library lists")
 
-calico_libs_long = readLines("~/calico-libs-long.txt")
+calico_libs_long = readLines(CALICO_LIBS_LONG_PATH)
 calico_libs_long = calico_libs_long[calico_libs_long != ""]
 calico_libs = lapply(calico_libs_long, function(x) {
     split = strsplit(x, split = "_")[[1]]
@@ -98,7 +160,7 @@ calico_libs = lapply(calico_libs_long, function(x) {
 })
 names(calico_libs_long) = calico_libs
 
-gtex_libs_long = readLines("~/gtex-libs-long.txt")
+gtex_libs_long = readLines(GTEX_LIBS_LONG_PATH)
 gtex_libs_long = gtex_libs_long[gtex_libs_long != ""]
 gtex_libs = lapply(gtex_libs_long, function(x) {
     split = strsplit(x, split = "_")[[1]]
@@ -157,6 +219,15 @@ for (d in gtex_libs){
         skipped = c(skipped, d)
     }
 }
+# these libraries are bad and should probably jsut be removed from the gtex list
+skipped = c(skipped
+    , "pCalico_GTExsHSrSNA11iNURRd231120"
+    ,"pCalico_GTExsHSrSNB11iNURRd231120"
+    ,"pCalico_GTExsHSrSNC11iDAPId231120"
+    ,"pCalico_GTExsHSrSND11iNURRd231120"
+    ,"pCalico_GTExsHSrSNE11iNURRd231120"
+    ,"pCalico_GTExsHSrSNF11iDAPId231120"
+)
 
 gtex_sce_list = loadCbSceList(gtex_libs[!gtex_libs %in% skipped],
     base_path="/mnt/accessory/seq_data/gtex",
@@ -181,7 +252,6 @@ for (name in names(gtex_sce_list)){
 }
 
 ############## COMBINE LIBRARIES, SPLIT BY SORT, SCALE BY PARTICIPANT, AND HARMONIZE ##############
-
 print("Combining libraries")
 
 # join calico and gtex. 
@@ -252,8 +322,8 @@ cb_sce_dapi_donor_list = .mySplitObject(sce_dapi, "participant_id")
 
 print("Saving SCE lists")
 
-qsave(cb_sce_nurr_donor_list, file.path(BASE_PATH, "pd_all/cb_sce_donor_list_nurr_no_subset_20240308.qs"))
-qsave(cb_sce_dapi_donor_list, file.path(BASE_PATH, "pd_all/cb_sce_donor_list_dapi_no_subset_20240308.qs"))
+qsave(cb_sce_nurr_donor_list, file.path(BASE_PATH, write_basename_nurr))
+qsave(cb_sce_dapi_donor_list, file.path(BASE_PATH, write_basename_dapi))
 
 # Harmonize. Takes 90 mins for each!
 print("Generating harmonized NURR Seurat")
@@ -264,9 +334,10 @@ seurat_nurr_merged = rawSceToHarmonizedSeurat(
     n_donors_hvg = NULL, # have to be in half of the participants
     n_var_features = 5000,
     n_dims_use = 50,
-    res = 1.0)
+    res = RES)
 print("Saving harmonized NURR Seurat")
-qsave(seurat_nurr_merged, file.path(BASE_PATH, "pd_all/seurat_nurr_merged_no_subset_20240308"))
+qsave(seurat_nurr_merged, file.path(BASE_PATH, write_basename_nurr_harmonized))
+seurat_nurr_merged$initial_clusters = seurat_nurr_merged$seurat_clusters
 
 print("Generating harmonized DAPI Seurat")
 seurat_dapi_merged = rawSceToHarmonizedSeurat(
@@ -276,6 +347,8 @@ seurat_dapi_merged = rawSceToHarmonizedSeurat(
     n_donors_hvg = NULL, # have to be in half of the participants
     n_var_features = 5000,
     n_dims_use = 50,
-    res = 1.0)
+    res = RES)
+seurat_dapi_merged$initial_clusters = seurat_dapi_merged$seurat_clusters
+
 print("Saving harmonized DAPI Seurat")
-qsave(seurat_dapi_merged, file.path(BASE_PATH, "pd_all/seurat_dapi_merged_no_subset_20240308"))
+qsave(seurat_dapi_merged, file.path(BASE_PATH, write_basename_dapi_harmonized))
