@@ -280,6 +280,7 @@ rawSceToHarmonizedSeurat = function(
     n_dims_use = 50,
     res = 1.0,
     harmony_group_by_vars = "donor_id",
+    stop_early=T,
     project = NULL
 ){
 
@@ -331,7 +332,7 @@ rawSceToHarmonizedSeurat = function(
         object=seurat_merged, 
         group.by.vars=harmony_group_by_vars,
         dims.use = 1:n_dims_use,
-        early_stop = F,
+        early_stop = stop_early,
         max_iter=25,
         plot_convergence = TRUE
     )
