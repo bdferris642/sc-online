@@ -104,7 +104,7 @@ RAW_COUNTS_BASENAME = "cr_outs/raw_feature_bc_matrix.h5"
 FILTERED_COUNTS_BASENAME = "cr_outs/filtered_feature_bc_matrix.h5"
 
 SUPPLEMENTARY_METADATA_PATH = "/home/ferris/pd_lib_info_20240301.tsv"
-PARTICIPANT_METADATA_PATH = "/mnt/accessory/seq_data/pd_all/chip_well_barcode-to-participant_id__fp_coalesced.csv"
+PARTICIPANT_METADATA_PATH = "~/sc-online/notebook_data/chip_well_barcode-to-participant_id__fp_coalesced.csv"
 FPR = 0.01
 
 CALICO_DIRS_LONG = readLines("~/calico-libs-long.txt")
@@ -150,6 +150,9 @@ EARLY_LIBS = list(
 
 SKIPPED = c()
 
+
+# MAJOR TODO: FIX WHEN THIS SAMPLE SWAP HAS BEEN DISAMBIGUATED
+AMBIGUOUS_BARCODES = c("206954930011_R11C01_1", "206954930010_R11C01_1")
 
 ###################### HELPER FUNCTIONS ######################
 
@@ -213,10 +216,9 @@ createMetaDataFromDGCMatrix=function(
     donor_ids = merge(
         donor_ids,
         participant_metadata,
+        all.x=TRUE, # 'unassigned' and 'doublet' don't get any metadata, but we do need the rows for now
         by.x = "donor_id",
-        by.y = "chip_well_barcode_in_whitelist",
-        by=c("chip_well_barcode"="chip_well_barcode"))
-        
+        by.y = "chip_well_barcode")        
 
     rownames(donor_ids) = donor_ids$cell
     donor_ids_matched = donor_ids[umi_dgc_colnames,]
@@ -233,10 +235,10 @@ createMetaDataFromDGCMatrix=function(
         donor_ids_matched$prob_max,
         1-donor_ids_matched$prob_doublet,
         donor_ids_matched$prob_doublet,
-        donor_ids$participant_id,
-        donor_ids$age,
-        donor_ids$sex,
-        donor_ids$case_control
+        donor_ids_matched$coalesced_participant_id,
+        donor_ids_matched$age,
+        donor_ids_matched$sex,
+        donor_ids_matched$case_control
     )
 
     colnames(meta_df) = c(
@@ -335,6 +337,9 @@ for (long_name in names(DIRS_TO_READ)){
     vireo_donor_ids_path = file.path(this_base_path, name, VIREO_DONOR_IDS_BASENAME)
 
     vireo_donor_ids = read.table(vireo_donor_ids_path, sep="\t", header=TRUE)
+
+    # MAJOR TODO: FIX WHEN THIS SAMPLE SWAP HAS BEEN DISAMBIGUATED
+    vireo_donor_ids$donor_id[vireo_donor_ids$donor_id %in% AMBIGUOUS_BARCODES] = "unassigned"
 
     print('CREATING DATA OBJECT DIRECTORY')
     dir.create(file.path(this_base_path, name, DATA_ING_DIRNAME), showWarnings = FALSE)
