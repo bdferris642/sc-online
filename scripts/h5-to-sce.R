@@ -212,8 +212,8 @@ createMetaDataFromDGCMatrix=function(
     donor_ids = merge(
         donor_ids,
         participant_metadata,
-        by.x = "donor_id"
-        by.y = "chip_well_barcode_in_whitelist"
+        by.x = "donor_id",
+        by.y = "chip_well_barcode_in_whitelist",
         by=c("chip_well_barcode"="chip_well_barcode"))
         
 
