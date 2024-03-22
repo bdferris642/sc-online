@@ -59,9 +59,10 @@ print(write_path)
 
 # load object
 s_obj = qread(read_path)
-embd_obj = Embeddings(s_obj, EMBD)
-embedding_data=embd_obj@cell.embeddings[,1:N_PCS]
-sce = as.SingleCellExperiment(s_obj)
+
+# Extracting the cell embedding data
+embedding_data = Embeddings(s_obj, EMBD)[,1:N_PCS]
+data_sce = as.SingleCellExperiment(s_obj)
 
 pseudocells=suppressWarnings(
     .sconline.PseudobulkGeneration(argList=NULL, 
