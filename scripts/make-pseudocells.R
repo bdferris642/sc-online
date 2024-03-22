@@ -14,7 +14,8 @@ spec <- matrix(c(
     'pseudocell-size', 'ps', 1, 'numeric',
     'cluster-col', 'cc', 1, 'character',
     'grouping-col', 'gc', 1, 'character',
-    'embedding', 'e', 1, 'character'
+    'embedding', 'e', 1, 'character',
+    'suffix', 's', 1, 'character'
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
@@ -36,6 +37,11 @@ EMBD = ifelse(
     "pca", 
     opt[['embedding']]
 )
+ADDITIONAL_SUFFIX = ifelse(
+    is.null(opt[['suffix']]), 
+    "", 
+    paste0('-', opt[['suffix']])
+)
 
 BASE_PATH = opt[['base-path']]
 BASENAME = opt[['basename']]
@@ -49,7 +55,7 @@ N_PCS = 30
 MIN_SIZE_LIMIT = 15
 
 ###################### MAIN ######################
-suffix = paste0('__pseudocells_',  CLUSTER_COL, '-', GROUPING_COL, '-', PSEUDOCELL_SIZE, '.qs')
+suffix = paste0('__pseudocells-',  CLUSTER_COL, '-', GROUPING_COL, '-', PSEUDOCELL_SIZE, ADDITIONAL_SUFFIX, '.qs')
 
 read_path = file.path(BASE_PATH, BASENAME)
 write_path = gsub(".qs", suffix, read_path)
