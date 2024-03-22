@@ -4,7 +4,8 @@ library(Seurat)
 library(SingleCellExperiment)
 library(tidyr)
 
-source("~/code/sconline_code.R")
+source("~/code/sconline_code.R") # <-- TODO inherit from pseudocells.R
+source("~/sc-online/utils.R")
 
 ###################### PARSE ARGUMENTS ######################
 
@@ -40,7 +41,7 @@ EMBD = ifelse(
 ADDITIONAL_SUFFIX = ifelse(
     is.null(opt[['suffix']]), 
     "", 
-    paste0('-', opt[['suffix']])
+    paste0('__', opt[['suffix']])
 )
 
 BASE_PATH = opt[['base-path']]
@@ -55,7 +56,7 @@ N_PCS = 30
 MIN_SIZE_LIMIT = 15
 
 ###################### MAIN ######################
-suffix = paste0('__pseudocells-',  CLUSTER_COL, '-', GROUPING_COL, '-', PSEUDOCELL_SIZE, ADDITIONAL_SUFFIX, '.qs')
+suffix = paste0('_pseudocells__split_by_',  CLUSTER_COL, '__grouped_by_', GROUPING_COL, '__mean_size_', PSEUDOCELL_SIZE, ADDITIONAL_SUFFIX, '.qs')
 
 read_path = file.path(BASE_PATH, BASENAME)
 write_path = gsub(".qs", suffix, read_path)
@@ -88,5 +89,7 @@ pseudocells=suppressWarnings(
 pseudocells$QC_Gene_total_log=log2(pseudocells$QC_Gene_total_count)
 pseudocells$QC_Gene_unique_log=log2(pseudocells$QC_Gene_unique_count)
 
+pseudocells_list=.mySplitObject(pseudocells, CLUSTER_COL)
+
 #Writing the pseudocells
-qsave(pseudocells, write_path)
+qsave(pseudocells_list, write_path)
