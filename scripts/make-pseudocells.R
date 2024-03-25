@@ -1,3 +1,5 @@
+###################### IMPORTS ######################
+
 library(getopt)
 library(Matrix)
 library(Seurat)
@@ -53,7 +55,7 @@ if (is.null(BASE_PATH) || is.null(BASENAME)) {
 # Hard Code For Now
 NCORES = 10
 N_PCS = 30
-MIN_SIZE_LIMIT = 15
+MIN_SIZE_LIMIT = 10
 
 ###################### MAIN ######################
 suffix = paste0('_pseudocells__split_by_',  CLUSTER_COL, '__grouped_by_', GROUPING_COL, '__mean_size_', PSEUDOCELL_SIZE, ADDITIONAL_SUFFIX, '.qs')
@@ -66,9 +68,12 @@ print(write_path)
 
 # load object
 s_obj = qread(read_path)
+print(paste("Seurat Object Dimensions:", unlist(dim(s_obj))))
 
 # Extracting the cell embedding data
 embedding_data = Embeddings(s_obj, EMBD)[,1:N_PCS]
+print(paste("Embedding Data Dimensions:", unlist(dim(embedding_data))))
+
 data_sce = as.SingleCellExperiment(s_obj)
 
 pseudocells=suppressWarnings(
@@ -84,6 +89,8 @@ pseudocells=suppressWarnings(
     rand_pseudobulk_mod=F,
     organism="Human")
 )
+
+print("Number of Pseudocells:", length(pseudocells))
 
 #Transforming the nGene and nUMI
 pseudocells$QC_Gene_total_log=log2(pseudocells$QC_Gene_total_count)
