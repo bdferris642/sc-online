@@ -7,7 +7,7 @@
 # `min-pct`, float, minimum percent of cells in a cluster that must express a gene for it to be considered a marker
 
 ### OUTPUTS
-# creates a dataframe using Seurat's FindAllMarkers, saves that dataframe to `out_path`
+# creates a dataframe using Seurat's FindAllMarkers, saves that dataframe as a csv to `marker_path`
 
 library(future)
 library(qs)
@@ -44,6 +44,8 @@ min_pct = ifelse(
     opt[['min-pct']]
   )
 
+MARKER_SUBDIR = "markers"
+
 plan(strategy = "multicore", workers = ncores)
 options(future.globals.maxSize = 10000 * 1024^2) # Increase limit to 10,000 MiB
 
@@ -51,7 +53,7 @@ options(future.globals.maxSize = 10000 * 1024^2) # Increase limit to 10,000 MiB
 # remove .qs suffix from read_basename. Will use this slogan in writing the output.
 slogan = gsub("\\.qs$", "", read_basename)
 read_path = file.path(base_path, read_basename)
-marker_path = file.path(base_path, paste0(slogan, "_markers_", cluster_col, ".qs"))
+marker_path = file.path(base_path, MARKER_SUBDIR, paste0(slogan, "_markers_", cluster_col, ".csv"))
 print(paste('Run Slogan =', slogan))
 print(paste('Reading Seurat object at', read_path, '...'))
 s_obj = qread(read_path)
@@ -65,4 +67,4 @@ markers = FindAllMarkers(
   logfc.threshold=logfc_threshold, min.pct=min_pct,
   only.pos=TRUE, verbose=TRUE, return.thresh=0.05)
 
-qsave(markers, marker_path)
+write.csv(markers, marker_path)
