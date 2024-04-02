@@ -55,7 +55,8 @@ spec <- matrix(c(
     'make-filtered', 'mf', 1, "logical",
     'make-raw', 'mr', 1, "logical",
     'make-mol-info', 'mm', 1, "logical",
-    'make-cellbender', 'mcb', 1, "logical"
+    'make-cellbender', 'mcb', 1, "logical",
+    'supplementary-metadata-path', 's', 1, "character"
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
@@ -91,6 +92,11 @@ SAVE_CELLBENDER_RDS = ifelse(
     is.null(opt[['make-cellbender']]), 
     TRUE, 
     opt[['make-cellbender']])
+SUPPLEMENTARY_METADATA_PATH = ifelse(
+    is.null(opt[['supplementary-metadata-path']]), 
+    "~/sc-online/notebook_data/pd_lib_info_20240402.csv", 
+    opt[['supplementary-metadata-path']]
+)
     
 ###################### CONSTANTS ######################
 
@@ -103,7 +109,6 @@ MOLECULE_INFO_BASENAME = "cr_outs/molecule_info.h5"
 RAW_COUNTS_BASENAME = "cr_outs/raw_feature_bc_matrix.h5"
 FILTERED_COUNTS_BASENAME = "cr_outs/filtered_feature_bc_matrix.h5"
 
-SUPPLEMENTARY_METADATA_PATH = "/home/ferris/pd_lib_info_20240301.tsv"
 PARTICIPANT_METADATA_PATH = "~/sc-online/notebook_data/chip_well_barcode-to-participant_id__fp_coalesced.csv"
 FPR = 0.01
 
@@ -149,7 +154,6 @@ EARLY_LIBS = list(
 )
 
 SKIPPED = c()
-
 
 # MAJOR TODO: FIX WHEN THIS SAMPLE SWAP HAS BEEN DISAMBIGUATED
 AMBIGUOUS_BARCODES = c("206954930011_R11C01_1", "206954930010_R11C01_1")
@@ -302,7 +306,7 @@ vireo_donor_ids_list = list()
 participant_metadata_df = read.table(PARTICIPANT_METADATA_PATH, sep=",", header=TRUE)
 
 # read in lib-level info
-expt_df = read.table(SUPPLEMENTARY_METADATA_PATH, sep="\t", header=TRUE)
+expt_df = read.table(SUPPLEMENTARY_METADATA_PATH, sep=",", header=TRUE)
 expt_df = expt_df[,
     c("library", "library_long", "source", "sort", "region", "flowcell")
 ]
