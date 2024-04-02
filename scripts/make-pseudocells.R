@@ -90,7 +90,7 @@ pseudocells=suppressWarnings(
     organism="Human")
 )
 
-print("Number of Pseudocells:", length(pseudocells))
+print(paste("Number of Pseudocells:", length(pseudocells)))
 
 #Transforming the nGene and nUMI
 pseudocells$QC_Gene_total_log=log2(pseudocells$QC_Gene_total_count)

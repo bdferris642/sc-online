@@ -227,5 +227,8 @@ for (x_name in names(pseudocells_list)){
 
         write_path = file.path(de_dir, paste0(tolower(DE_METHOD), '__', x_name, SUFFIX, '.qs'))
         qsave(output_list, write_path)
+
+        csv_write_path = gsub(".qs", ".csv", write_path)
+        write.csv(res_pd, csv_write_path, row.names=FALSE)
     }
 }
