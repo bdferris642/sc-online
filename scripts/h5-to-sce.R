@@ -153,8 +153,6 @@ EARLY_LIBS = list(
     ,"pCalicoPDsHSrSNNURR3iPoold230214"
 )
 
-SKIPPED = c()
-
 # MAJOR TODO: FIX WHEN THIS SAMPLE SWAP HAS BEEN DISAMBIGUATED
 AMBIGUOUS_BARCODES = c("206954930011_R11C01_1", "206954930010_R11C01_1")
 
@@ -209,7 +207,7 @@ createMetaDataFromDGCMatrix=function(
     umi_dgc_colnames = colnames(umi_dgc)
 
     # only consider cells that are in the filtered umi data
-    mol_df = mol_df[mol_df$barcode %in% colnames(umi_dgc),]
+    mol_df = mol_dgc[mol_dgc$barcode %in% colnames(umi_dgc),]
     mol_df_grouped = mol_df %>% group_by(barcode) %>% summarize(nUmi=n(), nRead=sum(count), pct_intronic=sum(umi_type==0)/nUmi)
     rownames(mol_df_grouped) = mol_df_grouped$barcode
 
@@ -294,6 +292,27 @@ sum_duplicate_rownames_of_dgc_matrix=function(dgc){
 DIRS_TO_READ_LONG = readLines(LIB_PATH)
 DIRS_TO_READ = sapply(DIRS_TO_READ_LONG, extract_text)
 names(DIRS_TO_READ_LONG) = DIRS_TO_READ
+
+
+# TODO: remove this "skipped" block once all gtex libraries have been processed
+SKIPPED  = c()
+for (d in DIRS_TO_READ){
+    if (d == ""){next}
+    donor_ids_path = file.path(BASE_PATH, "gtex", d, "vireo_outs", "donor_list", "donor_ids.tsv")
+    if (!file.exists(donor_ids_path)){
+        SKIPPED  = c(SKIPPED , d)
+    }
+}
+# these libraries are bad and should probably jsut be removed from the gtex list
+SKIPPED  = c(SKIPPED 
+    , "pCalico_GTExsHSrSNA11iNURRd231120"
+    ,"pCalico_GTExsHSrSNB11iNURRd231120"
+    ,"pCalico_GTExsHSrSNC11iDAPId231120"
+    ,"pCalico_GTExsHSrSND11iNURRd231120"
+    ,"pCalico_GTExsHSrSNE11iNURRd231120"
+    ,"pCalico_GTExsHSrSNF11iDAPId231120"
+    ,""
+
 
 filtered_dgc_list = list()
 sce_list = list()
@@ -474,6 +493,7 @@ for (name in DIRS_TO_READ){
     sce_orig = orig_sce
     counts_matrix_filtered = counts_matrix[, colnames(counts_matrix) %in% colnames(sce_orig)]
     counts_matrix_filtered = sum_duplicate_rownames_of_dgc_matrix(counts_matrix_filtered)
+    counts_matrix_filtered = counts_matrix_filtered[, match(colnames(sce_orig), colnames(counts_matrix_filtered))]
 
     cd = colData(sce_orig)
     cd = cd[rownames(cd) %in% colnames(counts_matrix_filtered), ]
