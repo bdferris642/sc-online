@@ -37,7 +37,8 @@ spec <- matrix(c(
     'split-col', 's', 1, "character",
     'ncores', 'n', 1, "integer",
     'nfeatures', 'f', 1, "integer",
-    'npcs', 'p', 1, "integer"
+    'npcs', 'p', 1, "integer",
+    'var-adj-pca', 'a', 1, "logical"
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
@@ -66,6 +67,10 @@ npcs = ifelse(
     is.null(opt[['npcs']]), 
     50, 
     opt[['npcs']])
+var_adj_pca = ifelse(
+    is.null(opt[['var-adj-pca']]), 
+    FALSE, 
+    opt[['var-adj-pca']])
 
 ################################# MAIN #################################
 
@@ -117,14 +122,22 @@ for (cell_class in cell_classes) {
 
     ################################# PCA & HARMONY #################################
     print(paste('Harmonizing subcluster', cell_class, '...'))
+    s_obj_cell_class = (s_obj_cell_class %>% RunPCA(features = hvgs, npcs = npcs))
+    s_obj_cell_class = addWeightedPcaDimReducToSeurat(s_obj_cell_class)
+    if (var_adj_pca) {
+        reduction = "weightedPCA"
+    } else {
+        reduction = "pca"
+    }
     s_obj_cell_class = (s_obj_cell_class
-        %>% RunPCA(features = hvgs, npcs = npcs)
         %>% RunHarmony(
             group.by.vars=split_col,
             dims.use = 1:npcs,
-            early_stop = F,
+            early_stop = T,
             max_iter=25,
             plot_convergence = TRUE
+            reduction.save="harmony", # literally have to add this because `reduction` and `reduction.save` both start with same string
+            reduction=reduction
         )
     )
 
