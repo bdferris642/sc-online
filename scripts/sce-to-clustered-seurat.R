@@ -47,7 +47,9 @@ spec = matrix(c(
     'pct-mt-max', 'pm', 1, "numeric",
     'summary-basename', 'sb', 1, "character",
     'calico-libs', 'cl', 1, "character",
-    'gtex-libs', 'gl', 1, "character"
+    'gtex-libs', 'gl', 1, "character",
+    'var-adj-pca', 'vp', 1, "logical",
+    'lib-info-path', 'li', 1, "character"
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
@@ -97,6 +99,19 @@ GTEX_LIBS_LONG_PATH = ifelse(
     "~/gtex-libs-long.txt",
     opt[['gtex-libs']]
 )
+
+VAR_ADJ_PCA = ifelse(
+    is.null(opt[['var-adj-pca']]),
+    FALSE,
+    opt[['var-adj-pca']]
+)
+
+LIB_INFO_PATH = ifelse(
+    is.null(opt[['lib-info-path']]),
+    "~/sc-online/notebook_data/pd_lib_info_20240402.csv",
+    opt[['lib-info-path']]
+)
+
 
 ############## CONSTANTS ##############
 
@@ -171,7 +186,7 @@ names(gtex_libs_long) = gtex_libs
 libs_long = c(calico_libs_long, gtex_libs_long)
 libs = c(calico_libs, gtex_libs)
 
-lib_info = read.table("~/sc-online/notebook_data/pd/pd_lib_info_20240301.tsv", sep = "\t", header = TRUE )
+lib_info = read.table(LIB_INFO_PATH, sep = ",", header = TRUE )
 lib_info_calico = lib_info[lib_info$source == "Calico",]
 lib_info_gtex = lib_info[lib_info$source == "GTEx",]
 
@@ -197,8 +212,11 @@ for (lib in calico_libs) {
 }
 
 # load calico sce lists
+# TODO: parametrize cb sce basename
 calico_sce_list = loadCbSceList(calico_libs,
     base_path="/mnt/accessory/seq_data/calico",
+    vireo_donor_ids_basename="vireo_outs/no_subset/donor_ids.tsv",
+    cb_sce_basename="ingested_data_no_subset/cb_data_sce_FPR_0.01.rds",
     pct_mt_max=PCT_MT_MAX,
     pct_intronic_min= PCT_INTRONIC_MIN,
     log10_nUMI_threshold_list=log10_nUMI_thresholds_calico,
@@ -227,10 +245,14 @@ skipped = c(skipped
     ,"pCalico_GTExsHSrSND11iNURRd231120"
     ,"pCalico_GTExsHSrSNE11iNURRd231120"
     ,"pCalico_GTExsHSrSNF11iDAPId231120"
+    ,""
 )
 
+# TODO: parametrize cb sce basename
 gtex_sce_list = loadCbSceList(gtex_libs[!gtex_libs %in% skipped],
     base_path="/mnt/accessory/seq_data/gtex",
+    vireo_donor_ids_basename="vireo_outs/donor_list/donor_ids.tsv",
+    cb_sce_basename="ingested_data/cb_data_sce_FPR_0.01.rds",
     pct_mt_max=PCT_MT_MAX,
     pct_intronic_min= PCT_INTRONIC_MIN,
     log10_nUMI_threshold_list=log10_nUMI_thresholds_gtex,
@@ -259,53 +281,6 @@ calico_all = .mycBindFn(calico_sce_list)
 gtex_all = .mycBindFn(gtex_sce_list)
 # first, we want to append our best understanding of participant IDs to each of the SCEs
 
-#For GTEX this is the same as their chipwell barcode / donor_id
-gtex_all$participant_id = gtex_all$donor_id
-
-# for calico, we need to map this information ourselves
-# create a vector of <library>__<chipwell> and use that to map to participant_id
-
-# load metadata
-calico_chip_well_to_donor_df = read.csv("~/sc-online/notebook_data/pd/calico_kf_master_20240307.csv", sep = ",", header = TRUE)
-
-# drop some rows that shouldn't exist
-calico_chip_well_to_donor_df = calico_chip_well_to_donor_df[
-    !(calico_chip_well_to_donor_df$Correct.Donor.ID == "PD0905" & calico_chip_well_to_donor_df$Chipwell.barcode == "207762960003_R02C01"),]
-
-calico_chip_well_to_donor_df$participant_id = calico_chip_well_to_donor_df$Correct.Donor.ID
-calico_chip_well_to_donor_map = setNames(
-    calico_chip_well_to_donor_df$participant_id,
-    paste0(calico_chip_well_to_donor_df$Chipwell.barcode, "_1")
-)
-
-# TODO fix the heck out of this
-# this is super janky, but like, use the terra manifest when it's available and not in the KF manifest
-calico_chip_well_to_donor_map[["207762950055_R08C02_1"]] = "2018-130"
-calico_chip_well_to_donor_map[["207762960003_R01C02_1"]] = "2017-037"
-calico_chip_well_to_donor_map[["206954930093_R10C01_1"]] = "PD0809"
-calico_chip_well_to_donor_map[["207758480019_R01C01_1"]] = "2019-114"
-calico_chip_well_to_donor_map[["206954930093_R08C02_1"]] = "PD0899"
-calico_chip_well_to_donor_map[["207762950086_R12C02_1"]] = "2019-017"
-calico_chip_well_to_donor_map[["207762950086_R08C02_1"]] = "2019-071"
-calico_chip_well_to_donor_map[["207762950086_R02C01_1"]] = "PD0878"
-calico_chip_well_to_donor_map[["207762950086_R04C01_1"]] = "PD0876"
-calico_chip_well_to_donor_map[["207762950108_R10C02_1"]] = "PD0985"
-calico_chip_well_to_donor_map[["207762950055_R07C02_1"]] = "PDC094"
-calico_chip_well_to_donor_map[["207762950108_R07C02_1"]] = "PD0905"
-calico_chip_well_to_donor_map[["206954930060_R07C01_1"]] = "PD0903"
-calico_chip_well_to_donor_map[["207762960003_R12C02_1"]] = "PD0784"
-calico_chip_well_to_donor_map[["206954930011_R10C01_1"]] = "PD0825"
-
-# create the mapping in the colData
-calico_all$participant_id = calico_chip_well_to_donor_map[calico_all$donor_id]
-
-# TODO fix after we resolve the "206954930010_R05C02_1" issue
-# there is one chipwell barcode that seems to map to different participants depending on the library??
-calico_all$participant_id[calico_all$library == "pCalicoPDsHSrSND9id230921D9" & calico_all$donor_id == "206954930010_R05C02_1"] = "PDC091"
-calico_all$participant_id[(
-    calico_all$library %in% c("pCalicoPDsHSrSNSN_VTAiPoold230719K1", "pCalicoPDsHSrSNSN_VTAiPoold230719K2") 
-    & calico_all$donor_id == "206954930010_R05C02_1")] = "PDC110"
-
 sces_all = .mycBindFn(list(calico_all, gtex_all))
 
 #we would like to append metadata about library_prep to each library 
@@ -318,7 +293,10 @@ sce_nurr = sces_all[, colData(sces_all)$sort == 'nurr']
 sce_dapi = sces_all[, colData(sces_all)$sort == 'dapi']
 
 cb_sce_nurr_donor_list = .mySplitObject(sce_nurr, "participant_id")
+cb_sce_nurr_donor_list = cb_sce_nurr_donor_list[!is.na(names(cb_sce_nurr_donor_list))]
+
 cb_sce_dapi_donor_list = .mySplitObject(sce_dapi, "participant_id")
+cb_sce_dapi_donor_list = cb_sce_dapi_donor_list[!is.na(names(cb_sce_dapi_donor_list))]
 
 print("Saving SCE lists")
 
@@ -334,7 +312,8 @@ seurat_nurr_merged = rawSceToHarmonizedSeurat(
     n_donors_hvg = NULL, # have to be in half of the participants
     n_var_features = 5000,
     n_dims_use = 50,
-    res = RES)
+    res = RES,
+    var_adj_pca = VAR_ADJ_PCA)
 print("Saving harmonized NURR Seurat")
 qsave(seurat_nurr_merged, file.path(BASE_PATH, write_basename_nurr_harmonized))
 seurat_nurr_merged$initial_clusters = seurat_nurr_merged$seurat_clusters
@@ -347,7 +326,8 @@ seurat_dapi_merged = rawSceToHarmonizedSeurat(
     n_donors_hvg = NULL, # have to be in half of the participants
     n_var_features = 5000,
     n_dims_use = 50,
-    res = RES)
+    res = RES,
+    var_adj_pca = VAR_ADJ_PCA)
 seurat_dapi_merged$initial_clusters = seurat_dapi_merged$seurat_clusters
 
 print("Saving harmonized DAPI Seurat")
