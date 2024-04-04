@@ -298,8 +298,8 @@ names(DIRS_TO_READ_LONG) = DIRS_TO_READ
 SKIPPED  = c()
 for (d in DIRS_TO_READ){
     if (d == ""){next}
-    donor_ids_path = file.path(BASE_PATH, "gtex", d, "vireo_outs", "donor_list", "donor_ids.tsv")
-    if (!file.exists(donor_ids_path)){
+    if (!file.exists(file.path(BASE_PATH, "gtex", d, "cr_outs", "_cmdline"))){next}
+    if (!file.exists(file.path(BASE_PATH, "gtex", d, "vireo_outs", "donor_list", "donor_ids.tsv"))){
         SKIPPED  = c(SKIPPED , d)
     }
 }
@@ -312,7 +312,7 @@ SKIPPED  = c(SKIPPED
     ,"pCalico_GTExsHSrSNE11iNURRd231120"
     ,"pCalico_GTExsHSrSNF11iDAPId231120"
     ,""
-
+)
 
 filtered_dgc_list = list()
 sce_list = list()
@@ -490,12 +490,12 @@ for (name in DIRS_TO_READ){
 
     rownames(counts_matrix) = h5_data$features$name
     colnames(counts_matrix) = barcodes
-    sce_orig = orig_sce
-    counts_matrix_filtered = counts_matrix[, colnames(counts_matrix) %in% colnames(sce_orig)]
+    sce_filt = orig_sce[, colnames(orig_sce) %in% colnames(counts_matrix)]
+    counts_matrix_filtered = counts_matrix[, colnames(counts_matrix) %in% colnames(sce_filt)]
     counts_matrix_filtered = sum_duplicate_rownames_of_dgc_matrix(counts_matrix_filtered)
-    counts_matrix_filtered = counts_matrix_filtered[, match(colnames(sce_orig), colnames(counts_matrix_filtered))]
+    counts_matrix_filtered = counts_matrix_filtered[, match(colnames(sce_filt), colnames(counts_matrix_filtered))]
 
-    cd = colData(sce_orig)
+    cd = colData(sce_filt)
     cd = cd[rownames(cd) %in% colnames(counts_matrix_filtered), ]
 
     non_qc_cols <- colnames(cd)[!grepl("^QC", colnames(cd))]
