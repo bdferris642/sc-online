@@ -388,6 +388,66 @@
   return(fd)
 }
 
+build_weighted_score = function(
+    sobj,
+    weight_df,
+    md_score_col_name,
+    md_norm_col = "log10_nUmi",
+    weight_df_weight_col = "avg_log2FC",
+    weight_df_gene_col = "gene",
+    assay="SCT",
+    scale_within=NULL) {
+
+    # generate a score for each cell based on the weighted sum of gene counts
+    # OUTPUTS
+    # the input seurat object with new columns <md_score_col_name>, <md_score_col_name>__z, 
+    # <md_score_col_name>__over__<md_norm_col>, and <md_score_col_name>__over__<md_norm_col>__z 
+    
+
+    # INPUTS
+    # sobj: Seurat object
+    # weight_df: data.frame with genes (in column `weight_df_gene_col`) and weights (in column `weight_df_weight_col`)
+        # todo: default to weight of 1 for weight_df_weight_col = NULL
+    # md_score_col_name: name of the column to be created  
+    # md_norm_col: name of the column to divide the score by. Commonly nUmi or log10_nUmi
+    # weight_df_weight_col: name of the column in weight_df that contains the weights
+    # weight_df_gene_col: name of the column in weight_df that contains the genes
+    # assay: name of the assay in sobj to use for counts
+    # scale_within: if provided, z scores are calculated within the <scale_within> group within the sobj meta.data 
+        # otherwise the z scores are calculated across all cells in `sobj`
+
+    weights = weight_df[[weight_df_weight_col]]
+    genes = weight_df[[weight_df_gene_col]]
+
+    filtered_counts = sobj[genes, ]
+
+    if (!all(rownames(filtered_counts) == genes)){
+        stop("Genes in weight_df out of order with respect to Counts")
+    }
+    
+    md = sobj@meta.data 
+
+    md[[md_score_col_name]] = colSums(filtered_counts@assays[[assay]]@counts * weights)
+    if (is.null(scale_within)){
+        md[[paste0(md_score_col_name, "__z")]] = scale(md[[md_score_col_name]])
+    } else {
+        md[[paste0(md_score_col_name, "__z")]] = ave(md[[md_score_col_name]], md[[scale_within]], FUN=scale)
+    }
+
+     if (!is.null(md_norm_col)){
+         md[[paste0(md_score_col_name, "__over__", md_norm_col)]] = md[[md_score_col_name]] / md[[md_norm_col]]
+         if (is.null(scale_within)){
+             md[[paste0(md_score_col_name, "__over__", md_norm_col, "__z")]] = scale(md[[paste0(md_score_col_name, "__over__", md_norm_col)]])
+         } else {
+             md[[paste0(md_score_col_name, "__over__", md_norm_col, "__z")]] = ave(md[[paste0(md_score_col_name, "__over__", md_norm_col)]], md[[scale_within]], FUN=scale)
+         }
+     }
+
+    sobj@meta.data = md
+
+    return(sobj)
+}
+
 downsampleListAfterStart <- function(a_list, start_ind, step){
     # return every value of a_list from 1:start_ind, then every step-th value after that
     # a_list: list
@@ -421,6 +481,20 @@ getCommonStrings <- function(list_of_lists, n) {
   return(common_strings)
 }
 
+getCountProportionDF = function(sobj, cat_col, type_col){
+    # sobj: a seurat object with meta.data columns `cat_col` and `type_col` (both input as strings)
+    # the counts and proportions of each `type_col` WITHIN each `cat_col` are returned as a dataframe
+    # (e.g. if cat_col is donor_id and type_col is cell class, 
+    # you'd get a long df of cell class counts and proportions wtihin each donor_id)
+
+    md = sobj@meta.data
+    df = (
+        as.data.frame(table(md[[cat_col]], md[[type_col]])) 
+        %>% group_by(Var1) %>% dplyr::mutate(total_count = sum(Freq), proportion = Freq / total_count)
+    )
+    colnames(df) = c(cat_col, type_col, 'count', 'total_count', 'proportion')
+    return(df)
+}
 
 getFracAssignableDemuxlet=function(df){
     # df: dataframe with columns `BEST` and `PRB.SNG1` 

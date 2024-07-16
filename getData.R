@@ -160,7 +160,7 @@ loadCbSceList = function(
     base_path="/mnt/accessory/seq_data/calico",
     cb_sce_basename="ingested_data/cb_data_sce_FPR_0.01.rds",
     vireo_donor_ids_basename="vireo_outs/donor_list/donor_ids.tsv",
-    unclean_cells_basename = "ingested_data/unclean_cells.csv",
+    unclean_cells_basename = "ingested_data_no_subset/unclean_cells.csv",
     n_donors_list = NULL,
     num_cells_cutoff = 15
     ){
@@ -267,6 +267,34 @@ loadCbSceList = function(
     return(cb_sce_list)
 }
 
+addWeightedPcaDimReducToSeurat = function(s_obj){
+    # weight the PCA embeddings by the square root of the variance explained by each PC
+    # save this as a new DimReduc object in the Seurat object
+
+    # Assuming s_obj is your Seurat object and PCA has been run
+    pca_embeddings = Embeddings(s_obj, "pca") # Extract PCA embeddings
+    pca_variance_explained = s_obj[["pca"]]@stdev^2 # Extract variance explained by each PC and square it for variance
+
+    # Calculate the square root of the variance explained
+    sqrt_variance_explained = sqrt(pca_variance_explained)
+    sqrt_variance_explained = sqrt_variance_explained / sum(sqrt_variance_explained)
+
+    # Weight the PCA embeddings by the square root of the variance explained
+    weighted_pca_embeddings = sweep(pca_embeddings, 2, sqrt_variance_explained, `*`)
+
+    # Create a new dimensionality reduction object
+    new_reduction = CreateDimReducObject(
+        embeddings=weighted_pca_embeddings,
+        key="weightedPCA_",
+        assay=DefaultAssay(s_obj)
+    )
+
+    # Add this new dimensionality reduction to the Seurat object
+    s_obj[["weightedPCA"]] = new_reduction
+    
+    return(s_obj)
+}
+
 mergeSeuratListWithMetadata = function(seurat_obj_list, cell_ids=NULL, project=NULL){
 
     # Harmonize metadata columns
@@ -287,8 +315,7 @@ mergeSeuratListWithMetadata = function(seurat_obj_list, cell_ids=NULL, project=N
         seurat_merged = Reduce(function(x, y) merge(x, y, project=project), 
             seurat_obj_list)
     } else {
-        seurat_merged = Reduce(function(x, y) merge(x, y, project=project), 
-            add.cell.ids=cell_ids, 
+        seurat_merged = Reduce(function(x, y) merge(x, y, project=project, add.cell.ids=cell_ids), 
             seurat_obj_list)
     }
     
@@ -313,10 +340,12 @@ rawSceToHarmonizedSeurat = function(
     split_col = "donor_id",
     n_var_features = 5000,
     n_dims_use = 50,
-    res = 1.0,
+    res_list = c(0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1),
     harmony_group_by_vars = "donor_id",
     stop_early=T,
-    project = NULL
+    project = NULL,
+    harmonize = T,
+    var_adj_pca = F
 ){
 
     if (is.null(n_donors_hvg)){
@@ -326,6 +355,8 @@ rawSceToHarmonizedSeurat = function(
     # find variable genes within each donor
     id_hvgs = list()
     id_seurat_objs = list()
+
+    print("FINDING HVGS")
     
     for (id in names(sce_list)) {
                 
@@ -346,6 +377,7 @@ rawSceToHarmonizedSeurat = function(
     hvgs = getCommonStrings(id_hvgs, n_donors_hvg)
     print(paste("Number of HVGs in common across", n_donors_hvg, "--", length(hvgs)))
 
+    print("MERGING SEURAT OBJECTS")
     # Combine  
     seurat_merged = mergeSeuratListWithMetadata(id_seurat_objs, project)
     
@@ -359,27 +391,47 @@ rawSceToHarmonizedSeurat = function(
     )
 
     # (6) PCA
+    print("RUNNING PCA")
     seurat_merged = RunPCA(object=seurat_merged, features=hvgs, verbose=F, npcs=n_dims_use)
+    # seurat_merged = addWeightedPcaDimReducToSeurat(seurat_merged)
 
+    if (var_adj_pca){
+        reduction = "weightedPCA"
+    } else {
+        reduction = "pca"
+    }
 
     # (7) Harmony (integrating donor)
-    seurat_merged = RunHarmony(
-        object=seurat_merged, 
-        group.by.vars=harmony_group_by_vars,
-        dims.use = 1:n_dims_use,
-        early_stop = stop_early,
-        max_iter=25,
-        plot_convergence = TRUE
-    )
+    if (harmonize){
+        print("RUNNING HARMONY")
+        seurat_merged = RunHarmony(
+            object=seurat_merged, 
+            group.by.vars=harmony_group_by_vars,
+            dims.use = 1:n_dims_use,
+            early_stop = stop_early,
+            max_iter=25,
+            plot_convergence = TRUE,
+            reduction.save="harmony", # literally have to add this because `reduction` and `reduction.save` both start with same string
+            reduction=reduction
+        )
+        graph_reduction = "harmony"
+    } else {
+        graph_reduction = "pca"
+    }
+    
 
     # (8) Cluster
+    print("FINDING NEIGHBORS")
+    seurat_merged = FindNeighbors(object=seurat_merged, dims = 1:n_dims_use, reduction=graph_reduction)
+    for (res in res_list){
+        print(paste0("CLUSTERING AT RESOLUTION ", res))
+        seurat_merged = FindClusters(object=seurat_merged, resolution = res)
+    }
+    
     # (9) UMAP
-    seurat_merged = (seurat_merged %>%
-        FindNeighbors(dims = 1:n_dims_use, reduction="harmony") %>%
-        FindClusters(resolution = res) %>%
-        RunUMAP(dims = 1:n_dims_use, verbose=F, reduction="harmony")
-    )
-
+    print("RUNNING UMAP")
+    seurat_merged = RunUMAP(object=seurat_merged, dims = 1:n_dims_use, verbose=F, reduction=graph_reduction)
+    
     return(seurat_merged)
 }
 

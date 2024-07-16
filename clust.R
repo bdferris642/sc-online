@@ -1,7 +1,9 @@
 library(future)
 library(Seurat)
+library(harmony)
 
 source("~/sc-online/utils.R")
+source("~/sc-online/getData.R")
 
 assignCellClasses = function(
     obj,
@@ -30,7 +32,53 @@ getClusterLogFC = function(seurat_obj, cluster){
     return(sort(logfc_clust, decreasing = TRUE))
 }
 
-printMarkersByCluster = function(marker_df, marker_tsv="~/all_markers.txt", cluster=NULL){
+
+normalizeScalePcaClusterUmap = function(
+    sobj,
+    var_feature_subset_col="participant_id",
+    scaling_subset_col="participant_id",
+    harmony_group_vars=c("participant_id"),
+    n_hvgs_orig=2500, 
+    n_dims_use=20, 
+    resolutions=c(0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1),
+    hvgs = NULL,
+    regression_vars = NULL,
+    run_harmony=FALSE){
+    # this function takes a Seurat object, normalizes the data, scales the data, runs PCA, finds neighbors, 
+    # clusters at a variety of resolutions, and runs UMAP
+    # it then returns the Seurat object
+    
+    if (is.null(hvgs)){
+        if (is.null(var_feature_subset_col)){
+            sobj = FindVariableFeatures(sobj, nfeatures=n_hvgs_orig)
+            hvgs = sobj@assays$RNA@var.features
+        } else {
+            hvgs = getSeuratVarFeatureIntersectByCol(sobj, subset_col=var_feature_subset_col, original_nfeatures=n_hvgs_orig)
+        }
+    }
+    sobj@assays$RNA@var.features=hvgs
+    sobj = (sobj
+        %>% NormalizeData() 
+        %>% ScaleData(features=hvgs, split.by=scaling_subset_col, vars.to.regress=regression_vars) 
+        %>% RunPCA(features=hvgs, npcs=n_dims_use) 
+    )
+    if (run_harmony){
+        sobj = RunHarmony(sobj, group.by.vars=harmony_group_vars)
+        reduction_to_use = "harmony"
+    } else {
+        reduction_to_use = "pca"
+    }
+
+    sobj = FindNeighbors(sobj, dims=1:n_dims_use, reduction=reduction_to_use)
+    for(res in resolutions){
+        sobj = sobj %>% FindClusters(resolution = res)
+    }
+    sobj = sobj %>% RunUMAP(dims = 1:n_dims_use, reduction = reduction_to_use)
+    return(sobj)
+}
+
+
+printMarkersByCluster = function(marker_df, marker_tsv="~/all_markers.tsv", cluster=NULL){
     broad_markers = read.table(marker_tsv, header = TRUE, sep = "\t")
     broad_markers$Gene = toupper(broad_markers$Gene)
 
@@ -39,8 +87,16 @@ printMarkersByCluster = function(marker_df, marker_tsv="~/all_markers.txt", clus
     broad_markers$broad_class[grepl('neuron', tolower(broad_markers$pattern))] = 'neuron' 
     broad_markers$broad_class[grepl('astrocyte', tolower(broad_markers$pattern))] = 'astrocyte' 
     broad_markers$broad_class[grepl('oligodendrocyte', tolower(broad_markers$pattern))] = 'oligo' 
-    broad_markers$broad_class[grepl('endothelial', tolower(broad_markers$pattern))] = 'endo' 
-    broad_markers$broad_class[grepl('opcs', tolower(broad_markers$pattern))] = 'opc' 
+    broad_markers$broad_class[grepl('endothelial', tolower(broad_markers$pattern))] = 'endo'
+    broad_markers$broad_class[grepl('mural', tolower(broad_markers$pattern))] = 'endo'
+    broad_markers$broad_class[grepl('fibro', tolower(broad_markers$pattern))] = 'fibroblast'
+    broad_markers$broad_class[grepl('ependymal', tolower(broad_markers$pattern))] = 'ependymal'  
+    broad_markers$broad_class[grepl('opc', tolower(broad_markers$pattern))] = 'opc' 
+    broad_markers$broad_class[grepl('polydendro', tolower(broad_markers$pattern))] = 'opc'
+    broad_markers$broad_class[grepl('b_cell', tolower(broad_markers$pattern))] = 'immune' 
+    broad_markers$broad_class[grepl('t_cell', tolower(broad_markers$pattern))] = 'immune' 
+    broad_markers$broad_class[grepl('neutro', tolower(broad_markers$pattern))] = 'immune'
+    broad_markers$broad_class[grepl('nk_cell', tolower(broad_markers$pattern))] = 'immune' 
     broad_markers = broad_markers[!is.na(broad_markers$broad_class), c('Gene', 'broad_class')]
 
     broad_markers_ordered = broad_markers[order(broad_markers$broad_class),]
@@ -62,7 +118,7 @@ printMarkersByCluster = function(marker_df, marker_tsv="~/all_markers.txt", clus
     broad_markers_ordered$pct.2 = round(broad_markers_ordered$pct.2, 2)
     broad_markers_ordered$avg_log2FC = round(broad_markers_ordered$avg_log2FC, 2)
     print(broad_markers_ordered[, 
-        c("Gene", "broad_class", "cluster", "avg_log2FC", "pct.1", "pct.2")])
+        c("Gene", "broad_class", "cluster", "avg_log2FC", "pct.1", "pct.2")], row.names=FALSE)
 }
 
 .myPCAfn=function(data, argList,projection_data=NULL,saveFiles=T,benchmark_mode=T,...){

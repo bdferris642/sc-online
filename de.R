@@ -455,3 +455,129 @@ source("~/sc-online/extraGenes.R")
   
 }
 
+get_de_correspondence_mats = function(de_dfs, union_min=50, mode="union"){
+
+  # de_dfs should be a named list of either
+  # (a) paths to DE csvs 
+  # or (b) dfs themselves
+  # containing columns gene, logFC, and adj.P.Val 
+
+  # outputs (for the union of significant genes):
+  # correlation: matrix of spearman correlations between de results
+  # p: matrix of p-values for the correlations
+  # consistency: matrix of sign consistency between de results
+  # n: matrix of number of genes in common between de results
+
+  # todo: add option for all genes and sig intersect, not just union
+
+  cor_mat = matrix(NA, nrow=length(de_dfs), ncol=length(de_dfs))
+  p_mat = matrix(NA, nrow=length(de_dfs), ncol=length(de_dfs))
+  cons_mat = matrix(NA, nrow=length(de_dfs), ncol=length(de_dfs))
+  n_mat = matrix(NA, nrow=length(de_dfs), ncol=length(de_dfs))
+
+  i=1
+  for (name1 in names(de_dfs)){
+      j=1
+      for(name2 in names(de_dfs)){
+          if (class(de_dfs[[name1]]) == "character") {
+              df1 = read.csv(de_dfs[[name1]])
+          } else {
+              df1 = de_dfs[[name1]]
+          }
+
+          if (class(de_dfs[[name2]]) == "character") {
+              df2 = read.csv(de_dfs[[name2]])
+          } else {
+              df2 = de_dfs[[name2]]
+          }
+          
+          # get genes in common, and make sure they are in the same order
+          genes = intersect(df1$gene, df2$gene)
+
+          df1 = df1[df1$gene %in% genes,]
+          df2 = df2[df2$gene %in% genes,]
+
+          if (mode == "all"){
+            
+            df1_sig = df1 
+            df2_sig = df2
+
+            union_sig_genes = genes
+          } else {
+      
+            df1_sig = df1[df1$adj.P.Val < 0.05,]
+            df2_sig = df2[df2$adj.P.Val < 0.05,]
+            if (mode == "union"){
+              union_sig_genes = sort(union(df1_sig$gene, df2_sig$gene))
+            } else if (mode == "intersect"){
+              union_sig_genes = sort(intersect(df1_sig$gene, df2_sig$gene))
+            }
+            else {
+            stop("mode must be one of all, union, or intersect")
+            }
+          }
+
+          n = length(union_sig_genes)
+          n_mat[i, j] = n
+
+          if (length(union_sig_genes) < union_min) {
+              
+              if (i == j) {
+                  cor_mat[i, j] = 1
+                  p_mat[i, j] = "<0.000001"
+                  cons_mat[i, j] = 1
+              }
+
+              j = j + 1
+
+              next
+          }
+
+          df1_union = df1[df1$gene %in% union_sig_genes,]
+          df2_union = df2[df2$gene %in% union_sig_genes,]
+
+          df1_union = df1_union[match(union_sig_genes, df1_union$gene),]
+          df2_union = df2_union[match(union_sig_genes, df2_union$gene),]
+
+          # get the correlation, the p-value, the number of genes in common, and the sign consistency
+          cor_test = cor.test(df1_union$logFC, df2_union$logFC, method="spearman")
+          
+
+          cor_mat[i, j] = cor_test$estimate
+          pval = round(cor_test$p.value, 6)
+          if (pval == 0) {
+              pval = "<0.000001"
+          }
+          p_mat[i, j] = pval
+          
+          cons_mat[i, j] = sum(sign(df1_union$logFC) == sign(df2_union$logFC)) / n
+
+          j = j + 1
+      }
+      i = i + 1
+  }
+
+  cor_mat = as.data.frame(cor_mat)
+  p_mat = as.data.frame(p_mat)
+  cons_mat = as.data.frame(cons_mat)
+  n_mat = as.data.frame(n_mat)
+
+  rownames(cor_mat) = names(de_dfs)
+  colnames(cor_mat) = names(de_dfs)
+
+  rownames(p_mat) = names(de_dfs)
+  colnames(p_mat) = names(de_dfs)
+
+  rownames(cons_mat) = names(de_dfs)
+  colnames(cons_mat) = names(de_dfs)
+
+  rownames(n_mat) = names(de_dfs)
+  colnames(n_mat) = names(de_dfs)
+
+  return(list(
+    "correlation" = cor_mat,
+    "p" = p_mat,
+    "consistency" = cons_mat,
+    "n" = n_mat
+  ))
+}

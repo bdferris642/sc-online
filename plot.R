@@ -3,6 +3,7 @@ source("~/sc-online/utils.R")
 library(caret)
 library(dplyr)
 library(ggplot2)
+library(ggrepel)
 library(grid)
 library(patchwork)
 library(pheatmap)
@@ -251,6 +252,159 @@ plotDfSummary = function(df, fig_filename){
     grid_table = tableGrob(df)
     grid.draw(grid_table)
     dev.off()
+}
+
+
+plot_gsea_result_hbar = function(
+    gsea_df_subset, title, xlim = c(-4, 4), clim=c(-4, 4), 
+    fig_filename=NULL, plot_width=10, plot_height=6){
+
+    gsea_df_subset$rank = rank(gsea_df_subset$NES)
+    len = nrow(gsea_df_subset)
+    if (len == 0){
+        return()
+    }
+
+    # every 30 characters, replace the next space with a \n and then start over
+    gsea_df_subset$pathway = gsub("(.{30}\\s)", "\\1\n", gsea_df_subset$pathway, perl=TRUE)
+    gsea_df_subset$pathway = factor(gsea_df_subset$pathway, levels = rev(gsea_df_subset$pathway))
+    
+    p=ggplot(gsea_df_subset, aes(x=NES, y=pathway, color=NES, fill=NES)) +
+        geom_bar(stat="identity", position="identity") +
+        scale_fill_gradientn(colors = RColorBrewer::brewer.pal(11, "RdBu"),limits = clim) +
+        scale_y_discrete(limits = levels(gsea_df_subset$pathway)) +
+        scale_x_continuous(limits = xlim) +
+        ggtitle(title) +
+        labs(x="NES", y="Gene Set") +
+        theme(
+            panel.grid.major = element_blank(), 
+            panel.grid.minor = element_blank(), 
+            legend.position = "none",
+            plot.title = element_text(size=14),
+            plot.caption = element_text(hjust = 0.1),
+            plot.title.position = "plot",
+            axis.line = element_line(color = "black"),  # Add axis lines
+            axis.ticks = element_line(color = "black"),  # Add axis ticks
+            axis.text = element_text(size = 13),  # Increase tick label font size
+            axis.title = element_text(size = 13)  # Increase axis label font size
+        )
+    print(p)
+    if (!is.null(fig_filename)){
+        ggsave(fig_filename, plot=p, width=plot_width, height=plot_height, dpi=600, bg="white")
+    }
+}
+
+plot_gsea_result_hdot = function(
+    df, 
+    title=NULL, 
+    xlim=c(-4, 4), 
+    fig_filename = NULL, 
+    leading_edge_n=10,
+    leading_edge_linebreak_n=5,
+    top_n=10) {
+    #takes in a df with the following columns: NES, pathway, size, leading_edge
+    # along with a title, xlim, fig_filename (nullable)
+    # leading_edge_n is the max number of leading_edge genes to be annotated
+    # leading_edge_linebreak_n is the number of leading_edge genes to be displayed before a line break
+    # top_n is the number of pathways to be displayed on the plot for each direction 
+    # (i.e. max rows is 2*top_n for up- and down-regulated genesets)
+
+    # the df is filtered to the top_n pathways by NES above 0 and below 0
+
+    # Y axis: pathway. every 30 characters, replace the next space with a \n and then start over
+    # X axis: NES, appearing as an open circle. If NES > 0, this circle is blue, < 0 red. The size of the circle relates to the Gene Set Size. 
+    # The plot is annotated on the right with the leading_edge_top_n.
+    
+    # first, turn the leading edge into something we can read by taking the first `leading_edge_n` elemnets
+    # separating them with `, ` and finally adding line breaks
+    df_pos = df[df$NES > 0,]
+    df_neg = df[df$NES < 0,]
+
+    df_pos = df_pos[order(df_pos$NES, decreasing = TRUE),]
+    df_neg = df_neg[order(df_neg$NES, decreasing = FALSE),]
+
+    df = rbind(df_pos[1:top_n,], df_neg[1:top_n,])
+    df = df[order(df$NES),]
+    df = df[!is.na(df$NES),]
+
+    # Function to insert line breaks every `n` entries
+    insert_line_breaks = function(text, n = leading_edge_linebreak_n) {
+        parts = strsplit(text, ",\\s*")[[1]]
+        if (length(parts) <= n) {
+            return(text)
+        }
+        new_text = ""
+        for (i in seq_along(parts)) {
+            new_text = paste0(new_text, parts[i])
+            if (i < length(parts)) {
+                new_text = paste0(new_text, ",")
+            }
+            if (i %% n == 0 && i != length(parts)) {
+                new_text = paste0(new_text, "\n")
+            } else if (i != length(parts)) {
+                new_text = paste0(new_text, " ")
+            }
+        }
+        return(new_text)
+    }
+    
+
+    df$leading_edge_top_n = sapply(df$leadingEdge, function(x){
+        edge_list = strsplit(x, ",")[[1]]
+        len = length(edge_list)
+        if (len > leading_edge_n){
+            len=leading_edge_n
+        }
+        return(insert_line_breaks(paste(edge_list[1:len], collapse=", ")))
+    })
+
+    if (is.null(title)){
+        title = "GSEA NES by Pathway"
+    }
+
+    # Format the pathway names to include newline every 30 characters
+    df$pathway = gsub("(.{30}\\s)", "\\1\n", df$pathway, perl = TRUE)
+    df$NES_direction = ifelse(df$NES > 0, "NES > 0", "NES < 0")
+    
+    # Create the plot
+    p = ggplot(df, aes(x = NES, y = reorder(pathway, NES))) +
+        geom_point(aes(size = size, color = NES_direction), shape = 1) +
+        scale_color_manual(name = "NES Direction", values = c("NES > 0" = "blue", "NES < 0" = "red")) +
+        scale_size_continuous(name = "Size") +
+        geom_vline(xintercept = 0, linetype = "dotted", color = "black") +
+        labs(title = title, x = "NES", y = "Pathway") +
+        xlim(xlim) +
+        theme(
+            panel.grid.major = element_line(color = "gray", linetype = "dotted"),
+            panel.grid.minor = element_blank(),
+            legend.position = "left",
+            plot.title = element_text(size = 14),
+            plot.caption = element_text(hjust = 0.1),
+            plot.title.position = "plot",
+            axis.line = element_line(color = "black"),
+            axis.ticks = element_line(color = "black"),
+            axis.text = element_text(size = 13),
+            axis.title = element_text(size = 13),
+            axis.text.y.right = element_text(hjust = 1)
+        )
+    
+        # Create a secondary y-axis with leading_edge_top_n labels
+    p = p + geom_text(aes(y = reorder(pathway, NES), x = Inf, label = leading_edge_top_n), 
+                      hjust = -0.1, size = 4) +
+        coord_cartesian(clip = 'off') +
+        theme(
+            plot.margin = margin(5.5, 340, 5.5, 5.5),  # Increase right margin to make space for secondary labels
+            axis.text.y.right = element_text(hjust = 1)
+        )
+
+    
+    # Save the plot to file if a filename is provided
+    if (!is.null(fig_filename)) {
+        ggsave(fig_filename, plot = p, width = 14, height = 2*nrow(df)/3 + 1.5, bg="white", dpi=400)
+    }
+    
+    # Print the plot to the R console
+    print(p)
 }
 
 
@@ -602,9 +756,8 @@ plotKneeSingle=function(
         print(p)
 
         if (!is.null(fig_filename)){
-            ggsave(fig_filename, width=plot_width, height=plot_height, dpi=600, bg='white')
+            ggsave(fig_filename, plot=p, width=plot_width, height=plot_height, dpi=600, bg='white')
         }
-
     }
 
 plotOverlappingProbabilityHistograms = function(
@@ -624,24 +777,23 @@ plotOverlappingProbabilityHistograms = function(
 
   # Binning the data and calculating normalized counts
   bin_width = breaks[2] - breaks[1]
-  plot_df <- long_df %>%
-    mutate(
-      bin_str = cut(plot_col, breaks = breaks, include.lowest = TRUE), # the bins will be strings like '[0.05,0.1)'
+  plot_df = long_df %>%
+    mutate(bin_str = cut(plot_col, breaks = breaks, include.lowest = TRUE), # the bins will be strings like '[0.05,0.1)'
       bin = sapply(as.character(bin_str), function(x) { # extract the number of the lower bound
           lbound_str = strsplit(x, ",")[[1]][[1]]
-          return(as.numeric(substr(lbound_str, 2, nchar(lbound_str))))
+          return(as.numeric(substr(lbound_str, 2, nchar(lbound_str)))) # remove the '[' and convert to numeric
     })) %>%
     group_by(group_col, bin) %>%
-    summarize(count = n()) %>%
+    dplyr::summarize(count = n()) %>%
     ungroup() %>%
     group_by(group_col) %>%
-    mutate(probability = count / sum(count)) %>%
+    dplyr::mutate(probability = count / sum(count)) %>%
     ungroup()
 
   plot_df$bin = plot_df$ bin + bin_width/2
   # Plotting the normalized histograms
   p = ggplot(plot_df, aes(x = bin, y = probability, fill = group_col)) +
-    geom_bar(stat = "identity", position = "identity", alpha = 0.5, width = bin_width) +
+    geom_bar(stat = "identity", position = "identity", alpha = 0.4, width = bin_width) +
     xlim(xlim) +
     theme_minimal() +
     labs(title = title, x = "Value", y = "Probability")
@@ -779,60 +931,65 @@ plotScatterColorSingle=function(
 }
 
 
-plotStackedBarByGroup=function(
-    df, cat_col, type_col, normalize=FALSE,
-    plot_width=8, plot_height=8,
-     x_axis_label = '', y_axis_label='', plot_title='',
-     class_colors=NULL,
-     fig_filename=NULL){
+plotStackedBarByGroup = function(
+    df,
+    x_col, 
+    y_col,
+    fill_col,
+    plot_title="",
+    x_axis_label="",
+    y_axis_label="",
+    x_order=NULL,
+    types=NULL){
 
-    # TODO: separate the concerns of preparing the data and plotting it
-    # takes in a long df with categorical cat_col and type_col
-    # plots stacked bar plots, one for each type_col, with the height of each sub-bar
-    # dictated by counts of each catetgory in cat_col
-
-
-    # make a table
-    t_list = list()
+    # this function takes a long dataframe (for instance, the output of utils::getCountProportionDF), 
+    # and plots a stacked bar plot of y_col, with each bar corresponding to a unique value of x_col
+    # the bars are colored by the unique values of fill_col
     
-    for (i in unique(df[[cat_col]])) {
-        this_cat_types = df[df[, cat_col] == i, ][[type_col]]
-        t = table(this_cat_types)
-        if(normalize){
-            t = t/length(this_cat_types)
-        }
-        t[cat_col] = i
-        t_list = append(t_list, list(t))
+    if (is.null(types)) {
+        types = unique(df[[fill_col]])
+    }
+    ntypes = length(types)
+    rainbow_colors = rainbow(ntypes)
+    class_colors = setNames(rainbow_colors, sort(types))
+
+    # If x_order is provided, reorder x_col according to x_order
+    if (!is.null(x_order)) {
+        df[[x_col]] = factor(df[[x_col]], levels = x_order)
+    } else {
+        df[[x_col]] = factor(df[[x_col]])
     }
 
-    # Convert each table to a data frame and add a group column
-    df_list = lapply(1:length(t_list), function(i) {
-        data.frame(type = names(t_list[[i]]), 
-                    value = as.numeric(t_list[[i]]), 
-                    category = paste(cat_col, '-', i))
-    })
 
-    # Combine all data frames into one
-    combined_data = bind_rows(df_list)
-    df2plot=combined_data[!is.na(combined_data$value),]
-    
-    # Define a color palette for classes
-    if (is.null(class_colors)){
-        u = unique(df2plot$type) 
-        ntypes = length(u)
-        rainbow_colors = rainbow(ntypes)
-        class_colors = setNames(rainbow_colors, sort(u))
+    if (plot_title == "") {
+        plot_title = paste("Stacked bar plot of", y_col, "by", x_col, "colored by", fill_col)
     }
 
-    options(repr.plot.width=plot_width, repr.plot.height=plot_height)
-    p=ggplot(df2plot, aes(x = category, y = value, fill = type)) +
+    if (x_axis_label == "") {
+        x_axis_label = x_col
+    }
+
+    if (y_axis_label == "") {
+        y_axis_label = y_col
+    }
+
+    p=ggplot(df, aes_string(x = x_col, y = y_col, fill = fill_col)) +
         geom_bar(stat = "identity", position = "stack", width = 0.7) + # stacked bar
         labs(title = plot_title, x = x_axis_label, y = y_axis_label) +
-        theme_minimal() +
+        theme(
+            plot.title = element_text(size=16),
+            axis.line = element_line(color = "black"),  # Add axis lines
+            axis.ticks = element_line(color = "black"),  # Add axis ticks
+            axis.text = element_text(size = 14),  # Increase tick label font size
+            axis.title = element_text(size = 15),  # Increase axis label font size
+           axis.text.x = element_text(angle = 45, hjust = 1)  
+        ) +
         scale_fill_manual(values=class_colors)
 
     print(p)
 }
+
+
 
 
 selectColorScale = function(cmap, is_numeric, clim = c(0, 1), clab='', num_factors=NULL, reverse=FALSE) {
@@ -860,4 +1017,139 @@ selectColorScale = function(cmap, is_numeric, clim = c(0, 1), clab='', num_facto
 
 setwh = function(w, h){
     options(repr.plot.width = w, repr.plot.height = h)
+}
+
+violin_plot_plus_hbar = function(
+    sobj, features, group, assay, pt.size=0, f=mean, nrow=2, ncol=5, barsize=12) {
+        plots <- lapply(features, function(gene) {
+            p <- VlnPlot(
+                sobj, 
+                features = gene, 
+                group.by = group, 
+                assay = assay,  
+                pt.size = pt.size
+            ) + stat_summary(fun = f, geom = "point", size = barsize, colour = "black", shape = 95)
+
+            # if the feature is not last in the list, add NoLegend(). Otherwise, return the plot as is
+            if (gene != features[length(features)]) {
+                p = p + NoLegend()
+            }
+            
+            return(p)
+            })
+
+        # Combine the plots with wrap_plots
+        combined_plot = wrap_plots(plots, nrow = nrow, ncol = ncol)
+
+        # Display the combined plot
+        print(combined_plot)
+
+    }
+
+plot_overlapping_density_histogram = function(
+    df, 
+    hist_col,
+    fill_col,
+    colors = c("blue", "red"),
+    alpha=0.5,
+    breaks=seq(0, 16, 1),
+    title= NULL,
+    xlab = NULL,
+    fig_filename = NULL,
+    show_legend = TRUE
+
+){
+    # hist_col is the column you're making a histogram of (e.g. nUMI)
+    # fill_col is the column you're coloring by (e.g. cell_class)
+    # if fig_filename is not null, the plot will be saved to that file
+     
+    if (is.null(xlab)){
+        xlab = hist_col
+    }
+
+    if (is.null(title)){
+        title = paste0("Density Histogram of ", xlab, " by ", fill_col)
+    }
+
+
+    p = (
+        ggplot(df, aes_string(x=hist_col, fill=fill_col)) 
+        + geom_histogram(aes(y=..density..), alpha=alpha, position="identity", breaks=breaks)
+        + labs(title=title, x=xlab, y="Density")    
+        + theme(
+                plot.title = element_text(size=16),
+                axis.line = element_line(color = "black"),  # Add axis lines
+                axis.ticks = element_line(color = "black"),  # Add axis ticks
+                axis.text = element_text(size = 14),  # Increase tick label font size
+                axis.title = element_text(size = 15)  # Increase axis label font size
+            ) 
+        + scale_fill_manual(values=colors)   
+    )
+
+    if (!is.null(fig_filename)){
+        ggsave(fig_filename, p, width=8, height=6)
+    }
+
+    if (!show_legend){
+        p = p + theme(legend.position = "none")
+    }
+
+    return(p)
+}
+
+volcano_plot = function(
+    data, 
+    gene_col="gene",
+    x_col="logFC", 
+    y_col="negative_log10_p_adjusted", 
+    sig_col = "significant", 
+    x_label=expression(log[2]*"(Fold Change)"),
+    y_label=expression(log[10]*"(adjusted p-value)"),
+    title = NULL,
+    annot_genes = NULL,
+    xlim=c(-3,3)){
+
+        # todo: add a vector argument for annot_x_pos and annot_y_pos
+
+        if (is.null(title)){
+            title = paste0("Volcano Plot\nFraction of Expressed Genes Significant: ", round(sum(data[[sig_col]])/nrow(data), 2))
+        }
+
+    volcano_plot = ggplot(data, aes_string(x = x_col, y = y_col)) +
+        geom_point(aes_string(color = sig_col)) +
+        scale_color_manual(values = c("FALSE" = "black", "TRUE" = "red")) +
+        scale_x_continuous(limits = xlim) +
+        geom_hline(yintercept = -log10(0.05), linetype = "dotted", color = "blue") +
+        geom_vline(xintercept = c(-1, 1), linetype = "dotted", color = "blue") +
+        labs(
+            title = title,
+            x = x_label,
+            y = y_label
+        ) +
+        theme(
+            plot.title = element_text(size = 16),
+            axis.line = element_line(color = "black"),  # Add axis lines
+            axis.ticks = element_line(color = "black"),  # Add axis ticks
+            axis.text = element_text(size = 14),  # Increase tick label font size
+            axis.title = element_text(size = 15),  # Increase axis label font size
+            axis.text.x = element_text(angle = 45, hjust = 1) 
+        )
+
+    if (!is.null(annot_genes)){
+        annot_genes$nudge_x = 2*sign(annot_genes[[x_col]])
+        volcano_plot = volcano_plot + geom_label_repel(
+            data = annot_genes, 
+            aes_string(label = gene_col),
+            #vjust = -1,
+            box.padding = 0.5,  # Increase this value to push labels further out
+            point.padding = 0.5,  # Increase this value to add more space around the point
+            nudge_y = 0.25,  # Move labels further in the y direction
+            nudge_x = annot_genes$nudge_x,  # Move labels further in the x direction
+            segment.color = 'grey50',
+            max.overlaps = Inf
+        )
+    }
+
+    # Print the plot
+    print(volcano_plot)
 }
