@@ -20,7 +20,9 @@ spec <- matrix(c(
   'ncores', 'n', 1, "integer",
   'read-basename', 'r', 1, "character",
   'log-fc-thresh', 'f', 1, "numeric",
-  'min-pct', 'p', 1, "numeric"
+  'min-pct', 'p', 1, "numeric",
+  'only-pos', 'o', 1, "logical",
+  'default-assay', 'a', 1, "character"
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
@@ -43,11 +45,21 @@ min_pct = ifelse(
     0.01, 
     opt[['min-pct']]
   )
+ONLY_POS = ifelse(
+    is.null(opt[['only-pos']]), 
+    TRUE, 
+    opt[['only-pos']]
+  )
+DEFAULT_ASSAY = ifelse(
+    is.null(opt[['default-assay']]), 
+    "RNA", 
+    opt[['default-assay']]
+  )
 
 MARKER_SUBDIR = "markers"
 
 plan(strategy = "multicore", workers = ncores)
-options(future.globals.maxSize = 10000 * 1024^2) # Increase limit to 10,000 MiB
+options(future.globals.maxSize = 5000 * 1024^2) # Increase limit to 5000 MiB
 
 
 # remove .qs suffix from read_basename. Will use this slogan in writing the output.
@@ -59,6 +71,8 @@ print(paste('Run Slogan =', slogan))
 print(paste('Reading Seurat object at', read_path, '...'))
 s_obj = qread(read_path)
 
+DefaultAssay(s_obj) = DEFAULT_ASSAY
+
 Idents(s_obj) = s_obj[[cluster_col]]
 
 print(paste('Collecting markers and saving to', marker_path, '...'))
@@ -66,6 +80,6 @@ print(paste('Collecting markers and saving to', marker_path, '...'))
 markers = FindAllMarkers(
   s_obj, 
   logfc.threshold=logfc_threshold, min.pct=min_pct,
-  only.pos=TRUE, verbose=TRUE, return.thresh=0.05)
+  only.pos=ONLY_POS, verbose=TRUE, return.thresh=0.05)
 
 write.csv(markers, marker_path)

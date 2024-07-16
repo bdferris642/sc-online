@@ -15,10 +15,13 @@ spec <- matrix(c(
     'base-path', 'bp', 1, "character",
     'basename', 'bn', 1, 'character',
     'pseudocell-size', 'ps', 1, 'numeric',
+    'min-size', 'ms', 1, 'numeric',
     'cluster-col', 'cc', 1, 'character',
-    'grouping-col', 'gc', 1, 'character',
+    'grouping-cols', 'gc', 1, 'character',
     'embedding', 'e', 1, 'character',
-    'suffix', 's', 1, 'character'
+    'rand', 'r', 1, 'logical',
+    'suffix', 's', 1, 'character',
+    'default_assay', 'da', 1, 'character'
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
@@ -26,15 +29,29 @@ PSEUDOCELL_SIZE = ifelse(
     is.null(opt[['pseudocell-size']]), 
     30, 
     as.numeric(opt[['pseudocell-size']]))
+MIN_SIZE_LIMIT = ifelse(
+    is.null(opt[['min-size']]), 
+    10, 
+    as.numeric(opt[['min-size']]))
+
 CLUSTER_COL = ifelse(
     is.null(opt[['cluster-col']]), 
     "cell_class", 
     opt[['cluster-col']])
-GROUPING_COL = ifelse(
-    is.null(opt[['grouping-col']]), 
-    "participant_id", 
-    opt[['grouping-col']]
+if (is.null(opt[['grouping-cols']])){
+    GROUPING_COLS = c("participant_id")
+    GROUPING_COL_STR = "participant_id"
+} else {
+    GROUPING_COL_STR = sub(',', "_and_", opt[['grouping-cols']])
+    GROUPING_COLS = strsplit(opt[['grouping-cols']], ",")[[1]]
+}
+
+RAND = ifelse(
+    is.null(opt[['rand']]), 
+    TRUE, 
+    opt[['rand']]
 )
+
 EMBD = ifelse(
     is.null(opt[['embedding']]), 
     "pca", 
@@ -46,6 +63,12 @@ ADDITIONAL_SUFFIX = ifelse(
     paste0('__', opt[['suffix']])
 )
 
+DEFAULT_ASSAY = ifelse(
+    is.null(opt[['default_assay']]), 
+    "RNA", 
+    opt[['default_assay']]
+)
+
 BASE_PATH = opt[['base-path']]
 BASENAME = opt[['basename']]
 if (is.null(BASE_PATH) || is.null(BASENAME)) {
@@ -53,12 +76,19 @@ if (is.null(BASE_PATH) || is.null(BASENAME)) {
 }
 
 # Hard Code For Now
-NCORES = 10
-N_PCS = 30
-MIN_SIZE_LIMIT = 10
+NCORES = 28
+N_PCS = 20
+
 
 ###################### MAIN ######################
-suffix = paste0('_pseudocells__split_by_',  CLUSTER_COL, '__grouped_by_', GROUPING_COL, '__mean_size_', PSEUDOCELL_SIZE, ADDITIONAL_SUFFIX, '.qs')
+if (toupper(CLUSTER_COL) %in% c("NULL", "NONE", "NA")){
+    parsing_cols = GROUPING_COLS
+    suffix = paste0('_pseudocells__unsplit__grouped_by_', GROUPING_COL_STR, '__mean_size_', PSEUDOCELL_SIZE, "__rand_", RAND, ADDITIONAL_SUFFIX, '.qs')
+} else {
+    parsing_cols = c(CLUSTER_COL, GROUPING_COLS)
+    suffix = paste0('_pseudocells__split_by_',  CLUSTER_COL, '__grouped_by_', GROUPING_COL_STR, '__mean_size_', PSEUDOCELL_SIZE, "__rand_", RAND, ADDITIONAL_SUFFIX, '.qs')
+}
+
 
 read_path = file.path(BASE_PATH, BASENAME)
 write_path = gsub(".qs", suffix, read_path)
@@ -68,6 +98,7 @@ print(write_path)
 
 # load object
 s_obj = qread(read_path)
+DefaultAssay(s_obj) = DEFAULT_ASSAY
 print(paste("Seurat Object Dimensions:", unlist(dim(s_obj))))
 
 # Extracting the cell embedding data
@@ -78,7 +109,7 @@ data_sce = as.SingleCellExperiment(s_obj)
 
 pseudocells=suppressWarnings(
     .sconline.PseudobulkGeneration(argList=NULL, 
-    parsing.col.names = c(CLUSTER_COL, GROUPING_COL),
+    parsing.col.names = parsing_cols,
     pseudocell.size=PSEUDOCELL_SIZE,
     inputExpData=data_sce,
     min_size_limit=MIN_SIZE_LIMIT,
@@ -86,17 +117,19 @@ pseudocells=suppressWarnings(
     inputEmbedding=embedding_data,
     nPCs=N_PCS,
     ncores=NCORES,
-    rand_pseudobulk_mod=F,
+    rand_pseudobulk_mod=RAND,
     organism="Human")
 )
-
-print(paste("Number of Pseudocells:", length(pseudocells)))
 
 #Transforming the nGene and nUMI
 pseudocells$QC_Gene_total_log=log2(pseudocells$QC_Gene_total_count)
 pseudocells$QC_Gene_unique_log=log2(pseudocells$QC_Gene_unique_count)
 
-pseudocells_list=.mySplitObject(pseudocells, CLUSTER_COL)
+if (toupper(CLUSTER_COL) %in% c("NULL", "NONE", "NA")){
+    pseudocells_list=list(pseudocells)
+} else {
+    pseudocells_list=.mySplitObject(pseudocells, CLUSTER_COL)
+}
 
 #Writing the pseudocells
 qsave(pseudocells_list, write_path)

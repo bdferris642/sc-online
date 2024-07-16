@@ -19,12 +19,12 @@ source("/home/ferris/sc-online/utils.R")
 spec <- matrix(c(
     'base-path', 'bp', 1, "character",
     'pseudocell-basename', 'pbn', 1, 'character',
-    'seurat-basename', 'sbn', 1, 'character',
     'bkg-gene-pct', 'bgp', 1, "numeric",
     'bkg-gene-count', 'bgc', 1, "numeric",
     'contrast-col', 'cnc', 1, "character",
     'cluster-col', 'clc', 1, "character",
     'cov-list', 'cl', 1, "character",
+    'covs-from-file', 'cff', 1, "logical",
     'rand-var', 'rv', 1, "character",
     'de-method', 'dem', 1, "character",
     'only-clusters', 'o', 1, 'character',
@@ -41,17 +41,20 @@ BKG_GENE_COUNT_THR = ifelse(
     opt[['bkg-gene-count']])
 print(paste('bkg-gene-count:', BKG_GENE_COUNT_THR))
 
-BKG_GENE_COUNT_THR = ifelse(
+BKG_GENE_PCT_THR = ifelse(
     is.null(opt[['bkg-gene-pct']]), 
     0.01, 
     opt[['bkg-gene-pct']])
-print(paste('bkg-gene-pct:', BKG_GENE_COUNT_THR))
+print(paste('bkg-gene-pct:', BKG_GENE_PCT_THR))
 
 RAND_VAR = ifelse(
     is.null(opt[['rand-var']]), 
     "participant_id", 
     opt[['rand-var']])
 print(paste('rand-var:', RAND_VAR))
+if (tolower(RAND_VAR) %in% c("null", "na", "none")){
+    RAND_VAR = NULL
+}
 
 CONTRAST_COL = ifelse(
     is.null(opt[['contrast-col']]), 
@@ -66,17 +69,22 @@ CLUSTER_COL = ifelse(
 print(paste('cluster-col:', CLUSTER_COL))
 
 if (is.null(opt[['cov-list']])) {
-    COV_LIST = c('case_control', 'sex', 'age', 'QC_Gene_total_log', 'QC_MT.pct')
+    COV_LIST = c('case_control', 'sex', 'age', 'QC_Gene_total_log', 'pct_mito', "pct_intronic")
 } else {
     COV_LIST = strsplit(opt[['cov-list']], ",")[[1]]
 }
-print('cov-list:')
-print(COV_LIST)
+
+if (is.null(opt[['covs-from-file']])) {
+    COV_FROM_FILE = TRUE
+} else {
+    COV_FROM_FILE = opt[['covs-from-file']]
+}
 
 DE_METHOD = ifelse(
     is.null(opt[['de-method']]),
     "Trend",
     opt[['de-method']])
+    
 if (is.null(opt[['only-clusters']])) {
     ONLY_CLUSTERS = NULL
 } else {
@@ -89,14 +97,20 @@ SUFFIX = ifelse(
     paste0('__', opt[['suffix']])
 )
 
+BASE_PATH = ifelse(
+    is.null(opt[['base-path']]),
+    "/mnt/accessory/seq_data/pd_all/240514",
+    opt[['base-path']])
 
-if (is.null(opt[['base-path']]) || is.null(opt[['pseudocell-basename']]) || is.null(opt[['seurat-basename']])) {
-    stop("Please provide a base-path, a pseudocell-basename, and a seurat-basename")
+
+if (is.null(opt[['pseudocell-basename']])) {
+    stop("Please provide a pseudocell-basename")
 }
 
-BASE_PATH = opt[['base-path']]
 PSEUDOCELL_BASENAME = opt[['pseudocell-basename']]
-SEURAT_BASENAME = opt[['seurat-basename']]
+# to get the seurat basename, take the pseudocell basename until the _pseudocell
+# and remove everything that comes after it as well. Finally, append .qs
+SEURAT_BASENAME = gsub("_pseudocell.*", ".qs", PSEUDOCELL_BASENAME)
 
 
 # hard code these for now
@@ -113,10 +127,8 @@ pseudocells_list = qread(pseudocell_read_path)
 s_obj = qread(s_obj_read_path)
 
 # TODO! Fix for now
+#s_obj = s_obj[, s_obj@meta.data[[CONTRAST_COL]] %in% c("pd", "ctr")]
 print(table(s_obj@meta.data[[CONTRAST_COL]]))
-s_obj = s_obj[, s_obj@meta.data[[CONTRAST_COL]] %in% c("pd", "ctr")]
-print(table(s_obj@meta.data[[CONTRAST_COL]]))
-
 
 data_sce = as.SingleCellExperiment(s_obj)
 
@@ -134,7 +146,7 @@ categories = sort(unique(colData(data_sce)[[CONTRAST_COL]]))
 category1 = categories[[1]]
 category2 = categories[[2]]
 for (c in categories) {
-    if (tolower(c) %in% c("ctr", "ctrl", "cntrl", "control")) {
+    if (tolower(c) %in% c("ctr", "ctrl", "cntrl", "control", "GTEx")) {
         category2 = c
         category1 = categories[categories != c][[1]]
         break
@@ -145,6 +157,7 @@ print(paste("Contrast string:", contrast_str))
 
 print(paste("Performing DE analysis on clusters:", paste(names(pseudocells_list), collapse=", "), "from cluster column", CLUSTER_COL, "..."))
 for (x_name in names(pseudocells_list)){
+
     if (! is.null(ONLY_CLUSTERS)) {
         print(paste("checking if", x_name, "in", ONLY_CLUSTERS))
         if (! x_name %in% ONLY_CLUSTERS) {
@@ -152,12 +165,30 @@ for (x_name in names(pseudocells_list)){
             next
         }
     }
+
+    if (COV_FROM_FILE){
+        # the file is a list of covariates to use, indexed by a cell type, with value being a comma-delimited string
+        file_de_list = qread(sub(".qs$", "__covariates_used_incl_peer.qs", pseudocell_read_path))
+        if (x_name %in% names(file_de_list)){
+            this_cov_list = strsplit(file_de_list[[x_name]], ",")[[1]]
+        } else {
+            cat(paste0("No covariates found in file for cell type ", x_name, "\nFalling  back to default covariates"))
+            this_cov_list = COV_LIST
+        }
+    } else {
+        this_cov_list = COV_LIST
+    }
+    print(paste0('COVARIATE LIST for ct ', x_name))
+    print(this_cov_list)
+
     print(x_name)
     x=pseudocells_list[[x_name]]
-    cd = colData(x)[, c(CONTRAST_COL, COV_LIST, RAND_VAR, CLUSTER_COL)]
+    cd = colData(x)[, c(CONTRAST_COL, this_cov_list, RAND_VAR, CLUSTER_COL)]
     
     # todo: fix this, parametrized
-    x = x[, complete.cases(cd) & cd$case_control != ""]
+    x = x[, complete.cases(cd) & cd[[CONTRAST_COL]] != ""]
+
+    print(paste0("num pseudocells: ", ncol(x)))
 
     # if (length(unique(cd[[CONTRAST_COL]] != 2))) {
     #     print("Contrast column must have exactly 2 categories! Skipping...")
@@ -167,8 +198,10 @@ for (x_name in names(pseudocells_list)){
     res=NULL
     res_pd=NULL
 
+
     if(ncol(x)>=MIN_NUM_PSEUDOCELLS){
         print(paste0("Calculating DE genes for ", x_name))
+        print(dim(x))
         
         if(!is.null(BKG_GENE_COUNT_THR)){
             anno = as.data.frame(colData(data_sce))[[CLUSTER_COL]]
@@ -176,59 +209,73 @@ for (x_name in names(pseudocells_list)){
             tmp_bkg_genes=counts(data_sce)[,which(anno==x_name)]
             tmp_bkg_genes_counts=rowSums(tmp_bkg_genes>0)
             tmp_bkg_genes_frac=tmp_bkg_genes_counts/sum(anno==x_name)
-            tmp_bkg_genes=row.names(data_sce)[tmp_bkg_genes_frac>=BKG_GENE_COUNT_THR&tmp_bkg_genes_counts>=BKG_GENE_COUNT_THR]
+            tmp_bkg_genes=row.names(data_sce)[tmp_bkg_genes_frac>=BKG_GENE_PCT_THR&tmp_bkg_genes_counts>=BKG_GENE_COUNT_THR]
         } else {
             tmp_bkg_genes=NULL
         }
         
         #inputExpData=x;covariates=COV_LIST;randomEffect=rand_effect;bkg_genes=tmp_bkg_genes;quantile.norm=quantile_norm;prior.count=1
-        res=.sconline.fitLimmaFn(
-            inputExpData=x,
-            DEmethod=DE_METHOD,
-            covariates=COV_LIST,
-            randomEffect=RAND_VAR,
-            bkg_genes=tmp_bkg_genes,
-            quantile.norm=QUANTILE_NORM,
-            prior.count=1) #TODO: check if this is the right value for prior.count
-        #check the dc object, the usual consensus.correlation that I get is in the range of ~0.2 or above if rand=T
-        
-        # TODO: parametrize this!
-        #contr = makeContrasts(contrast_str, levels=res$model)
-        contr = makeContrasts(case_controlpd - case_controlctr, levels = res$model)
-        fit2=contrasts.fit(res$fit,contrasts=contr)
-        
-        # TODO: Explore setting robust=F
-        fit2=eBayes(fit2, robust=T, trend=T)
+        tryCatch({
+            res=.sconline.fitLimmaFn(
+                inputExpData=x,
+                DEmethod=DE_METHOD,
+                covariates=this_cov_list,
+                randomEffect=RAND_VAR,
+                bkg_genes=tmp_bkg_genes,
+                quantile.norm=QUANTILE_NORM,
+                prior.count=1) #TODO: check if this is the right value for prior.count
+            #check the dc object, the usual consensus.correlation that I get is in the range of ~0.2 or above if rand=T
+            
+            
+            # TODO: parametrize this!
 
-        res_pd = topTable(
-            fit2,
-            number=dim(fit2)[1],
-            adjust.method="BH",
-            coef=contrast_str)
+            contr = makeContrasts(contrasts=contrast_str, levels=res$model)
 
-        res_pd = res_pd[order(-res_pd$adj.P.Val),]
-        res_pd$gene = rownames(res_pd)
-        res_pd = res_pd[, c('gene', 'logFC', 'adj.P.Val', 'AveExpr')]
+            # if (CONTRAST_COL == "case_control") {
+            #     contr = makeContrasts(case_controlpd - case_controlctr, levels = res$model)
+            # } else if (CONTRAST_COL == "source") {
+            #     contr = makeContrasts(sourceCalico - sourceGTEx, levels = res$model)
+            # }
+            
+            fit2=contrasts.fit(res$fit,contrasts=contr)
+            
+            # TODO: Explore setting robust=F
+            fit2=eBayes(fit2, robust=T, trend=T)
 
-        output_list = list(
-            'res' = res,
-            'res_pd' = res_pd,
-            'seurat_object' = s_obj_read_path,
-            'pseudocells' = pseudocell_read_path, 
-            'cluster_col' = CLUSTER_COL,
-            'cluster' = x_name,
-            'de_method' = DE_METHOD,
-            'contrast_col' = CONTRAST_COL,
-            'cov_list' = COV_LIST,
-            'rand_var' = RAND_VAR,
-            'quantile_norm' = QUANTILE_NORM,
-            'min_num_pseudocells' = MIN_NUM_PSEUDOCELLS
-        )
+            res_pd = topTable(
+                fit2,
+                number=dim(fit2)[1],
+                adjust.method="BH",
+                coef=contrast_str)
 
-        write_path = file.path(de_dir, paste0(tolower(DE_METHOD), '__', x_name, SUFFIX, '.qs'))
-        qsave(output_list, write_path)
+            res_pd = res_pd[order(-res_pd$logFC),]
+            res_pd$gene = rownames(res_pd)
 
-        csv_write_path = gsub(".qs", ".csv", write_path)
-        write.csv(res_pd, csv_write_path, row.names=FALSE)
+            res_pd = res_pd[, c('gene', 'logFC', 'adj.P.Val')]
+
+            output_list = list(
+                'res' = res,
+                'res_pd' = res_pd,
+                'seurat_object' = s_obj_read_path,
+                'pseudocells' = pseudocell_read_path, 
+                'cluster_col' = CLUSTER_COL,
+                'cluster' = x_name,
+                'de_method' = DE_METHOD,
+                'contrast_col' = CONTRAST_COL,
+                'cov_list' = this_cov_list,
+                'rand_var' = RAND_VAR,
+                'quantile_norm' = QUANTILE_NORM,
+                'min_num_pseudocells' = MIN_NUM_PSEUDOCELLS
+            )
+
+            write_path = file.path(de_dir, paste0(tolower(DE_METHOD), '__', x_name, SUFFIX, '.qs'))
+            qsave(output_list, write_path)
+
+            csv_write_path = gsub(".qs", ".csv", write_path)
+            write.csv(res_pd, csv_write_path, row.names=FALSE)
+        }, error=function(e){
+            print(paste("Error in DE analysis for", x_name))
+            print(e)
+        })
     }
 }

@@ -38,7 +38,8 @@ spec <- matrix(c(
     'ncores', 'n', 1, "integer",
     'nfeatures', 'f', 1, "integer",
     'npcs', 'p', 1, "integer",
-    'var-adj-pca', 'a', 1, "logical"
+    'var-adj-pca', 'a', 1, "logical",
+    'suffix', 'u', 1, "character"
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
@@ -72,13 +73,18 @@ var_adj_pca = ifelse(
     FALSE, 
     opt[['var-adj-pca']])
 
+suffix = opt[['suffix']]
+
 ################################# MAIN #################################
 
 #plan(strategy = "multicore", workers = ncores)
-options(future.globals.maxSize = 10000 * 1024^2) # Increase limit to 10,000 MiB
+options(future.globals.maxSize = 5000 * 1024^2) # Increase limit to 5,000 MiB
 
 # remove .qs suffix from read_basename. Will use this slogan in writing the output.
 slogan = gsub("\\.qs$", "", read_basename)
+if (! is.null(suffix)) {
+    slogan = paste0(slogan, "_", suffix)
+}
 read_path = file.path(base_path, read_basename)
 print(paste('Run Slogan =', slogan))
 print(paste('Reading Seurat object at', read_path, '...'))
@@ -135,7 +141,7 @@ for (cell_class in cell_classes) {
             dims.use = 1:npcs,
             early_stop = T,
             max_iter=25,
-            plot_convergence = TRUE
+            plot_convergence = FALSE,
             reduction.save="harmony", # literally have to add this because `reduction` and `reduction.save` both start with same string
             reduction=reduction
         )

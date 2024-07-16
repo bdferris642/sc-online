@@ -62,7 +62,7 @@ opt <- getopt(spec)
 
 LIB_PATH = ifelse(
     is.null(opt[['lib-path']]), 
-    "~/calico-libs-long.txt", 
+    "~/missing-gtex.txt", 
     opt[['lib-path']])
 BASE_PATH = ifelse(
     is.null(opt[['base-path']]), 
@@ -94,7 +94,7 @@ SAVE_CELLBENDER_RDS = ifelse(
     opt[['make-cellbender']])
 SUPPLEMENTARY_METADATA_PATH = ifelse(
     is.null(opt[['supplementary-metadata-path']]), 
-    "~/sc-online/notebook_data/pd_lib_info_20240402.csv", 
+    "~/sc-online/notebook_data/pd_lib_info_20240510.csv", 
     opt[['supplementary-metadata-path']]
 )
     
@@ -299,7 +299,7 @@ SKIPPED  = c()
 for (d in DIRS_TO_READ){
     if (d == ""){next}
     if (!file.exists(file.path(BASE_PATH, "gtex", d, "cr_outs", "_cmdline"))){next}
-    if (!file.exists(file.path(BASE_PATH, "gtex", d, "vireo_outs", "donor_list", "donor_ids.tsv"))){
+    if (!file.exists(file.path(BASE_PATH, "gtex", d, "vireo_outs", "no_subset", "donor_ids.tsv"))){
         SKIPPED  = c(SKIPPED , d)
     }
 }
@@ -370,7 +370,7 @@ for (long_name in names(DIRS_TO_READ)){
     print('READING FILTERED DGC .H5')
     # always read this
     filtered_dgc = Read10X_h5(filtered_counts_path)
-    filtered_dgc_list[[name]] = filtered_dgc 
+    filtered_dgc_list[[name]] = filtered_dgc
 
     if (MAKE_AND_SAVE_FILTERED_SCE_RDS){
     
@@ -474,7 +474,7 @@ for (name in DIRS_TO_READ){
     orig_sce = readRDS(file.path(this_base_path, name, DATA_ING_DIRNAME, "data_sce.rds"))
     filtered_cb_path = file.path(this_base_path, name, "cb_outs", paste0(name, "_out_filtered.h5"))
 
-    file_path = filtered_cb_path
+    file_path = filtered_cb_path # the path to the *_out_filtered.h5 file
     h5_data = h5read(file_path, "/matrix")
     counts = h5_data$data
     indices = h5_data$indices
@@ -488,11 +488,12 @@ for (name in DIRS_TO_READ){
                                     x=counts,
                                     dims=c(num_genes, num_cells))
 
-    rownames(counts_matrix) = h5_data$features$name
+    rownames(counts_matrix) = h5_data$features$name 
     colnames(counts_matrix) = barcodes
     sce_filt = orig_sce[, colnames(orig_sce) %in% colnames(counts_matrix)]
     counts_matrix_filtered = counts_matrix[, colnames(counts_matrix) %in% colnames(sce_filt)]
-    counts_matrix_filtered = sum_duplicate_rownames_of_dgc_matrix(counts_matrix_filtered)
+    # for whatever reason, there can be duplicated rownames (i.e. genes) in the cellbender output, causing errors later on. Sum these together.
+    counts_matrix_filtered = sum_duplicate_rownames_of_dgc_matrix(counts_matrix_filtered) 
     counts_matrix_filtered = counts_matrix_filtered[, match(colnames(sce_filt), colnames(counts_matrix_filtered))]
 
     cd = colData(sce_filt)
@@ -521,6 +522,18 @@ for (name in DIRS_TO_READ){
             addExtraAnno=T,
             ncores=12
         )
+    
+    # need to re-add important QC data that gets scrambled above for reasons I don't understand
+    sce_filt = sce_filt[, match(colnames(cb_sce), colnames(sce_filt))]
+    cb_sce$nUMI = sce_filt$nUMI
+    cb_sce$nGene = sce_filt$nGene
+    cb_sce$nRead = sce_filt$nRead
+    cb_sce$pct_intronic = sce_filt$pct_intronic
+    
+    qc_cols = colnames(colData(sce_filt))[grepl("^QC", colnames(colData(sce_filt)))]
+    for (c in qc_cols){
+        cb_sce[[c]] = sce_filt[[c]]
+    }
     
     print("SAVING CELLBENDER SCE AS .RDS")
     cb_rds_basename = paste0("cb_data_sce_FPR_", FPR, ".rds")
