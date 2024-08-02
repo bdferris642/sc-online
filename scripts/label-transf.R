@@ -315,9 +315,18 @@ query_renamed = CreateSeuratObject(
     meta.data = query@meta.data)
 
 print("Scaling data")
-query_renamed = query_renamed %>% NormalizeData() %>% ScaleData(features=hvgs, split.by=SCALING_SUBSET_COL, vars.to.regress=REGRESSION_VARS)
+query_renamed = (query_renamed 
+    %>% NormalizeData() 
+    %>% ScaleData(
+        features=hvgs, 
+        split.by=SCALING_SUBSET_COL, 
+        vars.to.regress=REGRESSION_VARS)
+)
 
 print("Merging datasets")
+
+ref_renamed$cell_names_orig = colnames(ref_renamed)
+query_renamed$cell_names_orig = colnames(query_renamed)
 
 merged = merge(
     ref_renamed[hvgs,],
@@ -325,9 +334,17 @@ merged = merge(
     project = "merged"
 )
 
-ref_metadata = ref_renamed@meta.data[, c("participant_id", "cell_class", LT_COL)]
-q_metadata = query_renamed@meta.data[, c("participant_id", "cell_class")]
+ref_metadata = ref_renamed@meta.data[, c("cell_names_orig", "participant_id", LT_COL)]
+q_metadata = query_renamed@meta.data[, c("cell_names_orig", "participant_id")]
 q_metadata[[LT_COL]] = "NA"
+
+# Ensure row names (cell names) match the merged object
+cell_names = colnames(merged)
+ref_metadata = ref_metadata[match(cell_names[1:nrow(ref_metadata)], ref_metadata$cell_names_orig),]
+q_metadata = q_metadata[match(cell_names[(nrow(ref_metadata) + 1):length(cell_names)], q_metadata$cell_names_orig),]
+
+rownames(ref_metadata) = ref_metadata$cell_names_orig
+rownames(q_metadata) = q_metadata$cell_names_orig
 
 print("Concatenating meta.data")
 merged@meta.data = rbind(
@@ -338,6 +355,7 @@ merged$dataset = ifelse(
     "reference",
     "query"
 )
+merged$cell_names_orig = NULL
 
 ref_scaled_data = ref_renamed@assays$RNA@scale.data 
 query_scaled_data = query_renamed@assays$RNA@scale.data
@@ -364,14 +382,16 @@ print("Running Harmony")
 # todo: parametrize the group.by.vars?
 merged = (merged
     %>% RunHarmony(
-        group.by.vars=c("dataset"),
+        group.by.vars=c("dataset", "participant_id"),
         dims.use=1:20,
         plot_convergence=F,
         reference_values="reference"
     )
 )
 
-#qsave(merged, file.path(REFERENCE_BASE_PATH, MERGED_OUTNAME))
+merged = merged %>% FindNeighbors(dims=1:20, reduction="harmony") %>% RunUMAP(dims=1:20, reduction="harmony")
+merged@meta.data[["umap_1"]] = merged@reductions$umap@cell.embeddings[, 1]
+merged@meta.data[["umap_2"]] = merged@reductions$umap@cell.embeddings[, 2]
 
 print("Label Transfer")
 query.embeddings = merged@reductions$harmony@cell.embeddings[merged$dataset == "query",]
@@ -389,7 +409,8 @@ prob_mat_combined = parse.sconline.outs(sconline.res)
 merged@meta.data = cbind(merged@meta.data, prob_mat_combined)
 
 prob_mat_out = merged@meta.data[,
-    c("dataset", "participant_id", "cell_class", LT_COL, colnames(prob_mat_combined))
+    c("dataset", "participant_id", LT_COL, 
+    "umap_1", "umap_2", colnames(prob_mat_combined))
 ]
 
 prob_mat_out_query = prob_mat_out[prob_mat_out$dataset == "query", colnames(prob_mat_combined)]
