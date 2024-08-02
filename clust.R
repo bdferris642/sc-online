@@ -35,6 +35,7 @@ getClusterLogFC = function(seurat_obj, cluster){
 
 normalizeScalePcaClusterUmap = function(
     sobj,
+    assay = "RNA",
     var_feature_subset_col="participant_id",
     scaling_subset_col="participant_id",
     harmony_group_vars=c("participant_id"),
@@ -47,6 +48,8 @@ normalizeScalePcaClusterUmap = function(
     # this function takes a Seurat object, normalizes the data, scales the data, runs PCA, finds neighbors, 
     # clusters at a variety of resolutions, and runs UMAP
     # it then returns the Seurat object
+
+    DefaultAssay(sobj) = assay
     
     if (is.null(hvgs)){
         if (is.null(var_feature_subset_col)){
