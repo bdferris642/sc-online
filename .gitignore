@@ -9,3 +9,5 @@ macosko_data_libraries.txt
 test_libs.txt
 libs.txt
 notebook_data
+scripts/scratch.R
+scripts/stub.R
