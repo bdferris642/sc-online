@@ -210,6 +210,9 @@ parse.sconline.outs = function(outs, slot="combined_labels") {
 ################# MAIN #################
 
 query = qread(file.path(QUERY_BASE_PATH, QUERY_BASENAME))
+old_inferred_lt_cols = colnames(query@meta.data)[grepl(paste0("inferred_", LT_COL, "__"), colnames(query@meta.data))]
+query@meta.data[,old_inferred_lt_cols] = NULL
+
 if (grepl(".qs$", REFERENCE_BASENAME)) {
     ref = qread(file.path(REFERENCE_BASE_PATH, REFERENCE_BASENAME))
 } else if (grepl(".rds$", REFERENCE_BASENAME)){
@@ -217,6 +220,8 @@ if (grepl(".qs$", REFERENCE_BASENAME)) {
 } else {
     stop("Reference file must be either .qs or .rds")
 }
+
+ref = ref[,!is.na(ref@meta.data[[LT_COL]])]
 
 if (CONVERT_GENE_NAMES){
     print("Converting gene names")
@@ -404,7 +409,6 @@ sconline.res = .myLabelTransfer_aligned(pca_source = ref.embeddings, source_labe
                                         pca_target = query.embeddings, meta_target = query.metadata, return_seurat_obj = F)
 
 print("Parsing Output")
-
 prob_mat_combined = parse.sconline.outs(sconline.res)
 merged@meta.data = cbind(merged@meta.data, prob_mat_combined)
 
@@ -413,7 +417,7 @@ prob_mat_out = merged@meta.data[,
     "umap_1", "umap_2", colnames(prob_mat_combined))
 ]
 
-prob_mat_out_query = prob_mat_out[prob_mat_out$dataset == "query", colnames(prob_mat_combined)]
+prob_mat_out_query = prob_mat_out[prob_mat_out$dataset == "query", c(colnames(prob_mat_combined), "umap_1", "umap_2")]
 prob_mat_out_query = prob_mat_out_query[match(colnames(query_renamed), rownames(prob_mat_out_query)),]
 
 # paste inferred_<LT_COL>_ to the column names
@@ -422,6 +426,6 @@ colnames(prob_mat_out_query) = new_colnames
 
 # append this to the actual query object
 query_renamed@meta.data = cbind(query_renamed@meta.data, prob_mat_out_query)
-qsave(query_renamed, file.path(QUERY_BASE_PATH, QUERY_BASENAME))
 
+qsave(query_renamed, file.path(QUERY_BASE_PATH, QUERY_BASENAME))
 qsave(prob_mat_out, file.path(QUERY_BASE_PATH, MERGED_OUTNAME))
