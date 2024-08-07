@@ -251,11 +251,41 @@ for (x_name in names(pseudocells_list)){
             res_pd = res_pd[order(-res_pd$logFC),]
             res_pd$gene = rownames(res_pd)
 
-            res_pd = res_pd[, c('gene', 'logFC', 'adj.P.Val')]
+            res_pd = res_pd[, c('gene', 'logFC', 'adj.P.Val', 'AveExpr')]
+
+            write_path = file.path(de_dir, paste0(tolower(DE_METHOD), '__', x_name, SUFFIX, '.qs'))
+            csv_write_path = gsub(".qs", "__case_control.csv", write_path)
+            write.csv(res_pd, csv_write_path, row.names=FALSE)
+        
+            # also make top_tables for age and sex
+            fit2=eBayes(res$fit, robust=T, trend=T)        
+            tt_age = topTable(
+                fit2,
+                number=dim(fit2)[1],
+                adjust.method="BH",
+                coef="age")
+
+            tt_age = tt_age[order(-tt_age$logFC),]
+            tt_age$gene = rownames(tt_age)
+
+            write.csv(tt_age, gsub(".qs", "__age.csv", write_path))
+        
+            contr = makeContrasts(sexFemale - sexMale, levels = res$model)
+            fitc=contrasts.fit(res$fit,contrasts=contr)
+            fitc2=eBayes(fitc, robust=T, trend=T)
+
+            tt_sex = topTable(
+                fitc2,
+                number=dim(fit2)[1],
+                adjust.method="BH",
+                coef="sexFemale - sexMale")
+            write.csv(tt_sex, gsub(".qs", "__sex.csv", write_path))
 
             output_list = list(
                 'res' = res,
                 'res_pd' = res_pd,
+                'res_sex' = tt_sex,
+                'res_age' = tt_age,
                 'seurat_object' = s_obj_read_path,
                 'pseudocells' = pseudocell_read_path, 
                 'cluster_col' = CLUSTER_COL,
@@ -267,12 +297,9 @@ for (x_name in names(pseudocells_list)){
                 'quantile_norm' = QUANTILE_NORM,
                 'min_num_pseudocells' = MIN_NUM_PSEUDOCELLS
             )
-
-            write_path = file.path(de_dir, paste0(tolower(DE_METHOD), '__', x_name, SUFFIX, '.qs'))
             qsave(output_list, write_path)
+            
 
-            csv_write_path = gsub(".qs", ".csv", write_path)
-            write.csv(res_pd, csv_write_path, row.names=FALSE)
         }, error=function(e){
             print(paste("Error in DE analysis for", x_name))
             print(e)
