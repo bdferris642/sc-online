@@ -17,7 +17,8 @@ source("~/sc-online/gsea.R")
 
 BASE_PATH = "/mnt/accessory/seq_data/pd_all/240514"
 PATH_LIST = c(
-    "nurr_da_double_clean.qs"
+    "dapi_nurr_merged_seurat_clean_da.qs"
+    #nurr_da_double_clean.qs"
     # "dapi_mg_clean_ctr.qs"
     # "dapi_mg_clean.qs"
     # "dapi_astro_clean.qs",
@@ -38,8 +39,8 @@ gsea_outdir = file.path(BASE_PATH, "cna/gsea")
 dir.create(figure_outdir, recursive=TRUE, showWarnings=FALSE)
 dir.create(gsea_outdir, recursive=TRUE, showWarnings=FALSE)
 
+# add the paths to the gene sets you want to use here
 gene_sets = list(
-    # add the paths to the gene sets you want to use here
     kegg_2021_human = "~/genesets/KEGG_2021_Human.txt",
     go_process = "~/genesets/GO_Biological_Process_2021.txt",
     go_function = "~/genesets/GO_Molecular_Function_2021.txt",
@@ -65,8 +66,8 @@ for (path in PATH_LIST){
         }
     }
 
-    # obj$status_val = as.numeric(factor(obj$case_control, c('ctr', 'pd')))
-    obj$status_val = as.numeric(factor(obj$source, c('GTEx', 'Calico')))
+    obj$status_val = as.numeric(factor(obj$case_control, c('ctr', 'pd')))
+    # obj$status_val = as.numeric(factor(obj$source, c('GTEx', 'Calico')))
     obj$sex_val = as.numeric(factor(obj$sex, c('Female', 'Male')))
     
     cat("Running CNA against sex\n")

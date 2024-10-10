@@ -15,26 +15,21 @@ library(getopt)
 library(Seurat)
 
 spec <- matrix(c(
-  'base-path', 'b', 1, "character",
+  'path', 'p', 1, "character",
   'cluster-col', 'c', 1, "character",
   'ncores', 'n', 1, "integer",
-  'read-basename', 'r', 1, "character",
-  'log-fc-thresh', 'f', 1, "numeric",
-  'min-pct', 'p', 1, "numeric",
+  'log-fc-thresh', 'lfc', 1, "numeric",
+  'min-pct', 'mp', 1, "numeric",
   'only-pos', 'o', 1, "logical",
   'default-assay', 'a', 1, "character"
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
-read_basename = opt[['read-basename']]
 ncores = opt[['ncores']]
-base_path = ifelse(
-    is.null(opt[['base-path']]), 
-    "/mnt/accessory/seq_data/pd_all", 
-    opt[['base-path']])
+path = opt[['path']]
 cluster_col = ifelse(
     is.null(opt[['cluster-col']]), 
-    "seurat_clusters", 
+    "cell_class", 
     opt[['cluster-col']])
 logfc_threshold = ifelse(
     is.null(opt[['log-fc-thresh']]), 
@@ -63,13 +58,14 @@ options(future.globals.maxSize = 5000 * 1024^2) # Increase limit to 5000 MiB
 
 
 # remove .qs suffix from read_basename. Will use this slogan in writing the output.
+base_path = dirname(path)
+read_basename = basename(path)
 slogan = gsub("\\.qs$", "", read_basename)
-read_path = file.path(base_path, read_basename)
 dir.create(file.path(base_path, MARKER_SUBDIR), showWarnings = FALSE)
 marker_path = file.path(base_path, MARKER_SUBDIR, paste0(slogan, "_markers_", cluster_col, ".csv"))
 print(paste('Run Slogan =', slogan))
-print(paste('Reading Seurat object at', read_path, '...'))
-s_obj = qread(read_path)
+print(paste('Reading Seurat object at', path, '...'))
+s_obj = qread(path)
 
 DefaultAssay(s_obj) = DEFAULT_ASSAY
 
@@ -78,8 +74,14 @@ Idents(s_obj) = s_obj[[cluster_col]]
 print(paste('Collecting markers and saving to', marker_path, '...'))
 # Find all markers; adjust parameters as needed
 markers = FindAllMarkers(
-  s_obj, 
-  logfc.threshold=logfc_threshold, min.pct=min_pct,
-  only.pos=ONLY_POS, verbose=TRUE, return.thresh=0.05)
+    s_obj, 
+    logfc.threshold=logfc_threshold, min.pct=min_pct,
+    only.pos=ONLY_POS, verbose=TRUE, return.thresh=0.05)
+
+markers = markers[markers$p_val_adj < 0.05, c("cluster", "gene", "avg_log2FC", "pct.1", "pct.2", "p_val_adj")]
+markers$p_val_adj = round(markers$p_val_adj, 6)
+markers$avg_log2FC = round(markers$avg_log2FC, 3)
+markers$pct.1 = round(markers$pct.1, 3)
+markers$pct.2 = round(markers$pct.2, 3)
 
 write.csv(markers, marker_path)

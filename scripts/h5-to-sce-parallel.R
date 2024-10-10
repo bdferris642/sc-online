@@ -27,10 +27,10 @@
 
 ###################### LIBRARIES ######################
 
-source("~/sc-online/extraGenes.R")
-source("~/sc-online/getData.R")
-source("~/sc-online/myExpSetCreatorFn.R")
-source("~/sc-online/utils.R")
+source("/home/ferris/sc-online/extraGenes.R")
+source("/home/ferris/sc-online/getData.R")
+source("/home/ferris/sc-online/myExpSetCreatorFn.R")
+source("/home/ferris/sc-online/utils.R")
 
 library(caret)
 library("DropletUtils")
@@ -47,7 +47,7 @@ library(xml2)
 
 ###################### PARSE ARGUMENTS ######################
 
-spec <- matrix(c(
+spec = matrix(c(
     'lib-path', 'l', 1, "character",
     'base-path', 'b', 1, "character",
     'data-ing-dirname', 'd', 1, "character",
@@ -58,11 +58,11 @@ spec <- matrix(c(
     'make-cellbender', 'mcb', 1, "logical",
     'supplementary-metadata-path', 's', 1, "character"
 ), byrow = TRUE, ncol = 4)
-opt <- getopt(spec)
+opt = getopt(spec)
 
 LIB_PATH = ifelse(
     is.null(opt[['lib-path']]), 
-    "~/missing-gtex.txt", 
+    "/home/ferris/putamen-rerun", 
     opt[['lib-path']])
 BASE_PATH = ifelse(
     is.null(opt[['base-path']]), 
@@ -82,7 +82,7 @@ MAKE_AND_SAVE_FILTERED_SCE_RDS = ifelse(
     opt[['make-filtered']])
 SAVE_RAW_RDS = ifelse(
     is.null(opt[['make-raw']]), 
-    FALSE, 
+    TRUE, 
     opt[['make-raw']])
 SAVE_MOLECULE_INFO_RDS = ifelse(
     is.null(opt[['make-mol-info']]), 
@@ -94,13 +94,12 @@ SAVE_CELLBENDER_RDS = ifelse(
     opt[['make-cellbender']])
 SUPPLEMENTARY_METADATA_PATH = ifelse(
     is.null(opt[['supplementary-metadata-path']]), 
-    "~/sc-online/notebook_data/pd_lib_info_20240510.csv", 
+    #"/home/ferris/sc-online/notebook_data/xdp_lib_info_20240912.csv", 
+    "/home/ferris/sc-online/notebook_data/pd_lib_info_20240903.csv", 
     opt[['supplementary-metadata-path']]
 )
     
 ###################### CONSTANTS ######################
-
-
 
 ORGANISM = "human"
 MIN_EXP_CELLS=0
@@ -109,11 +108,13 @@ MOLECULE_INFO_BASENAME = "cr_outs/molecule_info.h5"
 RAW_COUNTS_BASENAME = "cr_outs/raw_feature_bc_matrix.h5"
 FILTERED_COUNTS_BASENAME = "cr_outs/filtered_feature_bc_matrix.h5"
 
-PARTICIPANT_METADATA_PATH = "~/sc-online/notebook_data/chip_well_barcode-to-participant_id__fp_coalesced.csv"
+PARTICIPANT_METADATA_PATH = "/home/ferris/sc-online/notebook_data/chip_well_barcode-to-participant_id__fp_coalesced.csv"
 FPR = 0.01
 
-CALICO_DIRS_LONG = readLines("~/calico-libs-long.txt")
-GTEX_DIRS_LONG = readLines("~/gtex-libs-long.txt")
+CALICO_DIRS_LONG = readLines("/home/ferris/calico-libs-long.txt")
+CALICO_PUTAMEN_DIRS_LONG = readLines("/home/ferris/putamen.txt")
+GTEX_DIRS_LONG = readLines("/home/ferris/gtex-libs-long.txt")
+XDP_DFC_DIRS_LONG = readLines("/home/ferris/xdp-dfc")
 
 EARLY_LIBS = list(
     "pPDsHSrSNiPoold221126A1"
@@ -153,18 +154,15 @@ EARLY_LIBS = list(
     ,"pCalicoPDsHSrSNNURR3iPoold230214"
 )
 
-# MAJOR TODO: FIX WHEN THIS SAMPLE SWAP HAS BEEN DISAMBIGUATED
-AMBIGUOUS_BARCODES = c("206954930011_R11C01_1", "206954930010_R11C01_1")
-
 ###################### HELPER FUNCTIONS ######################
 
 
 
 # Extract text after the first underscore in each directory name if it begins with a date
 # Function to extract text based on the pattern
-extract_text <- function(dir) {
+extract_text = function(dir) {
     # Regular expression to match one or more digits followed by an underscore
-    pattern <- "^[0-9]+_"
+    pattern = "^[0-9]+_"
   
     # If the directory name matches the pattern, extract the part after the underscore
     # Otherwise, return the whole directory name
@@ -191,7 +189,7 @@ createMetaDataFromDGCMatrix=function(
     # participant_metadata, a dataframe that maps donor_ids (chip_well_barcodes) to participant_ids along with associated metadata
 
     # OUTPUTS 
-    # a dataframe, whose rownames are the colnames of umi_dgc
+    #a dataframe, whose rownames are the colnames of umi_dgc
     
     # output containing columns:
     #   nUMI: total number of UMIs within a cell
@@ -286,73 +284,15 @@ sum_duplicate_rownames_of_dgc_matrix=function(dgc){
     return(dgc)
 }
 
-
-###################### MAIN ######################
-
-DIRS_TO_READ_LONG = readLines(LIB_PATH)
-DIRS_TO_READ = sapply(DIRS_TO_READ_LONG, extract_text)
-names(DIRS_TO_READ_LONG) = DIRS_TO_READ
-
-
-# TODO: remove this "skipped" block once all gtex libraries have been processed
-SKIPPED  = c()
-for (d in DIRS_TO_READ){
-    if (d == ""){next}
-    if (!file.exists(file.path(BASE_PATH, "gtex", d, "cr_outs", "_cmdline"))){next}
-    if (!file.exists(file.path(BASE_PATH, "gtex", d, "vireo_outs", "no_subset", "donor_ids.tsv"))){
-        SKIPPED  = c(SKIPPED , d)
-    }
-}
-# these libraries are bad and should probably jsut be removed from the gtex list
-SKIPPED  = c(SKIPPED 
-    , "pCalico_GTExsHSrSNA11iNURRd231120"
-    ,"pCalico_GTExsHSrSNB11iNURRd231120"
-    ,"pCalico_GTExsHSrSNC11iDAPId231120"
-    ,"pCalico_GTExsHSrSND11iNURRd231120"
-    ,"pCalico_GTExsHSrSNE11iNURRd231120"
-    ,"pCalico_GTExsHSrSNF11iDAPId231120"
-    ,""
-)
-
-filtered_dgc_list = list()
-sce_list = list()
-raw_dgc_list = list()
-raw_cd_list = list()
-mol_info_list = list()
-vireo_donor_ids_list = list()
-
-# read in participant metadata
-participant_metadata_df = read.table(PARTICIPANT_METADATA_PATH, sep=",", header=TRUE)
-
-# read in lib-level info
-expt_df = read.table(SUPPLEMENTARY_METADATA_PATH, sep=",", header=TRUE)
-expt_df = expt_df[,
-    c("library", "library_long", "source", "sort", "region", "flowcell")
-]
-
-# note if library was sorted using early sorting protocol
-expt_df$early = FALSE 
-expt_df$early[expt_df$library %in% EARLY_LIBS] = TRUE
-
-for (long_name in names(DIRS_TO_READ)){
-    print("::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::")
+process_library = function(long_name, name, this_base_path) {
     
     if(long_name == ''){
-        next
-    }
-
-    name = DIRS_TO_READ[[long_name]]
-    if (long_name %in% CALICO_DIRS_LONG){
-        this_base_path = file.path(BASE_PATH, 'calico')
-    } else if (long_name %in% GTEX_DIRS_LONG){
-        this_base_path = file.path(BASE_PATH, 'gtex')
+        return(NULL)
     }
     
     if (name %in% SKIPPED){
-        next
+        return(NULL)
     }
-    
-    print(name)
 
     raw_counts_path = file.path(this_base_path, name, RAW_COUNTS_BASENAME)
     filtered_counts_path = file.path(this_base_path, name, FILTERED_COUNTS_BASENAME)
@@ -361,21 +301,13 @@ for (long_name in names(DIRS_TO_READ)){
 
     vireo_donor_ids = read.table(vireo_donor_ids_path, sep="\t", header=TRUE)
 
-    # MAJOR TODO: FIX WHEN THIS SAMPLE SWAP HAS BEEN DISAMBIGUATED
-    vireo_donor_ids$donor_id[vireo_donor_ids$donor_id %in% AMBIGUOUS_BARCODES] = "unassigned"
-
-    print('CREATING DATA OBJECT DIRECTORY')
     dir.create(file.path(this_base_path, name, DATA_ING_DIRNAME), showWarnings = FALSE)
 
-    print('READING FILTERED DGC .H5')
     # always read this
     filtered_dgc = Read10X_h5(filtered_counts_path)
     filtered_dgc_list[[name]] = filtered_dgc
 
     if (MAKE_AND_SAVE_FILTERED_SCE_RDS){
-    
-        print("FETCHING MOLECULE INFO FROM .H5")
-        # create a molecular data dataframe my fetching specific fields from the h5 and grouping by barcode
         mol_h5_file = file.path(molecule_info_path)
         h5fetch = function(x){return(h5read(mol_h5_file, x))}
         mol_df = data.frame(
@@ -387,18 +319,12 @@ for (long_name in names(DIRS_TO_READ)){
         )
         
         if (SAVE_MOLECULE_INFO_RDS){
-            print("SAVING MOLECULE INFO .RDS")
             saveRDS(mol_df, file=file.path(this_base_path, name, DATA_ING_DIRNAME, "molecule_info.rds"))
         }
 
-        print("COLLECTING METADATA")
-        # only consider cells that are in the filtered umi data
         mol_df = mol_df[mol_df$barcode %in% colnames(filtered_dgc),]
-
         vireo_donor_ids_list[[name]] = vireo_donor_ids
-
         expt_df_subset = expt_df[expt_df$library == name,]
-
         meta_df = createMetaDataFromDGCMatrix(
             expt_df=expt_df_subset,
             umi_dgc=filtered_dgc, 
@@ -407,22 +333,19 @@ for (long_name in names(DIRS_TO_READ)){
             participant_metadata=participant_metadata_df
         )
 
-        print("BUILDING FILTERED SCE")
-        data_sce=.myExpSetCreatorFn(inputExpData=filtered_dgc,
-                        organism=ORGANISM,
-                        minExpCells=MIN_EXP_CELLS,
-                        inputPdata=meta_df,
-                        inputFdata=NULL,
-                        addExtraAnno=T,
-                        ncores=14)
+        data_sce = .myExpSetCreatorFn(inputExpData=filtered_dgc,
+                            organism=ORGANISM,
+                            minExpCells=MIN_EXP_CELLS,
+                            inputPdata=meta_df,
+                            inputFdata=NULL,
+                            addExtraAnno=T,
+                            ncores=14)
         
-        print("SAVING FILTERED SCE .RDS")
         sce_list[[name]] = data_sce
         saveRDS(data_sce, file.path(this_base_path, name, DATA_ING_DIRNAME, "data_sce.rds"))
     }
 
     if (SAVE_RAW_RDS){
-        print("READING RAW DGC .H5")
         raw_counts = Read10X_h5(raw_counts_path)
         raw_dgc_list[[name]] = raw_counts
 
@@ -435,41 +358,17 @@ for (long_name in names(DIRS_TO_READ)){
         )
         raw_cd_list[[name]] = cd
 
-        print("SAVING RAW DGC COL DATA RDS")
         saveRDS(cd, file.path(this_base_path, name, DATA_ING_DIRNAME, 'raw_feature_bc_matrix_col_data.rds'))
-        print("SAVING RAW DGC RDS")
+
         saveRDS(raw_counts, file.path(this_base_path, name, DATA_ING_DIRNAME, 'raw_feature_bc_matrix.rds'))
     }
-    print(paste0("DONE WITH LIBRARY", name))
-    print("::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::")
-}
 
-# CELLBENDER RDS MAKER
-print("MAKING CELLBENDER RDS's")
-for (name in DIRS_TO_READ){
-    print("::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::")
-    
+    # make CellBender SCE
     if (name %in% SKIPPED | name ==""){
         next
     }
 
     long_name = DIRS_TO_READ_LONG[[name]]
-
-    if (long_name %in% CALICO_DIRS_LONG){
-        this_base_path = file.path(BASE_PATH, 'calico')
-    } else if (long_name %in% GTEX_DIRS_LONG){
-        this_base_path = file.path(BASE_PATH, 'gtex')
-    }    
-    
-    print(name)
-
-    long_name = DIRS_TO_READ_LONG[[name]]
-
-    if (long_name %in% CALICO_DIRS_LONG){
-        this_base_path = file.path(BASE_PATH, 'calico')
-    } else if (long_name %in% GTEX_DIRS_LONG){
-        this_base_path = file.path(BASE_PATH, 'gtex')
-    }
 
     orig_sce = readRDS(file.path(this_base_path, name, DATA_ING_DIRNAME, "data_sce.rds"))
     filtered_cb_path = file.path(this_base_path, name, "cb_outs", paste0(name, "_out_filtered.h5"))
@@ -535,11 +434,84 @@ for (name in DIRS_TO_READ){
         cb_sce[[c]] = sce_filt[[c]]
     }
     
-    print("SAVING CELLBENDER SCE AS .RDS")
     cb_rds_basename = paste0("cb_data_sce_FPR_", FPR, ".rds")
     saveRDS(cb_sce, file.path(this_base_path, name, DATA_ING_DIRNAME, cb_rds_basename))
 
-    print(paste0("DONE WITH LIBRARY", name))
-    print(":::::::::::::::::::::::::::::::::::::::::::::")
 }
 
+
+###################### MAIN ######################
+
+DIRS_TO_READ_LONG = readLines(LIB_PATH)
+DIRS_TO_READ_LONG = DIRS_TO_READ_LONG[DIRS_TO_READ_LONG != ""]
+DIRS_TO_READ = sapply(DIRS_TO_READ_LONG, extract_text)
+names(DIRS_TO_READ_LONG) = DIRS_TO_READ
+
+
+# TODO: remove this "skipped" block once all gtex libraries have been processed
+SKIPPED  = c()
+for (d in DIRS_TO_READ){
+    if (d == ""){next}
+    if (!file.exists(file.path(BASE_PATH, "gtex", d, "cr_outs", "_cmdline"))){next}
+    if (!file.exists(file.path(BASE_PATH, "gtex", d, "vireo_outs", "no_subset", "donor_ids.tsv"))){
+        SKIPPED  = c(SKIPPED , d)
+    }
+}
+# these libraries are bad and should probably jsut be removed from the gtex list
+SKIPPED  = c(SKIPPED 
+    , "pCalico_GTExsHSrSNA11iNURRd231120"
+    ,"pCalico_GTExsHSrSNB11iNURRd231120"
+    ,"pCalico_GTExsHSrSNC11iDAPId231120"
+    ,"pCalico_GTExsHSrSND11iNURRd231120"
+    ,"pCalico_GTExsHSrSNE11iNURRd231120"
+    ,"pCalico_GTExsHSrSNF11iDAPId231120"
+    ,""
+)
+
+filtered_dgc_list = list()
+sce_list = list()
+raw_dgc_list = list()
+raw_cd_list = list()
+mol_info_list = list()
+vireo_donor_ids_list = list()
+
+# read in participant metadata
+participant_metadata_df = read.table(PARTICIPANT_METADATA_PATH, sep=",", header=TRUE)
+
+# read in lib-level info
+expt_df = read.table(SUPPLEMENTARY_METADATA_PATH, sep=",", header=TRUE)
+expt_df = expt_df[,
+    c("library", "library_long", "source", "sort", "region", "flowcell")
+]
+
+# note if library was sorted using early sorting protocol
+expt_df$early = FALSE 
+expt_df$early[expt_df$library %in% EARLY_LIBS] = TRUE
+
+cmds = character()
+for (long_name in names(DIRS_TO_READ)) {
+    if (long_name == '') next
+
+    name = DIRS_TO_READ[[long_name]]
+    if (long_name %in% CALICO_DIRS_LONG) {
+        this_base_path = file.path(BASE_PATH, 'calico')
+    } else if (long_name %in% GTEX_DIRS_LONG) {
+        this_base_path = file.path(BASE_PATH, 'gtex')
+    } else if (long_name %in% CALICO_PUTAMEN_DIRS_LONG) {
+        this_base_path = file.path(BASE_PATH, 'calico_putamen')
+    } else if (long_name %in% XDP_DFC_DIRS_LONG) {
+        this_base_path = file.path(BASE_PATH, 'xdp')
+    } else {
+        stop("Library not found in any source")
+    }
+
+    if (name %in% SKIPPED) next
+
+    # Construct the Rscript command with proper quoting
+    cmd <- sprintf("Rscript -e 'source(\"/home/ferris/sc-online/scripts/h5-to-sce-parallel.R\"); process_library(\"%s\", \"%s\", \"%s\")'", 
+                    long_name, name, this_base_path)
+    cmds <- c(cmds, cmd)
+}
+
+# Write the commands to a file
+writeLines(cmds, "/home/ferris/h5-to-sce-commands.txt")

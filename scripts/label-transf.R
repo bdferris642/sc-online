@@ -23,45 +23,30 @@ source("~/code/sconline_code.R")
 print("READING IN ARGUMENTS")
 
 spec <- matrix(c(
-    'reference-base-path', 'rb', 1, "character",
-    'reference-basename', 'rn', 1, "character",
-    'query-base-path', 'qb', 1, "character",
-    'query-basename', 'qn', 1, "character",
+    'reference-path', 'r', 1, "character",
+    'query-path', 'q', 1, "character",
     'lt-column', 'lt', 1, "character",
     'merged-outname', 'mo', 1, "character",
     'var-feature-subset-col', 'vf', 1, "character",
     'scaling-subset-col', 'sc', 1, "character",
     'regression-vars', 'rv', 1, "character",
-    'convert-gene-names', 'cg', 1, "logical"
+    'convert-gene-names', 'cg', 1, "logical",
+    'n-hvgs', 'nh', 1, "numeric",
+    'n-pcs', 'np', 1, "numeric"
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
 
+REFERENCE_PATH = opt[['reference-path']]
+QUERY_PATH = opt[['query-path']]
+print(paste("REFERENCE_PATH:", REFERENCE_PATH))
+print(paste("QUERY_PATH:", QUERY_PATH))
 
-REFERENCE_BASE_PATH = ifelse(
-    is.null(opt[['reference-base-path']]), 
-    "/mnt/accessory/seq_data/sl_ref", 
-    opt[['reference-base-path']])
-print(paste("REFERENCE_BASE_PATH:", REFERENCE_BASE_PATH))
+REFERENCE_BASE_PATH = dirname(REFERENCE_PATH)
+REFERENCE_BASENAME = basename(REFERENCE_PATH)
 
-REFERENCE_BASENAME = ifelse(
-    is.null(opt[['reference-basename']]), 
-    "sl_non_neuronal.qs", 
-    opt[['reference-basename']])
-print(paste("REFERENCE_BASENAME:", REFERENCE_BASENAME))
-
-QUERY_BASE_PATH = ifelse(
-    is.null(opt[['query-base-path']]), 
-    "/mnt/accessory/seq_data/pd_all/240514", 
-    opt[['query-base-path']])
-print(paste("QUERY_BASE_PATH:", QUERY_BASE_PATH))
-
-QUERY_BASENAME = ifelse(
-    is.null(opt[['query-basename']]), 
-    "dapi_seurat_clean.qs", 
-    opt[['query-basename']]
-)
-print(paste("QUERY_BASENAME:", QUERY_BASENAME))
+QUERY_BASE_PATH = dirname(QUERY_PATH)
+QUERY_BASENAME = basename(QUERY_PATH)
 
 LT_COL = ifelse(
     is.null(opt[['lt-column']]), 
@@ -106,6 +91,20 @@ if (is.null(opt[['regression-vars']])) {
 } else {
     REGRESSION_VARS = strsplit(opt[['regression-vars']], ",")[[1]]
 }
+
+if(is.null(opt[['n-hvgs']])){
+    N_HVGS = 2500
+} else {
+    N_HVGS = opt[['n-hvgs']]
+}
+print(paste("N_HVGS:", N_HVGS))
+
+if(is.null(opt[['n-pcs']])){
+    N_PCS = 30
+} else {
+    N_PCS = opt[['n-pcs']]
+}
+print(paste("N_PCS:", N_PCS))
 
 print("REGRESSION_VARS:")
 cat(REGRESSION_VARS)
@@ -208,15 +207,17 @@ parse.sconline.outs = function(outs, slot="combined_labels") {
 
 
 ################# MAIN #################
+dir.create(file.path(QUERY_BASE_PATH, "lt"), showWarnings = FALSE)
 
-query = qread(file.path(QUERY_BASE_PATH, QUERY_BASENAME))
+query = qread(QUERY_PATH)
 old_inferred_lt_cols = colnames(query@meta.data)[grepl(paste0("inferred_", LT_COL, "__"), colnames(query@meta.data))]
 query@meta.data[,old_inferred_lt_cols] = NULL
 
+
 if (grepl(".qs$", REFERENCE_BASENAME)) {
-    ref = qread(file.path(REFERENCE_BASE_PATH, REFERENCE_BASENAME))
+    ref = qread(REFERENCE_PATH)
 } else if (grepl(".rds$", REFERENCE_BASENAME)){
-    ref = readRDS(file.path(REFERENCE_BASE_PATH, REFERENCE_BASENAME))
+    ref = readRDS(REFERENCE_PATH)
 } else {
     stop("Reference file must be either .qs or .rds")
 }
@@ -233,7 +234,7 @@ if (CONVERT_GENE_NAMES){
     # need to get references from ensemble ids to gene names
     # todo: parametrize this (some references will have gene names as row names)
     query_gns = gns[gns$gene_name %in% rownames(query),]
-    ref_counts = ref@assays$RNA@data
+    ref_counts = ref@assays$RNA@counts #should this be @data?
     ref_counts_in_query = ref_counts[rownames(ref_counts) %in% query_gns$gene_id,]
 
     # additionally, we want to remove rows of ref_counts_in_query with duplicated gene names
@@ -301,8 +302,8 @@ ref_renamed = normalizeScalePcaClusterUmap(
     ref_renamed,
     var_feature_subset_col=VAR_FEATURE_SUBSET_COL,
     scaling_subset_col=SCALING_SUBSET_COL,
-    n_hvgs_orig=2500, 
-    n_dims_use=20,
+    n_hvgs_orig=N_HVGS, 
+    n_dims_use=N_PCS,
     resolutions = c(0.2),
     regression_vars = REGRESSION_VARS)
 hvgs = ref_renamed@assays$RNA@var.features
@@ -310,7 +311,7 @@ hvgs = ref_renamed@assays$RNA@var.features
 print(paste("NUM HVGS:", length(hvgs)))
 cat(head(hvgs), "...")
 
-query_counts = query@assays$RNA@data
+query_counts = query@assays$RNA@counts # should this be @data?
 query_counts = query_counts[rownames(query_counts) %in% rownames(ref_renamed),]
 query_counts = query_counts[match(rownames(ref_renamed), rownames(query_counts)),]
 
@@ -388,13 +389,13 @@ print("Running Harmony")
 merged = (merged
     %>% RunHarmony(
         group.by.vars=c("dataset", "participant_id"),
-        dims.use=1:20,
+        dims.use=1:N_PCS,
         plot_convergence=F,
         reference_values="reference"
     )
 )
 
-merged = merged %>% FindNeighbors(dims=1:20, reduction="harmony") %>% RunUMAP(dims=1:20, reduction="harmony")
+merged = merged %>% FindNeighbors(dims=1:N_PCS, reduction="harmony") %>% RunUMAP(dims=1:N_PCS, reduction="harmony")
 merged@meta.data[["umap_1"]] = merged@reductions$umap@cell.embeddings[, 1]
 merged@meta.data[["umap_2"]] = merged@reductions$umap@cell.embeddings[, 2]
 
@@ -427,5 +428,5 @@ colnames(prob_mat_out_query) = new_colnames
 # append this to the actual query object
 query_renamed@meta.data = cbind(query_renamed@meta.data, prob_mat_out_query)
 
-qsave(query_renamed, file.path(QUERY_BASE_PATH, QUERY_BASENAME))
+qsave(query_renamed, QUERY_PATH)
 qsave(prob_mat_out, file.path(QUERY_BASE_PATH, MERGED_OUTNAME))

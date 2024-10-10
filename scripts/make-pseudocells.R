@@ -21,7 +21,8 @@ spec <- matrix(c(
     'embedding', 'e', 1, 'character',
     'rand', 'r', 1, 'logical',
     'suffix', 's', 1, 'character',
-    'default_assay', 'da', 1, 'character'
+    'default_assay', 'da', 1, 'character',
+    "filter-str", "fs", 1, "character"
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
@@ -69,6 +70,30 @@ DEFAULT_ASSAY = ifelse(
     opt[['default_assay']]
 )
 
+if (is.null(opt[['filter-str']])) {
+    FILTER_STR = NULL
+} else {
+    FILTER_STR = opt[['filter-str']]
+    clean_filter_str <- FILTER_STR
+    print(clean_filter_str)
+    clean_filter_str <- gsub("|", "or", clean_filter_str, fixed = TRUE)
+    print(clean_filter_str)
+    clean_filter_str <- gsub("!", "not", clean_filter_str, fixed = TRUE)
+    print(clean_filter_str)
+    clean_filter_str <- gsub("&", "and", clean_filter_str, fixed = TRUE)
+    print(clean_filter_str)
+    clean_filter_str <- gsub(">", "gt", clean_filter_str, fixed = TRUE)
+    print(clean_filter_str)
+    clean_filter_str <- gsub("<", "lt", clean_filter_str, fixed = TRUE)
+    print(clean_filter_str)
+    clean_filter_str <- gsub("=", "", clean_filter_str, fixed = TRUE)
+    print(clean_filter_str)
+    clean_filter_str <- gsub(" ", "_", clean_filter_str, fixed = TRUE)
+    print(clean_filter_str)
+    ADDITIONAL_SUFFIX = paste0(ADDITIONAL_SUFFIX, "__", clean_filter_str)
+}
+
+
 BASE_PATH = opt[['base-path']]
 BASENAME = opt[['basename']]
 if (is.null(BASE_PATH) || is.null(BASENAME)) {
@@ -78,6 +103,19 @@ if (is.null(BASE_PATH) || is.null(BASENAME)) {
 # Hard Code For Now
 NCORES = 28
 N_PCS = 20
+
+
+print(paste("Base Path:", BASE_PATH))
+print(paste("Base Name:", BASENAME))
+print(paste("Pseudocell Size:", PSEUDOCELL_SIZE))
+print(paste("Min Size Limit:", MIN_SIZE_LIMIT))
+print(paste("Cluster Column:", CLUSTER_COL))
+print(paste("Grouping Columns:", GROUPING_COLS))
+print(paste("Embedding:", EMBD))
+print(paste("Randomize:", RAND))
+print(paste("Additional Suffix:", ADDITIONAL_SUFFIX))
+print(paste("Default Assay:", DEFAULT_ASSAY))
+print(paste("Filter String:", FILTER_STR))
 
 
 ###################### MAIN ######################
@@ -98,6 +136,12 @@ print(write_path)
 
 # load object
 s_obj = qread(read_path)
+
+if (!is.null(FILTER_STR)) {
+    logical_vector = with(s_obj@meta.data, eval(parse(text = FILTER_STR)))
+    s_obj = s_obj[, logical_vector]
+}
+
 DefaultAssay(s_obj) = DEFAULT_ASSAY
 print(paste("Seurat Object Dimensions:", unlist(dim(s_obj))))
 

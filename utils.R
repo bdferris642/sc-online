@@ -416,8 +416,13 @@ build_weighted_score = function(
     # scale_within: if provided, z scores are calculated within the <scale_within> group within the sobj meta.data 
         # otherwise the z scores are calculated across all cells in `sobj`
 
+    genes_orig = weight_df[[weight_df_gene_col]]
+    weight_df = weight_df[genes_orig %in% rownames(sobj@assays[[assay]]@counts), ]
+
     weights = weight_df[[weight_df_weight_col]]
     genes = weight_df[[weight_df_gene_col]]
+
+
 
     filtered_counts = sobj[genes, ]
 

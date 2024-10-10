@@ -5,6 +5,7 @@ library(dplyr)
 library(ggplot2)
 library(ggrepel)
 library(grid)
+library(gridExtra)
 library(patchwork)
 library(pheatmap)
 library(RColorBrewer)
@@ -14,6 +15,48 @@ library(tidyr)
 library(viridis)
 library(viridisLite)
 library(textplot)
+
+display_plot_grid = function(plot_list, nrow, ncol, row_labels=NULL, col_labels=NULL, label_font_size=12) {
+  num_plots <- length(plot_list)
+  chunk_size <- nrow * ncol
+  
+  for(i in seq(1, num_plots, chunk_size)) {
+    end <- min(i + chunk_size - 1, num_plots)
+    
+    # Create plot grid
+    plot_grid <- arrangeGrob(
+      grobs = plot_list[i:end], 
+      nrow = nrow, ncol = ncol
+    )
+    
+    # Add column labels if provided
+    if (!is.null(col_labels)) {
+      col_label_grobs <- lapply(seq_along(col_labels), function(j) 
+        textGrob(col_labels[j], just = "center", rot = 30,  gp = gpar(fontsize = label_font_size), x = unit(0.8, "npc")))
+      col_labels_grid <- arrangeGrob(grobs = col_label_grobs, ncol = ncol)
+    } else {
+      col_labels_grid <- nullGrob()
+    }
+    
+    # Add row labels if provided
+    if (!is.null(row_labels)) {
+      row_label_grobs <- lapply(seq_along(row_labels), function(i) 
+        textGrob(row_labels[i], rot = 90, just = "center", gp = gpar(fontsize = label_font_size), y = unit(0.5, "npc")))
+      row_labels_grid <- arrangeGrob(grobs = row_label_grobs, nrow = nrow)
+    } else {
+      row_labels_grid <- nullGrob()
+    }
+    
+    # Arrange the entire grid with row and column labels
+    grid.arrange(
+      arrangeGrob(
+        row_labels_grid, plot_grid, nrow = 1, widths = c(1, 10)
+      ),
+      col_labels_grid,
+      ncol = 1, heights = c(10, 1)
+    )
+  }
+}
 
 DimPlotIntegration = function(
     seurat_obj, 
@@ -245,15 +288,21 @@ plotConfusionHeatmap = function(prop_table, xlab='', ylab='', title='',
 }
 
 plotDfSummary = function(df, fig_filename){
-    width=800
-    height=30*nrow(df)
+    width_in = 8  # Width in inches
+    height_per_row_in = 3  # Height in inches per row
+    res = 300  # Resolution in DPI
 
-    png(fig_filename, width = width, height = height)
-    grid_table = tableGrob(df)
+    width = width_in * res  # Convert width to pixels
+    height = height_per_row_in * nrow(df) * res  # Convert height to pixels based on the number of rows
+
+    png(fig_filename, width = width, height = height, res = res)
+
+    # Create the table and adjust text size based on the height
+    grid_table = tableGrob(df, theme = ttheme_default(base_size = min(20, height / nrow(df) / 5)))
+    
     grid.draw(grid_table)
     dev.off()
 }
-
 
 plot_gsea_result_hbar = function(
     gsea_df_subset, title, xlim = c(-4, 4), clim=c(-4, 4), 
@@ -301,6 +350,7 @@ plot_gsea_result_hdot = function(
     fig_filename = NULL, 
     leading_edge_n=10,
     leading_edge_linebreak_n=5,
+    pathway_col="pathway",
     top_n=10) {
     #takes in a df with the following columns: NES, pathway, size, leading_edge
     # along with a title, xlim, fig_filename (nullable)
@@ -363,7 +413,7 @@ plot_gsea_result_hdot = function(
     }
 
     # Format the pathway names to include newline every 30 characters
-    df$pathway = gsub("(.{30}\\s)", "\\1\n", df$pathway, perl = TRUE)
+    df$pathway = gsub("(.{30}\\s)", "\\1\n", df[[pathway_col]], perl = TRUE)
     df$NES_direction = ifelse(df$NES > 0, "NES > 0", "NES < 0")
     
     # Create the plot
@@ -388,15 +438,16 @@ plot_gsea_result_hdot = function(
             axis.text.y.right = element_text(hjust = 1)
         )
     
+    if (leading_edge_n > 0) {
         # Create a secondary y-axis with leading_edge_top_n labels
-    p = p + geom_text(aes(y = reorder(pathway, NES), x = Inf, label = leading_edge_top_n), 
-                      hjust = -0.1, size = 4) +
+        p = p + geom_text(aes(y = reorder(pathway, NES), x = Inf, label = leading_edge_top_n), 
+                    hjust = -0.1, size = 4) +
         coord_cartesian(clip = 'off') +
         theme(
             plot.margin = margin(5.5, 340, 5.5, 5.5),  # Increase right margin to make space for secondary labels
             axis.text.y.right = element_text(hjust = 1)
         )
-
+    }
     
     # Save the plot to file if a filename is provided
     if (!is.null(fig_filename)) {
@@ -1055,6 +1106,7 @@ plot_overlapping_density_histogram = function(
     breaks=seq(0, 16, 1),
     title= NULL,
     xlab = NULL,
+    ylab = "Density",
     fig_filename = NULL,
     show_legend = TRUE
 
@@ -1075,7 +1127,7 @@ plot_overlapping_density_histogram = function(
     p = (
         ggplot(df, aes_string(x=hist_col, fill=fill_col)) 
         + geom_histogram(aes(y=..density..), alpha=alpha, position="identity", breaks=breaks)
-        + labs(title=title, x=xlab, y="Density")    
+        + labs(title=title, x=xlab, y=ylab)    
         + theme(
                 plot.title = element_text(size=16),
                 axis.line = element_line(color = "black"),  # Add axis lines
@@ -1107,7 +1159,12 @@ volcano_plot = function(
     y_label=expression(log[10]*"(adjusted p-value)"),
     title = NULL,
     annot_genes = NULL,
-    xlim=c(-3,3)){
+    vline_intercept=c(-1, 1),
+    xlim=c(-3,3),
+    point_padding=0.5,
+    nudge_y=0.25,
+    nudge_x_scale=1,
+    box_padding=0.5){
 
         # todo: add a vector argument for annot_x_pos and annot_y_pos
 
@@ -1120,7 +1177,7 @@ volcano_plot = function(
         scale_color_manual(values = c("FALSE" = "black", "TRUE" = "red")) +
         scale_x_continuous(limits = xlim) +
         geom_hline(yintercept = -log10(0.05), linetype = "dotted", color = "blue") +
-        geom_vline(xintercept = c(-1, 1), linetype = "dotted", color = "blue") +
+        geom_vline(xintercept = vline_intercept, linetype = "dotted", color = "blue") +
         labs(
             title = title,
             x = x_label,
@@ -1132,22 +1189,25 @@ volcano_plot = function(
             axis.ticks = element_line(color = "black"),  # Add axis ticks
             axis.text = element_text(size = 14),  # Increase tick label font size
             axis.title = element_text(size = 15),  # Increase axis label font size
-            axis.text.x = element_text(angle = 45, hjust = 1) 
+            axis.text.x = element_text(angle = 45, hjust = 1)  # title axis labels
         )
 
     if (!is.null(annot_genes)){
-        annot_genes$nudge_x = 2*sign(annot_genes[[x_col]])
+        if (is.null(annot_genes$color)){
+            annot_genes$color = "gray80"
+        }
+        annot_genes$nudge_x = 2*sign(annot_genes[[x_col]])*nudge_x_scale
         volcano_plot = volcano_plot + geom_label_repel(
             data = annot_genes, 
-            aes_string(label = gene_col),
+            aes_string(label=gene_col, fill="color"),
             #vjust = -1,
-            box.padding = 0.5,  # Increase this value to push labels further out
-            point.padding = 0.5,  # Increase this value to add more space around the point
-            nudge_y = 0.25,  # Move labels further in the y direction
+            box.padding = box_padding,  # Increase this value to push labels further out
+            point.padding = point_padding,  # Increase this value to add more space around the point
+            nudge_y = nudge_y,  # Move labels further in the y direction
             nudge_x = annot_genes$nudge_x,  # Move labels further in the x direction
             segment.color = 'grey50',
             max.overlaps = Inf
-        )
+        ) + scale_fill_identity() 
     }
 
     # Print the plot

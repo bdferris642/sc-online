@@ -191,81 +191,81 @@ for (lib in calico_libs[!calico_libs %in% libs2skip]) {
     n_donors_calico[[lib]] = length(donor_list)
 }
 
-# # load calico sce lists
-# # TODO: parametrize cb sce basename
-# calico_sce_list = loadCbSceList(calico_libs[!calico_libs %in% libs2skip],
-#     base_path="/mnt/accessory/seq_data/calico",
-#     vireo_donor_ids_basename="vireo_outs/no_subset/donor_ids.tsv",
-#     cb_sce_basename="ingested_data_no_subset/cb_data_sce_FPR_0.01.rds",
-#     pct_mt_max=PCT_MT_MAX,
-#     pct_intronic_min= PCT_INTRONIC_MIN,
-#     log10_nUMI_threshold_list=log10_nUMI_thresholds_calico,
-#     dapi_nurr=dapi_nurr_calico,
-#     n_donors_list = n_donors_calico
-# )
+# load calico sce lists
+# TODO: parametrize cb sce basename
+calico_sce_list = loadCbSceList(calico_libs[!calico_libs %in% libs2skip],
+    base_path="/mnt/accessory/seq_data/calico",
+    vireo_donor_ids_basename="vireo_outs/no_subset/donor_ids.tsv",
+    cb_sce_basename="ingested_data_no_subset/cb_data_sce_FPR_0.01.rds",
+    pct_mt_max=PCT_MT_MAX,
+    pct_intronic_min= PCT_INTRONIC_MIN,
+    log10_nUMI_threshold_list=log10_nUMI_thresholds_calico,
+    dapi_nurr=dapi_nurr_calico,
+    n_donors_list = n_donors_calico
+)
 
-# print("Num Calico Donors:")
-# print(length(calico_sce_list))
+print("Num Calico Donors:")
+print(length(calico_sce_list))
 
-# ############## LOAD GTEX SCES ##############
+############## LOAD GTEX SCES ##############
 
-# print("Loading gtex SCEs")
+print("Loading gtex SCEs")
 
-# # TODO: parametrize cb sce basename
-# gtex_sce_list = loadCbSceList(gtex_libs[!gtex_libs %in% libs2skip],
-#     base_path="/mnt/accessory/seq_data/gtex",
-#     vireo_donor_ids_basename="vireo_outs/no_subset/donor_ids.tsv",
-#     cb_sce_basename="ingested_data_no_subset/cb_data_sce_FPR_0.01.rds",
-#     pct_mt_max=PCT_MT_MAX,
-#     pct_intronic_min= PCT_INTRONIC_MIN,
-#     log10_nUMI_threshold_list=log10_nUMI_thresholds_gtex,
-#     dapi_nurr = dapi_nurr_gtex,
-#     n_donors_list = NULL
-# )
+# TODO: parametrize cb sce basename
+gtex_sce_list = loadCbSceList(gtex_libs[!gtex_libs %in% libs2skip],
+    base_path="/mnt/accessory/seq_data/gtex",
+    vireo_donor_ids_basename="vireo_outs/no_subset/donor_ids.tsv",
+    cb_sce_basename="ingested_data_no_subset/cb_data_sce_FPR_0.01.rds",
+    pct_mt_max=PCT_MT_MAX,
+    pct_intronic_min= PCT_INTRONIC_MIN,
+    log10_nUMI_threshold_list=log10_nUMI_thresholds_gtex,
+    dapi_nurr = dapi_nurr_gtex,
+    n_donors_list = NULL
+)
 
-# print("Num GTEx Donors:")
-# print(length(gtex_sce_list))
+print("Num GTEx Donors:")
+print(length(gtex_sce_list))
 
-# ############## COMBINE LIBRARIES, SPLIT BY SORT, SCALE BY PARTICIPANT, AND HARMONIZE ##############
-# print("Combining libraries")
+############## COMBINE LIBRARIES, SPLIT BY SORT, SCALE BY PARTICIPANT, AND HARMONIZE ##############
+print("Combining libraries")
 
-# # join calico and gtex. 
-# calico_all = .mycBindFn(calico_sce_list)
-# gtex_all = .mycBindFn(gtex_sce_list)
-# # first, we want to append our best understanding of participant IDs to each of the SCEs
+# join calico and gtex. 
+calico_all = .mycBindFn(calico_sce_list)
+gtex_all = .mycBindFn(gtex_sce_list)
+# first, we want to append our best understanding of participant IDs to each of the SCEs
 
-# sces_all = .mycBindFn(list(calico_all, gtex_all))
-# print(sort(unique(colData(sces_all)$participant_id)))
+sces_all = .mycBindFn(list(calico_all, gtex_all))
+print(sort(unique(colData(sces_all)$participant_id)))
 
-# #we would like to append metadata about library_prep to each library 
-# sces_all$early = sces_all$library %in% EARLY_LIBS
+#we would like to append metadata about library_prep to each library 
+sces_all$early = sces_all$library %in% EARLY_LIBS
 
-# print("Splitting by sort and participant")
+print("Splitting by sort and participant")
 
-# # Split by sort and then by donor. Save.
-# sce_nurr = sces_all[, colData(sces_all)$sort == 'nurr']
-# sce_dapi = sces_all[, colData(sces_all)$sort == 'dapi']
-# print(sort(unique(colData(sce_dapi)$participant_id)))
-# print(sort(unique(colData(sce_nurr)$participant_id)))
+# Split by sort and then by donor. Save.
+sce_nurr = sces_all[, colData(sces_all)$sort == 'nurr']
+sce_dapi = sces_all[, colData(sces_all)$sort == 'dapi']
+print(sort(unique(colData(sce_dapi)$participant_id)))
+print(sort(unique(colData(sce_nurr)$participant_id)))
 
-# cb_sce_nurr_donor_list = .mySplitObject(sce_nurr, "participant_id")
-# cb_sce_nurr_donor_list = cb_sce_nurr_donor_list[!is.na(names(cb_sce_nurr_donor_list))]
+cb_sce_nurr_donor_list = .mySplitObject(sce_nurr, "participant_id")
+cb_sce_nurr_donor_list = cb_sce_nurr_donor_list[!is.na(names(cb_sce_nurr_donor_list))]
 
-# cb_sce_dapi_donor_list = .mySplitObject(sce_dapi, "participant_id")
-# cb_sce_dapi_donor_list = cb_sce_dapi_donor_list[!is.na(names(cb_sce_dapi_donor_list))]
+cb_sce_dapi_donor_list = .mySplitObject(sce_dapi, "participant_id")
+cb_sce_dapi_donor_list = cb_sce_dapi_donor_list[!is.na(names(cb_sce_dapi_donor_list))]
 
-# print("Saving SCE lists")
+print("Saving SCE lists")
 
-# print("Num DAPI Participants")
-# print(length(cb_sce_dapi_donor_list))
-# print(sort(names(cb_sce_dapi_donor_list)))
+print("Num DAPI Participants")
+print(length(cb_sce_dapi_donor_list))
+print(sort(names(cb_sce_dapi_donor_list)))
 
-# print("Num NURR Participants")
-# print(length(cb_sce_nurr_donor_list))
-# print(sort(names(cb_sce_nurr_donor_list)))
+print("Num NURR Participants")
+print(length(cb_sce_nurr_donor_list))
+print(sort(names(cb_sce_nurr_donor_list)))
 
-# qsave(cb_sce_nurr_donor_list, file.path(BASE_PATH, write_basename_nurr))
-# qsave(cb_sce_dapi_donor_list, file.path(BASE_PATH, write_basename_dapi))
+qsave(cb_sce_nurr_donor_list, file.path(BASE_PATH, write_basename_nurr))
+qsave(cb_sce_dapi_donor_list, file.path(BASE_PATH, write_basename_dapi))
 
 cb_sce_nurr_donor_list = qread(file.path(BASE_PATH, write_basename_nurr))
 cb_sce_dapi_donor_list = qread(file.path(BASE_PATH, write_basename_dapi))
