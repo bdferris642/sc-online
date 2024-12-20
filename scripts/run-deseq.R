@@ -93,10 +93,13 @@ create_df_with_contrast_col = function() {
   setNames(data.frame(factor(levels = sort(unique(md[[CONTRAST_COL]])))), CONTRAST_COL)
 }
 
-pseudobulk_seurat = function(sobj, grouping_cols=GROUPING_COLS,
+pseudobulk_seurat = function(sobj, grouping_cols,
     assay="RNA", min_n_cells = 10, min_counts_gene = 10, min_frac_gene = 0.01){
     
-    df = sobj@meta.data 
+    df = sobj@meta.data
+    df$grouping = apply(df[grouping_cols], 1, function(row) paste(row, collapse = "_"))    
+    sobj$grouping = df$grouping
+    grouping_cols = c(grouping_cols, "grouping")
 
     # group by participant_id
     # sum nUMI 
@@ -119,13 +122,15 @@ pseudobulk_seurat = function(sobj, grouping_cols=GROUPING_COLS,
         return(list(counts=NULL,  metadata=create_df_with_contrast_col()))
     }
 
-    sobj = sobj[,sobj$participant_id %in% df_bulk$participant_id]
-    counts_bulk = AggregateExpression(sobj, group.by = grouping_cols)[[assay]]
+    sobj = sobj[,df$grouping %in% df_bulk$grouping]
+    counts_bulk = AggregateExpression(sobj, group.by = "grouping")[[assay]]
 
     counts_orig = sobj@assays[[assay]]@counts
     counts_bulk = counts_bulk[rowSums(counts_orig)>= min_counts_gene & rowMeans(counts_orig > 0) >= min_frac_gene,]
+    
 
-    #df_bulk = df_bulk[match(colnames(counts_bulk), df_bulk$participant_id),]
+    colnames(counts_bulk) = gsub("-", '_', colnames(counts_bulk))
+    df_bulk = df_bulk[match(colnames(counts_bulk), df_bulk$grouping),]
 
     if (nrow(df_bulk) == 0){
         return(list(counts=NULL, metadata=create_df_with_contrast_col()))
@@ -135,7 +140,6 @@ pseudobulk_seurat = function(sobj, grouping_cols=GROUPING_COLS,
         list(counts=counts_bulk, metadata=df_bulk)
     )
 }
-
 run_deseq = function(sobj, design_formula=DESIGN_FORMULA){
     cat("Pseudobulking Seurat Object\n")
     pseudobulk_list = pseudobulk_seurat(sobj)
