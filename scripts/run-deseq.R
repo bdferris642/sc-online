@@ -33,7 +33,7 @@ MIN_SAMPLES_PER_CONDITION = 3 # hard code for now, a cluster needs at least this
 cat(paste("Reading Seurat object from: ", PATH, "\n"))
 sobj = qread(PATH)
 md = sobj@meta.data
-md[[SAMPLE_COL]] = paste0("sample-", md[[SAMPLE_COL]])
+md[[SAMPLE_COL]] = paste0("sample_", md[[SAMPLE_COL]])
 md[[CLUSTER_COL]] = gsub(" ", "_", md[[CLUSTER_COL]])
 md[[CONTRAST_COL]] = factor(md[[CONTRAST_COL]], levels = sort(unique(md[[CONTRAST_COL]])))
 if ("age" %in% colnames(md)){
@@ -93,7 +93,7 @@ create_df_with_contrast_col = function() {
   setNames(data.frame(factor(levels = sort(unique(md[[CONTRAST_COL]])))), CONTRAST_COL)
 }
 
-pseudobulk_seurat = function(sobj, grouping_cols,
+pseudobulk_seurat = function(sobj, grouping_cols=GROUPING_COLS,
     assay="RNA", min_n_cells = 10, min_counts_gene = 10, min_frac_gene = 0.01){
     
     df = sobj@meta.data
@@ -123,15 +123,16 @@ pseudobulk_seurat = function(sobj, grouping_cols,
     }
 
     sobj = sobj[,df$grouping %in% df_bulk$grouping]
+    
     counts_bulk = AggregateExpression(sobj, group.by = "grouping")[[assay]]
-
+    
     counts_orig = sobj@assays[[assay]]@counts
     counts_bulk = counts_bulk[rowSums(counts_orig)>= min_counts_gene & rowMeans(counts_orig > 0) >= min_frac_gene,]
     
-
     colnames(counts_bulk) = gsub("-", '_', colnames(counts_bulk))
+    
     df_bulk = df_bulk[match(colnames(counts_bulk), df_bulk$grouping),]
-
+    
     if (nrow(df_bulk) == 0){
         return(list(counts=NULL, metadata=create_df_with_contrast_col()))
     }
