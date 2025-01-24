@@ -4,8 +4,6 @@
 # along with metadata columns nUMI, pct_mito, and pct_intronic 
 # (these can be dummy columns filled with 0s but right now the code will fail if they are not included, TODO: fix this in the future)
 
-# GSEA requirements: 
-
 # --path: a path to a seurat object
 # --contrast-col: column name to compare ( e.g. case_control, status)
 # --cluster-col: column containing groups to run DE on (e.g. if cluster-col=cell_class, DE will be run once per unique value in this column)
