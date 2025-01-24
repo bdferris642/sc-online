@@ -1,7 +1,22 @@
+# a script that, given a .csv of DE outputs at --path with foldchanges in a column --rank-col  
+# runs GSEA on the gene sets in the --gene-sets variable, saving these csvs into a `gsea_outdir`
+# and plotting results to a `figure_outdir`.
+# OJO: some arguments to .sconline.GSEA.readGMT (min.gs.size=15,max.gs.size=250) and runGSEA (abs=FALSE, desc=TRUE) are hard coded. TODO: parametrize!
+# OJO: requires `gene_sets` to be a list of paths to gene sets in GMT format. TODO: parametrize!
+
 # PATH is the path to a single CSV file containing differential expression results
 # RANK_COL is the column in the CSV file that contains the rank values for GSEA
 # SEGMENT_BY is an optional argument, a the column in the CSV file that contains the segment values for GSEA 
 #   (in case you want to run GSEA on different segments of the data)
+
+# add the paths to the gene sets you want to use here
+gene_sets = list(
+    kegg_2021_human = "~/genesets/KEGG_2021_Human.txt",
+    go_process = "~/genesets/GO_Biological_Process_2021.txt",
+    go_function = "~/genesets/GO_Molecular_Function_2021.txt",
+    msigdb_hallmark = "~/genesets/MSigDB_Hallmark_2020.txt",
+    syngo_ontologies = "~/genesets/syngo_ontologies.txt"
+)
 
 library(dplyr)
 library(ggplot2)
@@ -45,15 +60,6 @@ gsea_outdir = file.path(base_path, "gsea")
 if(!dir.exists(figure_outdir)){
     dir.create(figure_outdir, recursive = TRUE)
 }
-
-# add the paths to the gene sets you want to use here
-gene_sets = list(
-    kegg_2021_human = "~/genesets/KEGG_2021_Human.txt",
-    go_process = "~/genesets/GO_Biological_Process_2021.txt",
-    go_function = "~/genesets/GO_Molecular_Function_2021.txt",
-    msigdb_hallmark = "~/genesets/MSigDB_Hallmark_2020.txt",
-    syngo_ontologies = "~/genesets/syngo_ontologies.txt"
-)
 
 de_df = read.csv(PATH)
 if (is.null(SEGMENT_BY)){

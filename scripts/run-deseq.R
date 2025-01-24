@@ -1,3 +1,29 @@
+# Runs DE and, optionally, GSEA on a Seurat object in a .qs file
+# DE Requirements:
+# path points to a .qs of a seurat object containing counts with integer values, 
+# along with metadata columns nUMI, pct_mito, and pct_intronic 
+# (these can be dummy columns filled with 0s but right now the code will fail if they are not included, TODO: fix this in the future)
+
+# GSEA requirements: 
+
+# --path: a path to a seurat object
+# --contrast-col: column name to compare ( e.g. case_control, status)
+# --cluster-col: column containing groups to run DE on (e.g. if cluster-col=cell_class, DE will be run once per unique value in this column)
+# --sample-col: column containing labels for individuals (e.g. participant_id, sample_id)
+# --covariates: a comma-separated string of covariates to use in the analysis (e.g. age,sex,pct_mito,pct_intronic,cell_type)
+# --grouping-cols: a comma-separated string of column names that are the same within each participant 
+#   (e.g. age,sex . pct_mito and pct_intronic can be different from cell to cell, so you don't want to group by them when you bulk).
+#   TODO: in the future, compute these automatically
+# --suffix: a suffix to append to end of file names just before .csv, defaulting to date
+# --only-clusters: a comma-separated string of clusters within cluster_col. If not null, only runs DE on these clusters (e.g. oligo,opc)
+# --assay: the Seurat assay to use. Defaults to RNA
+# --min-n-cells: the minimum number of cells in a bulk in order for it to be included. Defaults to 10
+# --min-counts-gene: the minimum counts in a gene in order for it to be analyzed. Defaults to 10 
+#   (OJO: this is low, maybe compute this automatically in the future to be sensitive to dataset size / sequencing depth)
+# --min-frac-gene: the minimum fraction of cells in which a must be is expressed in order to be analyzed. Defaults to 0.01
+# --run-gsea: if TRUE, runs GSEA on the DE results. Defaults to TRUE
+
+
 suppressMessages(suppressWarnings(library(DESeq2)))
 suppressMessages(suppressWarnings(library(dplyr)))
 suppressMessages(suppressWarnings(library(getopt)))
@@ -18,7 +44,8 @@ spec <- matrix(c(
     'assay', 'a', 1, 'character',
     'min-n-cells', 'mnc', 1, 'numeric',
     'min-counts-gene', 'mcg', 1, 'numeric',
-    'min-frac-gene', 'mfg', 1, 'numeric'
+    'min-frac-gene', 'mfg', 1, 'numeric',
+    'run-gsea', 'rg', 0, 'logical'
 ), byrow = TRUE, ncol = 4)
 
 opt = getopt(spec)
@@ -71,6 +98,12 @@ if(is.null(opt[['min-frac-gene']])){
     MIN_FRAC_GENE = 0.01
 } else {
     MIN_FRAC_GENE = opt[['min-frac-gene']]
+}
+
+if(is.null(opt[['run-gsea']])){
+    RUN_GSEA = TRUE
+} else {
+    RUN_GSEA = opt[['run-gsea']]
 }
 
 DESIGN_FORMULA = as.formula(paste0("~", paste(COVARIATES, collapse="+"), "+", CONTRAST_COL))
@@ -214,11 +247,13 @@ if (is.null(CLUSTER_COL)){
         latest_path = file.path(de_dir, paste0("deseq__", coef, "__latest.csv"))
         write.csv(result_list[[coef]], latest_path, row.names=FALSE)
         
-        # Run the GSEA script if the coef is age or the contrast column
-        if (tolower(coef) == "age" | grepl(CONTRAST_COL, coef)){
-            script_path = "/home/ferris/sc-online/scripts/run-gsea.R"
-            
-            system(paste0("Rscript ", script_path, " --path=", latest_path))
+        if (RUN_GSEA){
+            # Run the GSEA script if the coef is age or the contrast column
+            if (tolower(coef) == "age" | grepl(CONTRAST_COL, coef)){
+                script_path = "/home/ferris/sc-online/scripts/run-gsea.R"
+                
+                system(paste0("Rscript ", script_path, " --path=", latest_path))
+            }
         }
     }
 } else {
@@ -248,11 +283,13 @@ if (is.null(CLUSTER_COL)){
             latest_path = file.path(de_dir, paste0("deseq__", CLUSTER_COL, "__", cluster, "__", coef, "__latest.csv"))
             write.csv(result_list[[coef]], latest_path, row.names=FALSE)
 
-            # Run the GSEA script if the coef is age or the contrast column
-            if (tolower(coef) == "age" | grepl(CONTRAST_COL, coef)){
-                script_path = "/home/ferris/sc-online/scripts/run-gsea.R"
-                
-                system(paste0("Rscript ", script_path, " --path=", latest_path), ignore.stdout = TRUE)
+            if (RUN_GSEA){
+                # Run the GSEA script if the coef is age or the contrast column
+                if (tolower(coef) == "age" | grepl(CONTRAST_COL, coef)){
+                    script_path = "/home/ferris/sc-online/scripts/run-gsea.R"
+                    
+                    system(paste0("Rscript ", script_path, " --path=", latest_path), ignore.stdout = TRUE)
+                }
             }
         }
     }
