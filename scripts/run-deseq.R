@@ -59,7 +59,10 @@ cat(paste("Reading Seurat object from: ", PATH, "\n"))
 sobj = qread(PATH)
 md = sobj@meta.data
 md[[SAMPLE_COL]] = paste0("sample_", md[[SAMPLE_COL]])
-md[[CLUSTER_COL]] = gsub(" ", "_", md[[CLUSTER_COL]])
+md[[SAMPLE_COL]] = gsub("-", "_", md[[SAMPLE_COL]])
+if (! is.null(CLUSTER_COL)){
+    md[[CLUSTER_COL]] = gsub(" ", "_", md[[CLUSTER_COL]])
+}
 md[[CONTRAST_COL]] = factor(md[[CONTRAST_COL]], levels = sort(unique(md[[CONTRAST_COL]])))
 if ("age" %in% colnames(md)){
     md$age = as.numeric(md$age)
@@ -128,6 +131,10 @@ pseudobulk_seurat = function(sobj, grouping_cols=GROUPING_COLS,
     assay="RNA", min_n_cells = 10, min_counts_gene = 10, min_frac_gene = 0.01){
     
     df = sobj@meta.data
+    if (! all(GROUPING_COLS %in% colnames(df))){
+        stop(paste0("Not all grouping columns are present in the Seurat object!\n",
+            "Missing Columns: ", paste(GROUPING_COLS[!GROUPING_COLS %in% colnames(df)], collapse=", ")))
+    }
     df$grouping = apply(df[grouping_cols], 1, function(row) paste(row, collapse = "_"))    
     sobj$grouping = df$grouping
     grouping_cols = c(grouping_cols, "grouping")
@@ -138,6 +145,7 @@ pseudobulk_seurat = function(sobj, grouping_cols=GROUPING_COLS,
     # take log10 of summed nUMI
     # the following columns should be identical for all cells in the same participant:
     # age, sex, brain_bank, case_control
+    cat(paste("Grouping By Columns: ", paste(grouping_cols, collapse=", "), "\n"))
 
     df_bulk = (df 
         %>% group_by(across(all_of(grouping_cols)))
@@ -161,7 +169,6 @@ pseudobulk_seurat = function(sobj, grouping_cols=GROUPING_COLS,
     counts_bulk = counts_bulk[rowSums(counts_orig)>= min_counts_gene & rowMeans(counts_orig > 0) >= min_frac_gene,]
     
     colnames(counts_bulk) = gsub("-", '_', colnames(counts_bulk))
-    
     df_bulk = df_bulk[match(colnames(counts_bulk), df_bulk$grouping),]
     
     if (nrow(df_bulk) == 0){
@@ -199,6 +206,7 @@ run_deseq = function(sobj, design_formula=DESIGN_FORMULA){
         if (tolower(coef) == "intercept"){
             next
         }
+        cat("\n")
         cat(paste("Running lfcShrink for coef: ", coef, "\n"))
         res_shrunk = suppressMessages(suppressWarnings(lfcShrink(dds, coef=coef, type="apeglm")))
         res_shrunk = res_shrunk[!is.na(res_shrunk$padj),]
@@ -209,7 +217,6 @@ run_deseq = function(sobj, design_formula=DESIGN_FORMULA){
         
         res_shrunk$log2FoldChange = NULL
         rownames(res_shrunk) = NULL
-        
 
         res_shrunk = res_shrunk[,c("gene", "logFC", "padj", "baseMean", "lfcSE", "pvalue")]
 
@@ -227,6 +234,8 @@ write_list = function(x, fil){
     }
 }
 
+GSEA_SCRIPT_PATH = "/home/ferris/sc-online/scripts/run-gsea.R"
+
 ################################# MAIN #################################
 
 dirname = dirname(PATH)
@@ -237,20 +246,28 @@ if (!dir.exists(de_dir)){
 }
 
 if (is.null(CLUSTER_COL)){
+    cat("Running DESeq2 for all cells\n")
     result_list = run_deseq(sobj)
     for (coef in names(result_list)){
         cat(paste("Writing results for coef: ", coef, '\n'))
         cat(paste("Number of Genes in Result: ", nrow(result_list[[coef]]), '\n'))
-        write.csv(result_list[[coef]], file.path(de_dir, paste0("deseq__", coef, "__", SUFFIX, ".csv")), row.names=FALSE)
-        latest_path = file.path(de_dir, paste0("deseq__", coef, "__latest.csv"))
+        
+        suffix_path = file.path(de_dir, 'all_cells', coef, SUFFIX, paste0("deseq__", coef, "__", SUFFIX, ".csv"))
+        latest_path = file.path(de_dir, 'all_cells', coef, "latest", paste0("deseq__", coef, "__latest.csv"))
+
+        if(! dir.exists(dirname(suffix_path))){
+            dir.create(dirname(suffix_path), recursive = TRUE)
+        }
+        if(! dir.exists(dirname(latest_path))){
+            dir.create(dirname(latest_path), recursive = TRUE)
+        }
+        write.csv(result_list[[coef]], suffix_path, row.names=FALSE)
         write.csv(result_list[[coef]], latest_path, row.names=FALSE)
         
         if (RUN_GSEA){
             # Run the GSEA script if the coef is age or the contrast column
             if (tolower(coef) == "age" | grepl(CONTRAST_COL, coef)){
-                script_path = "/home/ferris/sc-online/scripts/run-gsea.R"
-                
-                system(paste0("Rscript ", script_path, " --path=", latest_path))
+                system(paste0("Rscript ", GSEA_SCRIPT_PATH, " --path=", suffix_path))
             }
         }
     }
@@ -276,27 +293,41 @@ if (is.null(CLUSTER_COL)){
         for (coef in names(result_list)){
             cat(paste("Writing results for coef: ", coef, '\n'))
             cat(paste("Number of Genes in Result: ", nrow(result_list[[coef]]), '\n'))
-            write.csv(result_list[[coef]], file.path(
-                de_dir, paste0("deseq__", CLUSTER_COL, "__", cluster, "__", coef, "__", SUFFIX, ".csv")), row.names=FALSE)
-            latest_path = file.path(de_dir, paste0("deseq__", CLUSTER_COL, "__", cluster, "__", coef, "__latest.csv"))
+            
+            suffix_path = file.path(de_dir, CLUSTER_COL, coef, SUFFIX, paste0("deseq__", CLUSTER_COL, "__", cluster, "__", coef, "__", SUFFIX, ".csv"))
+            latest_path = file.path(de_dir, CLUSTER_COL, coef, "latest", paste0("deseq__", CLUSTER_COL, "__", cluster, "__", coef, "__latest.csv"))
+            if(! dir.exists(dirname(suffix_path))){
+                dir.create(dirname(suffix_path), recursive = TRUE)
+            }
+            if (! dir.exists(dirname(latest_path))){
+                dir.create(dirname(latest_path), recursive = TRUE)
+            }
+            cat("Writing to: ", suffix_path, "\n")
+            write.csv(result_list[[coef]], suffix_path, row.names=FALSE)
+
+            cat("Writing to: ", latest_path, "\n")
             write.csv(result_list[[coef]], latest_path, row.names=FALSE)
 
             if (RUN_GSEA){
                 # Run the GSEA script if the coef is age or the contrast column
                 if (tolower(coef) == "age" | grepl(CONTRAST_COL, coef)){
-                    script_path = "/home/ferris/sc-online/scripts/run-gsea.R"
-                    
-                    system(paste0("Rscript ", script_path, " --path=", latest_path), ignore.stdout = TRUE)
+                    system(paste0("Rscript ", GSEA_SCRIPT_PATH, " --path=", suffix_path), ignore.stdout = TRUE)
                 }
             }
         }
     }
 }
 
+
+if (is.null(CLUSTER_COL)){
+   param_cluster_col = "all_cells"
+} else {
+    param_cluster_col = CLUSTER_COL
+}
 params = list(
     sobj_path = PATH,
     contrast_col = CONTRAST_COL,
-    cluster_col = CLUSTER_COL,
+    cluster_col = param_cluster_col,
     covariates = paste(COVARIATES, collapse=", "),
     sample_col = SAMPLE_COL,
     grouping_cols = paste(GROUPING_COLS, collapse=", "),
@@ -306,12 +337,12 @@ params = list(
     min_n_cells = MIN_N_CELLS,
     min_counts_gene = MIN_COUNTS_GENE,
     min_frac_gene = MIN_FRAC_GENE,
-    n_cases = sum(! tolower(md[[CONTRAST_COL]]) %in% c("control", 'ctr', 'ctrl')),
-    n_controls = sum(tolower(md[[CONTRAST_COL]]) %in% c("control", 'ctr', 'ctrl'))
+    n_case_cells = sum(! tolower(md[[CONTRAST_COL]]) %in% c("control", 'ctr', 'ctrl')),
+    n_control_cells = sum(tolower(md[[CONTRAST_COL]]) %in% c("control", 'ctr', 'ctrl'))
 )
-write_list(params, file.path(de_dir, paste0("params__", CLUSTER_COL, "__", SUFFIX, ".txt")))
+write_list(params, file.path(de_dir, paste0("params__", param_cluster_col, "__", SUFFIX, ".txt")))
 # remove the latest file
-if (file.exists(file.path(de_dir, paste0("params__", CLUSTER_COL, "__latest.txt")))){
-    file.remove(file.path(de_dir, paste0("params__", CLUSTER_COL, "__latest.txt")))
+if (file.exists(file.path(de_dir, paste0("params__", param_cluster_col, "__latest.txt")))){
+    file.remove(file.path(de_dir, paste0("params__", param_cluster_col, "__latest.txt")))
 }
-write_list(params, file.path(de_dir, paste0("params__", CLUSTER_COL, "__latest.txt")))
+write_list(params, file.path(de_dir, paste0("params__", param_cluster_col, "__latest.txt")))
