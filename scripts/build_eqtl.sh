@@ -1,5 +1,5 @@
 # Check if correct number of arguments is provided
-if [[ $# -lt 7 ]]; then
+if [[ $# -lt 8 ]]; then
     echo "Usage: $0 <efile> <befile_prefix> <bfile> <update_opi> <covar_file> <qcovar_file> <cores> <final_output>"
     exit 1
 fi
@@ -14,17 +14,19 @@ qcovar_file=$6 # cov2*.txt. Quantitative covariate file from OSCA_formatting-sca
 cores=$7 # number of cores to use
 final_output=$8 # output prefix
 
-
+# Set output directory from final_output path
+output_dir=$(dirname "$final_output")
+mkdir -p "$output_dir"
 
 # Log file names with prefix from final output. Remove the file extension
-log_prefix="${final_output%.*}_"
+log_prefix="$output_dir/$(basename "${final_output%.*}")_"
 output_log="${log_prefix}osca_output.log"
 error_log="${log_prefix}osca_error.log"
 progress_log="${log_prefix}osca_progress.log"
 
 # Step 1: Create BOD file
 echo "Step 1: Running gene-expression --make-bod" >> ${progress_log}
-osca --efile $efile --gene-expression --make-bod --out $befile_prefix >> ${progress_log} 2>&1 && {
+osca --efile "$efile" --gene-expression --make-bod --out "$befile_prefix" >> ${progress_log} 2>&1 && {
     echo "Step 1, Creating BOD File: COMPLETED" >> ${progress_log}
 } || {
     echo "Step 1, Creating BOD File: FAILED" >> ${progress_log}
@@ -33,7 +35,7 @@ osca --efile $efile --gene-expression --make-bod --out $befile_prefix >> ${progr
 
 # Step 2: Update OPI with user-specified input
 echo "Step 2: Updating OPI using: $update_opi" >> ${progress_log}
-osca --befile $befile_prefix --update-opi $update_opi >> ${progress_log} 2>&1 && {
+osca --befile "$befile_prefix" --update-opi "$update_opi" >> ${progress_log} 2>&1 && {
     echo "Step 2, Updating OPI: COMPLETED" >> ${progress_log}
 } || {
     echo "Step 2, Updating OPI: FAILED" >> ${progress_log}
@@ -41,26 +43,25 @@ osca --befile $befile_prefix --update-opi $update_opi >> ${progress_log} 2>&1 &&
 }
 
 # Step 3: Run eQTL analysis
+temp_eqtl_output="$output_dir/tempeqtl_$(basename "$final_output")"
 echo "Step 3: Running eQTL analysis" >> ${progress_log}
-osca --eqtl --bfile $bfile --befile $befile_prefix --cis --cis-wind 2000 \
-    --covar $covar_file --qcovar $qcovar_file --to-smr --thread-num $cores \
-    --out tempeqtl_$final_output >> ${progress_log} 2>&1 && {
+osca --eqtl --bfile "$bfile" --befile "$befile_prefix" --cis --cis-wind 2000 \
+    --covar "$covar_file" --qcovar "$qcovar_file" --to-smr --thread-num "$cores" \
+    --out "$temp_eqtl_output" >> ${progress_log} 2>&1 && {
     echo "Step 3, Running eQTL analysis: COMPLETED" >> ${progress_log}
 } || {
     echo "Step 3, Running eQTL analysis: FAILED" >> ${progress_log}
     exit 1
 }
 
-
 # Step 4: Query eQTL summary with user-specified output
 echo "Step 4: Querying eQTL summary with output: $final_output" >> ${progress_log}
-osca --beqtl-summary tempeqtl_$final_output  --query 1 --out $final_output >> ${progress_log} 2>&1 && {
+osca --beqtl-summary "$temp_eqtl_output" --query 1 --out "$final_output" >> ${progress_log} 2>&1 && {
     echo "Step 4, Querying eQTL summary: COMPLETED" >> ${progress_log}
 } || {
     echo "Step 4, Querying eQTL summary: FAILED" >> ${progress_log}
     exit 1
 }
 
-
 # Completion
-echo "OSCA job completed at \$(date)" >> ${progress_log}
+echo "OSCA job completed at $(date)" >> ${progress_log}
