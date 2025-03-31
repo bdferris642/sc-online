@@ -178,7 +178,7 @@ df_insig = df[!df$is_significant_gene | !df$is_significant_snp,]
 # take 1/100 of the insignificant data
 df_insig_subset = df_insig[sample(nrow(df_insig), nrow(df_insig) / 100), ]
 df_plot = rbind(df_sig, df_insig_subset)
-df_plot %>% arrange(Chr, BP)
+df_plot = df_plot %>% arrange(Chr, BP)
 
 # Get cumulative positions
 chr_info = df_plot %>%
