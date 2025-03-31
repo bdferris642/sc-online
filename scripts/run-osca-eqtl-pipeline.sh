@@ -71,13 +71,12 @@ exec > >(tee -i "$LOG_FNAME") 2>&1
 
 conda activate mashr
 
-OSCA_OUTPUT_DIR=$OSCA_INPUT_DIR/eqtl_final_outs
+OSCA_OUTPUT_DIR=$OSCA_INPUT_DIR/eqtl_final_outs/$PIPELINE_SLOGAN
 PB_OUTPUT_DIR="$GENE_EXPR_INPUT_DIR/$PB_OUTPUT_SUBDIR"
 
 if [ ! -d "$PB_OUTPUT_DIR" ]; then
     mkdir -p "$PB_OUTPUT_DIR"
 fi
-
 
 if [ ! -d "$OSCA_INPUT_DIR" ] || \
     [ ! -f "$OSCA_INPUT_DIR/$VCF_SLOGAN.bed" ] || \
@@ -137,9 +136,9 @@ if [ $START_AT_STEP -le 1 ]; then
         --ct-id "$CT_ID" \
         --sample-id "$SAMPLE_ID" \
         --strs-to-skip "$STRS_TO_SKIP" && {
-            echo "SUCCESSFULLY created pseudobulk expression and composition matrices."
+            echo "STEP 1 SUCCESSFULLY created pseudobulk expression and composition matrices."
         } || {
-            echo "FAILED to create pseudobulk expression and composition matrices."
+            echo "STEP 1 FAILED to create pseudobulk expression and composition matrices."
             exit 1
         }
 else
@@ -156,9 +155,9 @@ if [ $START_AT_STEP -le 2 ]; then
         --output-dir="$OSCA_INPUT_DIR" \
         --vcf-slogan="$VCF_SLOGAN" \
         --participants="$PARTICIPANT_FNAME" && {
-            echo "SUCCESSFULLY formatted OSCA inputs."
+            echo "STEP 2 SUCCESSFULLY formatted OSCA inputs."
         } || {
-            echo "FAILED to format OSCA inputs."
+            echo "STEP 2 FAILED to format OSCA inputs."
             exit 1
         }
 else
@@ -190,17 +189,17 @@ if [ $START_AT_STEP -le 3 ]; then
             6 \
             "$OSCA_OUTPUT_DIR/eqtl_@.tsv" | \
         parallel -j 0 --tmpdir /mnt/accessory/tmp && {
-            echo "SUCCESSFULLY ran OSCA eQTL pipeline."
+            echo "STEP 3 SUCCESSFULLY ran OSCA eQTL pipeline."
         } || {
-            echo "FAILED to run OSCA eQTL pipeline."
+            echo "STEP 3 FAILED to run OSCA eQTL pipeline."
             exit 1
         }
 
     mv "$OSCA_INPUT_DIR/befile_*" "$OSCA_OUTPUT_DIR"
-    mv "$OSCA_INPUT_DIR/tempeqtl_*" "$OSCA_OUTPUT_DIR"
     mv "$OSCA_INPUT_DIR/eqtl*log" "$OSCA_OUTPUT_DIR"
     mv "$OSCA_INPUT_DIR/osca.log" "$OSCA_OUTPUT_DIR"
     mv "$OSCA_INPUT_DIR/*tsv" "$OSCA_OUTPUT_DIR"
+    rm "$OSCA_INPUT_DIR/tempeqtl_*"
 else
     echo "************************************* SKIPPING STEP 3 ****************************"
 fi
@@ -209,10 +208,10 @@ if [ $START_AT_STEP -le 4 ]; then
     echo "************************************* STEP 4 *************************************"
     echo "************************************* GS COPY TSVS *******************************"
     # copy tsvs so they can be deleted after next step
-    gcloud storage cp "$OSCA_OUTPUT_DIR/*tsv" "$GOOGLE_BUCKET/eqtl_final_outs/" && {
-        echo "SUCCESSFULLY copied OSCA .tsv outputs to Google Cloud Storage."
+    gcloud storage cp "$OSCA_OUTPUT_DIR/*tsv" "$GOOGLE_BUCKET/" && {
+        echo "STEP 4 SUCCESSFULLY copied OSCA .tsv outputs to Google Cloud Storage."
     } || {
-        echo "FAILED to copy OSCA .tsv outputs to Google Cloud Storage."
+        echo "STEP 4 FAILED to copy OSCA .tsv outputs to Google Cloud Storage."
         exit 1
     }
 else
@@ -226,9 +225,9 @@ if [ $START_AT_STEP -le 5 ]; then
     cat $CC_FILE | \
         xargs -I @ echo Rscript ~/sc-online/scripts/process-and-plot-osca-tsv.R \
         --path="$OSCA_OUTPUT_DIR/eqtl_@.tsv" | parallel -j 0 --tmpdir /mnt/accessory/tmp && {
-            echo "SUCCESSFULLY processed and plotted OSCA outputs."
+            echo "STEP 5 SUCCESSFULLY processed and plotted OSCA outputs."
         } || {
-            echo "FAILED to process and plot OSCA outputs."
+            echo "STEP 5 FAILED to process and plot OSCA outputs."
             exit 1
         }
 
@@ -242,9 +241,9 @@ if [ $START_AT_STEP -le 6 ]; then
     echo "************************************* SUBSET TO COMMON SNP-PROBES ****************"
     Rscript ~/sc-online/scripts/get-common-snp-probes-osca-rds.R \
         --base="$OSCA_OUTPUT_DIR" && {
-            echo "SUCCESSFULLY created common SNP-by-Gene rds."
+            echo "STEP 6 SUCCESSFULLY created common SNP-by-Gene rds."
         } || {
-            echo "FAILED to create common SNP-by-Gene rds."
+            echo "STEP 6 FAILED to create common SNP-by-Gene rds."
             exit 1
         }
 else 
@@ -259,9 +258,9 @@ if [ $START_AT_STEP -le 7 ]; then
         --padj-thresh="$MASH_PADJ_THRESH" \
         --num-random="$MASH_NUM_RANDOM" \
         --eps="$MASH_EPS" && {
-            echo "SUCCESSFULLY ran mashr."
+            echo "STEP 7 SUCCESSFULLY ran mashr."
         } || {
-            echo "FAILED to run mashr."
+            echo "STEP 7 FAILED to run mashr."
             exit 1
         }
 else 
@@ -272,9 +271,9 @@ if [ $START_AT_STEP -le 8 ]; then
     echo "************************************* STEP 8 *************************************"
     echo "************************************* GS COPY OSCA INPUTS AND OUTPUTS ************"
     gcloud storage cp -r $OSCA_INPUT_DIR $GOOGLE_BUCKET/ && {
-        echo "SUCCESSFULLY copied OSCA inputs to Google Cloud Storage."
+        echo "STEP 8 SUCCESSFULLY copied OSCA inputs to Google Cloud Storage."
     } || {
-        echo "FAILED to copy OSCA inputs to Google Cloud Storage."
+        echo "STEP 8 FAILED to copy OSCA inputs to Google Cloud Storage."
         exit 1
     }
 else
