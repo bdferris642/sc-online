@@ -78,7 +78,7 @@ base_path_list = strsplit(PATH, "/")[[1]]
 base_path = paste(base_path_list[1:(length(base_path_list)-1)], collapse="/")
 basename = base_path_list[[length(base_path_list)]]
 slogan = gsub(".qs", "", basename)
-out_slogan = paste0(slogan, "__masc", suffix)
+out_slogan = paste0(slogan, "__masc_", suffix)
 
 print(paste("Output Slogan:", out_slogan))
 
@@ -92,6 +92,7 @@ print(dim(sobj))
 pd = sobj@meta.data[,model_cols]
 print("Seurat Object Meta Data Columns")
 print(colnames(pd))
+
 
 if (!is.null(LEAVE_OUT)) {
     cluster_vec = pd[[CLUSTER_COL]]
@@ -125,11 +126,18 @@ if ("sex" %in% model_cols) {
     }
 }
 
-
 # replace dashes with underscores in actual column data
-# ojo: update here if some rude person puts +, &, |, etc. in the column names
 for (col in model_cols) {
     pd[[col]] = gsub("-", "_", pd[[col]])
+    pd[[col]] = gsub(" ", "_", pd[[col]])
+    pd[[col]] = gsub("\\.", "", pd[[col]])
+    pd[[col]] = gsub("\\,", "", pd[[col]])
+    pd[[col]] = gsub("\\?", "", pd[[col]])
+    pd[[col]] = gsub("\\+", "", pd[[col]])
+    pd[[col]] = gsub("\\&", "", pd[[col]])
+    pd[[col]] = gsub("\\!", "", pd[[col]])
+    pd[[col]] = gsub("\\|", "", pd[[col]])
+    pd[[col]] = gsub("\\/", "", pd[[col]])
 }
 
 # note the strange beahvior of the case_control column
