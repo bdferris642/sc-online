@@ -209,7 +209,8 @@ parse.sconline.outs = function(outs, slot="combined_labels") {
 ################# MAIN #################
 dir.create(file.path(QUERY_BASE_PATH, "lt"), showWarnings = FALSE)
 
-query = qread(QUERY_PATH)
+query_orig = qread(QUERY_PATH)
+query = query_orig
 old_inferred_lt_cols = colnames(query@meta.data)[grepl(paste0("inferred_", LT_COL, "__"), colnames(query@meta.data))]
 query@meta.data[,old_inferred_lt_cols] = NULL
 
@@ -311,7 +312,7 @@ hvgs = ref_renamed@assays$RNA@var.features
 print(paste("NUM HVGS:", length(hvgs)))
 cat(head(hvgs), "...")
 
-query_counts = query@assays$RNA@counts # should this be @data?
+query_counts = query@assays$RNA@counts 
 query_counts = query_counts[rownames(query_counts) %in% rownames(ref_renamed),]
 query_counts = query_counts[match(rownames(ref_renamed), rownames(query_counts)),]
 
@@ -428,5 +429,15 @@ colnames(prob_mat_out_query) = new_colnames
 # append this to the actual query object
 query_renamed@meta.data = cbind(query_renamed@meta.data, prob_mat_out_query)
 
-qsave(query_renamed, QUERY_PATH)
 qsave(prob_mat_out, file.path(QUERY_BASE_PATH, MERGED_OUTNAME))
+
+# Do Not save a query object that can have gene names REMOVED from it!!!
+query_final = query_renamed
+query_final@assays$RNA = query_orig@assays$RNA
+
+if (all(rownames(query_orig) %in% rownames(query_final))) {
+    print("Row names match. Saving.")
+    qsave(query_renamed, QUERY_PATH)
+} else {
+    print("Row names do not match! Not saving query object!")
+}
