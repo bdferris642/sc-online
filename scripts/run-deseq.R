@@ -7,6 +7,7 @@
 # --path: a path to a seurat object
 # --contrast-col: column name to compare ( e.g. case_control, status)
 # --cluster-col: column containing groups to run DE on (e.g. if cluster-col=cell_class, DE will be run once per unique value in this column)
+#   if null, will run DE on all cells
 # --sample-col: column containing labels for individuals (e.g. participant_id, sample_id)
 # --covariates: a comma-separated string of covariates to use in the analysis (e.g. age,sex,pct_mito,pct_intronic,cell_type)
 # --grouping-cols: a comma-separated string of column names that are the same within each participant 
