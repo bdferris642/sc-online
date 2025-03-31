@@ -4,6 +4,7 @@ library(caret)
 library(dplyr)
 library(ggplot2)
 library(ggrepel)
+library(ggvenn)
 library(grid)
 library(gridExtra)
 library(patchwork)
@@ -78,6 +79,12 @@ DimPlotIntegration = function(
         + ggtitle(paste("Source", reduction, 'plot')))
     print(DimPlot(seurat_obj_target, reduction=reduction, group.by=target_cluster_col, label=label)
         + ggtitle(paste("Target", reduction, 'plot')))
+}
+
+display_venn <- function(x, ...){
+    grid.newpage()
+    venn_object = venn.diagram(x, filename = NULL, ...)
+    grid.draw(venn_object)
 }
 
 getKneePlotData=function(
@@ -351,7 +358,8 @@ plot_gsea_result_hdot = function(
     leading_edge_n=10,
     leading_edge_linebreak_n=5,
     pathway_col="pathway",
-    top_n=10) {
+    top_n=10,
+    leading_edge_text_size=4) {
     #takes in a df with the following columns: NES, pathway, size, leading_edge
     # along with a title, xlim, fig_filename (nullable)
     # leading_edge_n is the max number of leading_edge genes to be annotated
@@ -441,7 +449,7 @@ plot_gsea_result_hdot = function(
     if (leading_edge_n > 0) {
         # Create a secondary y-axis with leading_edge_top_n labels
         p = p + geom_text(aes(y = reorder(pathway, NES), x = Inf, label = leading_edge_top_n), 
-                    hjust = -0.1, size = 4) +
+                    hjust = -0.1, size = leading_edge_text_size) +
         coord_cartesian(clip = 'off') +
         theme(
             plot.margin = margin(5.5, 340, 5.5, 5.5),  # Increase right margin to make space for secondary labels
@@ -817,7 +825,9 @@ plotOverlappingProbabilityHistograms = function(
     group_col,
     breaks=seq(0, 1, by=0.05),
     title=NULL,
-    xlim=c(0,1)){
+    xlim=c(0,1),
+    colorlist = c("dodgerblue", "red")
+    ){
 
   if (is.null(title)) {
       title = paste0("Probability Histogram of ", plot_col, " by ", group_col)
@@ -845,6 +855,7 @@ plotOverlappingProbabilityHistograms = function(
   # Plotting the normalized histograms
   p = ggplot(plot_df, aes(x = bin, y = probability, fill = group_col)) +
     geom_bar(stat = "identity", position = "identity", alpha = 0.4, width = bin_width) +
+    scale_fill_manual(values = colorlist) +
     xlim(xlim) +
     theme_minimal() +
     labs(title = title, x = "Value", y = "Probability")
@@ -1164,7 +1175,8 @@ volcano_plot = function(
     point_padding=0.5,
     nudge_y=0.25,
     nudge_x_scale=1,
-    box_padding=0.5){
+    box_padding=0.5,
+    label_size=6){
 
         # todo: add a vector argument for annot_x_pos and annot_y_pos
 
@@ -1200,6 +1212,7 @@ volcano_plot = function(
         volcano_plot = volcano_plot + geom_label_repel(
             data = annot_genes, 
             aes_string(label=gene_col, fill="color"),
+            size=label_size,
             #vjust = -1,
             box.padding = box_padding,  # Increase this value to push labels further out
             point.padding = point_padding,  # Increase this value to add more space around the point
