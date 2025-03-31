@@ -307,7 +307,7 @@ ref_renamed = normalizeScalePcaClusterUmap(
     n_dims_use=N_PCS,
     resolutions = c(0.2),
     regression_vars = REGRESSION_VARS)
-hvgs = ref_renamed@assays$RNA@var.features
+hvgs = VariableFeatures(ref_renamed)
 
 print(paste("NUM HVGS:", length(hvgs)))
 cat(head(hvgs), "...")
