@@ -12,8 +12,7 @@ source("~/sc-online/utils.R")
 ###################### PARSE ARGUMENTS ######################
 
 spec <- matrix(c(
-    'base-path', 'bp', 1, "character",
-    'basename', 'bn', 1, 'character',
+    'path', 'p', 1, "character",
     'pseudocell-size', 'ps', 1, 'numeric',
     'min-size', 'ms', 1, 'numeric',
     'cluster-col', 'cc', 1, 'character',
@@ -94,19 +93,18 @@ if (is.null(opt[['filter-str']])) {
 }
 
 
-BASE_PATH = opt[['base-path']]
-BASENAME = opt[['basename']]
-if (is.null(BASE_PATH) || is.null(BASENAME)) {
-    stop("Please provide both a base-path and basename")
+PATH = opt[['path']]
+if (is.null(PATH)){
+    stop("Path is required")
 }
+BASE_PATH = dirname(PATH)
+BASENAME = basename(PATH)
 
 # Hard Code For Now
 NCORES = 28
 N_PCS = 20
 
-
-print(paste("Base Path:", BASE_PATH))
-print(paste("Base Name:", BASENAME))
+print(paste("Path:", PATH))
 print(paste("Pseudocell Size:", PSEUDOCELL_SIZE))
 print(paste("Min Size Limit:", MIN_SIZE_LIMIT))
 print(paste("Cluster Column:", CLUSTER_COL))
