@@ -32,7 +32,8 @@ source("~/sc-online/gsea.R")
 spec <- matrix(c(
     'path', 'p', 1, "character",
     'rank-col', 'r', 1, "character",
-    'segment-by', 's', 1, "character"
+    'segment-by', 's', 1, "character",
+    'abs', 'a', 0, "logical"
 ), byrow = TRUE, ncol = 4)
 
 opt = getopt(spec)
@@ -50,12 +51,24 @@ if (is.null(opt[['segment-by']])){
     SEGMENT_BY = opt[['segment-by']]
 }
 
+if (is.null(opt[['abs']])){
+    ABS = FALSE
+} else {
+    ABS = opt[['abs']]
+}
+
+if (ABS){
+    abs_str = "Absolute_Value"
+} else {
+    abs_str = "Signed"
+}
+
 basename = basename(PATH)
 de_slogan = gsub(".csv", paste0("_", RANK_COL), basename)
 base_path = dirname(PATH)
 
-figure_outdir = file.path(base_path, "gsea/figures/png")
-gsea_outdir = file.path(base_path, "gsea")
+gsea_outdir = file.path(base_path, "gsea", tolower(abs_str))
+figure_outdir = file.path(base_path, "gsea", tolower(abs_str), "figures/png")
 
 if(!dir.exists(figure_outdir)){
     dir.create(figure_outdir, recursive = TRUE)
@@ -89,7 +102,7 @@ for (segment in names(dataDE_list)){
             file=geneset_path,
             bkg_genes=dataDE$gene_short_name,
             min.gs.size=15,max.gs.size=250)
-        gsea = runGSEA(dataDE, gs, rank_col=RANK_COL, abs=FALSE, desc=TRUE)
+        gsea = runGSEA(dataDE, gs, rank_col=RANK_COL, abs=ABS, desc=TRUE)
         gsea$gene_set = gene_set
         #gsea = gsea[which(gsea$padj<0.05),]
 
@@ -100,7 +113,7 @@ for (segment in names(dataDE_list)){
     gsea_df = do.call(rbind, gsea_list)
 
     cat(paste0("\nWriting GSEA Results for ", de_slogan, "\n"))
-    write.csv(gsea_df, file.path(gsea_outdir, paste0(de_slogan, ".csv")), row.names=FALSE)
+    write.csv(gsea_df, file.path(gsea_outdir, paste0(de_slogan, "_gsea.csv")), row.names=FALSE)
 
     for (gene_set in unique(gsea_df$gene_set)){
         cat(paste0("\nPlotting GSEA Results for ", de_slogan, " ", gene_set, "\n"))
@@ -115,7 +128,7 @@ for (segment in names(dataDE_list)){
 
         plot_gsea_result_hdot(
             gsea_df_subset, 
-            title = paste0("GSEA NES by Pathway: ", gene_set),
+            title = paste("GSEA NES by Pathway:", gene_set, gsub("_", " ", abs_str)),
             xlim=c(min_nes, max_nes),
             leading_edge_n=10,
             leading_edge_linebreak_n=5,
