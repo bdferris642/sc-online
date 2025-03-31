@@ -607,3 +607,97 @@ orderDFByColRank=function(df, col, asc=FALSE, log_y_axis=FALSE){
 
     return(df)
 }
+
+run_fisher_exact_test = function(list_A, list_B, total_genes, alternative = "greater") {
+    # Calculate the overlap and non-overlap
+    a = length(intersect(list_A, list_B))
+    b = length(setdiff(list_A, list_B))
+    c = length(setdiff(list_B, list_A))
+    d = total_genes - (a + b + c)
+
+    # Create the contingency table
+    contingency_table = matrix(c(a, b, c, d), nrow = 2, byrow = TRUE)
+    rownames(contingency_table) = c("In_List_B", "Not_in_List_B")
+    colnames(contingency_table) = c("In_List_A", "Not_in_List_A")
+
+    # Perform Fisher's exact test
+    fisher_test_result = fisher.test(contingency_table, alternative = alternative)
+
+    # Display the results
+    return(fisher_test_result)
+}
+
+
+get_var_explained = function(sobj, assay = "RNA") {
+    mat <- Seurat::GetAssayData(sobj, assay = assay, slot = "scale.data")
+    pca <- sobj[["pca"]]
+    total_variance <- sum(matrixStats::rowVars(mat))
+    eigValues = (pca@stdev)^2  ## EigenValues
+    varExplained = eigValues / total_variance
+    return(varExplained)
+}
+
+broken_stick <- function(sobj, assay = "RNA") {
+# Function to implement Broken Stick Model
+
+    mat <- Seurat::GetAssayData(sobj, assay = assay, slot = "scale.data")
+    pca <- sobj[["pca"]]
+
+    # Get the total variance:
+    total_variance <- sum(matrixStats::rowVars(mat))
+
+    eigValues = (pca@stdev)^2  ## EigenValues
+    varExplained = eigValues / total_variance
+
+    # Extract eigenvalues (variance explained by each PC)
+    n <- length(eigValues)  # Number of PCs
+
+    # Compute Broken Stick expected values
+    broken_stick_values <- sapply(1:n, function(k) sum(1 / (k:n)))
+
+    # Create dataframe for plotting
+    df <- data.frame(
+        PC = 1:n,
+        Variance_Explained = eigValues / sum(eigValues),  # Normalize eigenvalues
+        Broken_Stick = broken_stick_values / sum(broken_stick_values)  # Normalize broken stick values
+    )
+
+    # Plot actual variance vs. broken stick model
+    ggplot(df, aes(x = PC)) +
+    geom_line(aes(y = Variance_Explained, color = "Variance Explained"), size = 1.2) +
+    geom_line(aes(y = Broken_Stick, color = "Broken Stick Model"), size = 1.2, linetype = "dashed") +
+    geom_point(aes(y = Variance_Explained), size = 2) +
+    geom_point(aes(y = Broken_Stick), size = 2, shape = 17) +
+    labs(title = "Broken Stick Model vs. PCA Variance Explained",
+            y = "Proportion of Variance",
+            x = "Principal Component") +
+    scale_color_manual(values = c("Variance Explained" = "blue", "Broken Stick Model" = "red")) +
+    theme_minimal()
+}
+
+
+TopBottomGenesPerPC <- function(seurat_obj, n = 10, reduction = "pca") {
+  # Ensure the reduction exists
+  if (!reduction %in% names(seurat_obj@reductions)) {
+    stop(paste("Reduction", reduction, "not found in the Seurat object"))
+  }
+  
+  # Extract loadings from the selected dimensionality reduction
+  loadings <- seurat_obj[[reduction]]@feature.loadings
+  
+  # Iterate through each PC
+  for (pc in colnames(loadings)) {
+    cat("\n###", pc, "###\n")
+    
+    # Sort genes by loading values
+    sorted_genes <- sort(loadings[, pc], decreasing = TRUE)
+    
+    # Get top and bottom N genes
+    top_genes <- head(names(sorted_genes), n)
+    bottom_genes <- tail(names(sorted_genes), n)
+    
+    # Print results
+    cat("Top", n, "genes:\n", paste(top_genes, collapse = ", "), "\n")
+    cat("Bottom", n, "genes:\n", paste(bottom_genes, collapse = ", "), "\n")
+  }
+}
