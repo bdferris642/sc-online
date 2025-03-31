@@ -25,7 +25,7 @@ for (slogan in names(files)) {
     rds = readRDS(files[[slogan]])
     rds$cell_class = slogan
     rds$SNP_probe = paste(rds$SNP, rds$Probe, sep="_")
-    rds_list[[slogan]]
+    rds_list[[slogan]] = rds
 }
 
 all_eqtls = do.call(rbind, rds_list)
