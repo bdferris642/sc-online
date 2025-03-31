@@ -54,12 +54,16 @@ normalizeScalePcaClusterUmap = function(
     if (is.null(hvgs)){
         if (is.null(var_feature_subset_col)){
             sobj = FindVariableFeatures(sobj, nfeatures=n_hvgs_orig)
-            hvgs = sobj@assays$RNA@var.features
+            #hvgs = sobj@assays$RNA@var.features
+            # hvgs = getSeuratVarFeatures(sobj)
+            hvgs = VariableFeatures(sobj)
         } else {
             hvgs = getSeuratVarFeatureIntersectByCol(sobj, subset_col=var_feature_subset_col, original_nfeatures=n_hvgs_orig)
         }
     }
-    sobj@assays$RNA@var.features=hvgs
+    
+    # sobj@assays$RNA@var.features=hvgs
+    VariableFeatures(sobj) = hvgs
     sobj = (sobj
         %>% NormalizeData() 
         %>% ScaleData(features=hvgs, split.by=scaling_subset_col, vars.to.regress=regression_vars) 
