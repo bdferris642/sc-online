@@ -205,7 +205,6 @@ parse.sconline.outs = function(outs, slot="combined_labels") {
   return(pred.prob.df)
 }
 
-
 ################# MAIN #################
 dir.create(file.path(QUERY_BASE_PATH, "lt"), showWarnings = FALSE)
 
@@ -235,7 +234,8 @@ if (CONVERT_GENE_NAMES){
     # need to get references from ensemble ids to gene names
     # todo: parametrize this (some references will have gene names as row names)
     query_gns = gns[gns$gene_name %in% rownames(query),]
-    ref_counts = ref@assays$RNA@counts #should this be @data?
+
+    ref_counts = GetAssayData(ref, assay = "RNA", slot = "counts")
     ref_counts_in_query = ref_counts[rownames(ref_counts) %in% query_gns$gene_id,]
 
     # additionally, we want to remove rows of ref_counts_in_query with duplicated gene names
@@ -312,7 +312,7 @@ hvgs = VariableFeatures(ref_renamed)
 print(paste("NUM HVGS:", length(hvgs)))
 cat(head(hvgs), "...")
 
-query_counts = query@assays$RNA@counts 
+query_counts = GetAssayData(query, assay="RNA", slot="counts")
 query_counts = query_counts[rownames(query_counts) %in% rownames(ref_renamed),]
 query_counts = query_counts[match(rownames(ref_renamed), rownames(query_counts)),]
 
@@ -364,20 +364,17 @@ merged$dataset = ifelse(
 )
 merged$cell_names_orig = NULL
 
-ref_scaled_data = ref_renamed@assays$RNA@scale.data 
-query_scaled_data = query_renamed@assays$RNA@scale.data
+ref_scaled_data = GetAssayData(ref_renamed, assay="RNA", slot="scale.data")
+query_scaled_data = GetAssayData(query_renamed, assay="RNA", slot="scale.data")
 
 print("Concatenating scale.data")
-merged@assays$RNA@scale.data = cbind(
-    ref_scaled_data,
-    query_scaled_data
-)
+merged = SetAssayData(merged, new.data=cbind(ref_scaled_data, query_scaled_data), assay="RNA", slot="scale.data")
 
 print("Creating PCA")
 feature_loadings = ref_renamed[["pca"]]@feature.loadings
-feature_loadings = feature_loadings[rownames(merged@assays$RNA@scale.data),]
+feature_loadings = feature_loadings[rownames(GetAssayData(merged, assay="RNA", slot="scale.data")),]
 
-merged_cell_embeddings = t(merged@assays$RNA@scale.data) %*% feature_loadings
+merged_cell_embeddings = t(GetAssayData(merged, assay="RNA", slot="scale.data")) %*% feature_loadings
 
 merged[["pca"]] = CreateDimReducObject(
     embeddings = merged_cell_embeddings,
