@@ -169,15 +169,15 @@
             jk_coefvec=(-1)
         }
         
-        cluster_models[[i]]$jk_pval_median = median(jk_pvalvec)
-        cluster_models[[i]]$jk_pval_mean = mean(jk_pvalvec)
-        cluster_models[[i]]$jk_pval_max = max(jk_pvalvec)
+        # cluster_models[[i]]$jk_pval_median = median(jk_pvalvec)
+        # cluster_models[[i]]$jk_pval_mean = mean(jk_pvalvec)
+        # cluster_models[[i]]$jk_pval_max = max(jk_pvalvec)
         
-        cluster_models[[i]]$jk_coef_median = median(jk_coefvec)
-        cluster_models[[i]]$jk_coef_mean = mean(jk_coefvec)
-        cluster_models[[i]]$jk_stable = jk_stable
-        cluster_models[[i]]$jk_coef_max = jk_coefvec[which(abs(jk_coefvec)==max(jk_coefvec))[1]]
-        cluster_models[[i]]$jk_coef_min = jk_coefvec[which(abs(jk_coefvec)==min(jk_coefvec))[1]]
+        # cluster_models[[i]]$jk_coef_median = median(jk_coefvec)
+        # cluster_models[[i]]$jk_coef_mean = mean(jk_coefvec)
+        # cluster_models[[i]]$jk_stable = jk_stable
+        # cluster_models[[i]]$jk_coef_max = jk_coefvec[which(abs(jk_coefvec)==max(jk_coefvec))[1]]
+        # cluster_models[[i]]$jk_coef_min = jk_coefvec[which(abs(jk_coefvec)==min(jk_coefvec))[1]]
     }
     
     # Organize results into output dataframe
@@ -187,14 +187,14 @@
     output[[paste(contrast_lvl2, "OR", sep = ".")]] = sapply(cluster_models, function(x) exp(fixef(x$full)[[contrast_lvl2]]))
     output[[paste(contrast_lvl2, "OR", "95pct.ci.lower", sep = ".")]] = sapply(cluster_models, function(x) exp(x$confint[contrast_lvl2, "2.5 %"]))
     output[[paste(contrast_lvl2, "OR", "95pct.ci.upper", sep = ".")]] = sapply(cluster_models, function(x) exp(x$confint[contrast_lvl2, "97.5 %"]))
-    output[[paste(contrast_lvl2,"JK","Max", "OR", sep = ".")]] = sapply(cluster_models, function(x) {if(x$jk_coef_max==(-1)){-1} else{exp(x$jk_coef_max)}})
-    output[[paste(contrast_lvl2,"JK","Min", "OR", sep = ".")]] = sapply(cluster_models, function(x) {if(x$jk_coef_min==(-1)){-1} else{exp(x$jk_coef_min)}})
-    output[[paste(contrast_lvl2,"JK","Mean", "OR", sep = ".")]] = sapply(cluster_models, function(x) {if(x$jk_coef_mean==(-1)){-1} else {exp(x$jk_coef_mean)}})
-    output[[paste(contrast_lvl2,"JK","Median", "OR", sep = ".")]] = sapply(cluster_models, function(x) {if(x$jk_coef_median==(-1)){-1} else {exp(x$jk_coef_median)}})
-    output[[paste(contrast_lvl2,"JK","Max", "pvalue", sep = ".")]] = sapply(cluster_models, function(x) {if(x$jk_pval_max==(-1)){-1} else {x$jk_pval_max}})
-    output[[paste(contrast_lvl2,"JK","Mean", "pvalue", sep = ".")]] = sapply(cluster_models, function(x) {if(x$jk_pval_mean==(-1)){-1} else {x$jk_pval_mean}})
-    output[[paste(contrast_lvl2,"JK","Median", "pvalue", sep = ".")]] = sapply(cluster_models, function(x) {if(x$jk_pval_median==(-1)){-1} else {x$jk_pval_median}})
-    output[[paste(contrast_lvl2,"JK","Stable", sep = ".")]] = sapply(cluster_models, function(x) x$jk_stable)
+    # output[[paste(contrast_lvl2,"JK","Max", "OR", sep = ".")]] = sapply(cluster_models, function(x) {if(x$jk_coef_max==(-1)){-1} else{exp(x$jk_coef_max)}})
+    # output[[paste(contrast_lvl2,"JK","Min", "OR", sep = ".")]] = sapply(cluster_models, function(x) {if(x$jk_coef_min==(-1)){-1} else{exp(x$jk_coef_min)}})
+    # output[[paste(contrast_lvl2,"JK","Mean", "OR", sep = ".")]] = sapply(cluster_models, function(x) {if(x$jk_coef_mean==(-1)){-1} else {exp(x$jk_coef_mean)}})
+    # output[[paste(contrast_lvl2,"JK","Median", "OR", sep = ".")]] = sapply(cluster_models, function(x) {if(x$jk_coef_median==(-1)){-1} else {exp(x$jk_coef_median)}})
+    # output[[paste(contrast_lvl2,"JK","Max", "pvalue", sep = ".")]] = sapply(cluster_models, function(x) {if(x$jk_pval_max==(-1)){-1} else {x$jk_pval_max}})
+    # output[[paste(contrast_lvl2,"JK","Mean", "pvalue", sep = ".")]] = sapply(cluster_models, function(x) {if(x$jk_pval_mean==(-1)){-1} else {x$jk_pval_mean}})
+    # output[[paste(contrast_lvl2,"JK","Median", "pvalue", sep = ".")]] = sapply(cluster_models, function(x) {if(x$jk_pval_median==(-1)){-1} else {x$jk_pval_median}})
+    # output[[paste(contrast_lvl2,"JK","Stable", sep = ".")]] = sapply(cluster_models, function(x) x$jk_stable)
     
     return(output)
 }
