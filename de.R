@@ -582,7 +582,14 @@ get_de_correspondence_mats = function(de_dfs, union_min=50, mode="union"){
   ))
 }
 
-pseudobulk_seurat = function(sobj, grouping_cols, assay="RNA", min_n_cells = 10, min_counts_gene = 10, min_frac_gene = 0.01, contrast_col="case_control"){
+pseudobulk_seurat = function(
+  sobj, 
+  grouping_cols, 
+  assay="RNA", 
+  min_n_cells = 10, 
+  min_counts_gene = 10, 
+  min_frac_gene = 0.01, 
+  contrast_col="case_control"){
 
     create_df_with_contrast_col = function() {
       setNames(data.frame(factor(levels = sort(unique(md[[contrast_col]])))), contrast_col)
@@ -624,7 +631,7 @@ pseudobulk_seurat = function(sobj, grouping_cols, assay="RNA", min_n_cells = 10,
     
     counts_bulk = AggregateExpression(sobj, group.by = "grouping")[[assay]]
     
-    counts_orig = sobj@assays[[assay]]@counts
+    counts_orig = GetAssayData(sobj, assay, slot="counts")
     counts_bulk = counts_bulk[rowSums(counts_orig)>= min_counts_gene & rowMeans(counts_orig > 0) >= min_frac_gene,]
     
     colnames(counts_bulk) = gsub("-", '_', colnames(counts_bulk))
