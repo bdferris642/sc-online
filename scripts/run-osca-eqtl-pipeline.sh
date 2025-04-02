@@ -68,8 +68,14 @@ LOG_FNAME="/mnt/accessory/analysis/eqtl/logs/osca_eqtl_pipeline_${DATE_TIME}.log
 touch "$LOG_FNAME"
 exec > >(tee -i "$LOG_FNAME") 2>&1
 
-
 conda activate mashr
+
+# store git branch and commit hash to log file so pipeline can be replicated later
+branch=$(git rev-parse --abbrev-ref HEAD)
+commit_hash=$(git rev-parse HEAD)
+
+echo "Branch: $branch"
+echo "Commit: $commit_hash"
 
 OSCA_OUTPUT_DIR=$OSCA_INPUT_DIR/eqtl_final_outs/$PIPELINE_SLOGAN
 PB_OUTPUT_DIR="$GENE_EXPR_INPUT_DIR/$PB_OUTPUT_SUBDIR"
@@ -254,7 +260,7 @@ if [ $START_AT_STEP -le 7 ]; then
     echo "************************************* STEP 7 *************************************"
     echo "************************************* MASH ***************************************"
     Rscript ~/sc-online/scripts/run-mashr.R \
-        --path="$OSCA_OUTPUT_DIR" \
+        --path="$OSCA_OUTPUT_DIR/eqtl_present_in_all.rds" \
         --padj-thresh="$MASH_PADJ_THRESH" \
         --num-random="$MASH_NUM_RANDOM" \
         --eps="$MASH_EPS" && {
