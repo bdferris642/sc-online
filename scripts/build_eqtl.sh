@@ -14,6 +14,8 @@ qcovar_file=$6 # cov2*.txt. Quantitative covariate file from OSCA_formatting-sca
 cores=$7 # number of cores to use
 final_output=$8 # output prefix
 
+CIS_WIND=1000
+
 # Set output directory from final_output path
 output_dir=$(dirname "$final_output")
 mkdir -p "$output_dir"
@@ -45,7 +47,7 @@ osca --befile "$befile_prefix" --update-opi "$update_opi" >> ${progress_log} 2>&
 # Step 3: Run eQTL analysis
 temp_eqtl_output="$output_dir/tempeqtl_$(basename "$final_output")"
 echo "Step 3: Running eQTL analysis" >> ${progress_log}
-osca --eqtl --bfile "$bfile" --befile "$befile_prefix" --cis --cis-wind 2000 \
+osca --eqtl --bfile "$bfile" --befile "$befile_prefix" --cis --cis-wind "$CIS_WIND" \
     --covar "$covar_file" --qcovar "$qcovar_file" --to-smr --thread-num "$cores" \
     --out "$temp_eqtl_output" >> ${progress_log} 2>&1 && {
     echo "Step 3, Running eQTL analysis: COMPLETED" >> ${progress_log}
