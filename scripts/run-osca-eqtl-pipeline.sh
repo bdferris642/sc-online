@@ -26,6 +26,7 @@ PB_OUTPUT_SUBDIR="pseudobulk"
 SAMPLE_ID="participant_id"
 STRS_TO_SKIP="endo,opc"
 START_AT_STEP=1
+STOP_AFTER_STEP=1000
 
 # Parse named arguments
 while [[ "$#" -gt 0 ]]; do
@@ -44,6 +45,7 @@ while [[ "$#" -gt 0 ]]; do
         --pipeline-slogan) PIPELINE_SLOGAN="$2"; shift ;;
         --sample-id) SAMPLE_ID="$2"; shift ;;
         --start-at-step) START_AT_STEP="$2"; shift ;;
+        --stop-after-step) STOP_AFTER_STEP="$2"; shift ;;
         --strs-to-skip) STRS_TO_SKIP="$2"; shift ;;
         --vcf-slogan) VCF_SLOGAN="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
@@ -123,6 +125,7 @@ echo "PARTICIPANT_FNAME: $PARTICIPANT_FNAME"
 echo "PIPELINE_SLOGAN: $PIPELINE_SLOGAN"
 echo "SAMPLE_ID: $SAMPLE_ID"
 echo "START_AT_STEP: $START_AT_STEP"
+echo "STOP_AFTER_STEP: $STOP_AFTER_STEP"
 echo "STRS_TO_SKIP: $STRS_TO_SKIP"
 echo "VCF_SLOGAN: $VCF_SLOGAN"
 
@@ -151,7 +154,8 @@ else
     echo "************************************* SKIPPING STEP 1 ****************************"
 fi
 
-if [ $START_AT_STEP -le 2 ]; then
+# only run if start-at-step is <= 2 and stop-after-step is >= 2
+if [ $START_AT_STEP -le 2 ] && [ $STOP_AFTER_STEP -ge 2 ]; then
 
     echo "************************************* STEP 2 *************************************"
     echo "************************************* FORMAT OSCA INPUTS *************************"
@@ -170,7 +174,7 @@ else
     echo "************************************* SKIPPING STEP 2 ****************************"
 fi
 
-if [ $START_AT_STEP -le 3 ]; then
+if [ $START_AT_STEP -le 3 ] && [ $STOP_AFTER_STEP -ge 3 ]; then
     echo "************************************* STEP 3 *************************************"
     echo "************************************* RUN OSCA ***********************************"
     echo "Running OSCA eQTL analysis with the following parameters:"
@@ -210,7 +214,7 @@ else
     echo "************************************* SKIPPING STEP 3 ****************************"
 fi
 
-if [ $START_AT_STEP -le 4 ]; then
+if [ $START_AT_STEP -le 4 ] && [ $STOP_AFTER_STEP -ge 4 ]; then
     echo "************************************* STEP 4 *************************************"
     echo "************************************* GS COPY TSVS *******************************"
     # copy tsvs so they can be deleted after next step
@@ -224,7 +228,7 @@ else
     echo "************************************* SKIPPING STEP 4 ****************************"
 fi
 
-if [ $START_AT_STEP -le 5 ]; then
+if [ $START_AT_STEP -le 5 ] && [ $STOP_AFTER_STEP -ge 5 ]; then
     echo "************************************* STEP 5 *************************************"
     echo "************************************* SAVE OSCA RDS, MANHATTAN PLOTS *************"
     # process and plot OSCA outputs in parallel. Makes plots and saves huge tsvs as rds
@@ -242,7 +246,7 @@ else
     echo "************************************* SKIPPING STEP 5 ****************************"
 fi
 
-if [ $START_AT_STEP -le 6 ]; then
+if [ $START_AT_STEP -le 6 ] && [ $STOP_AFTER_STEP -ge 6 ]; then
     echo "************************************* STEP 6 *************************************"
     echo "************************************* SUBSET TO COMMON SNP-PROBES ****************"
     Rscript ~/sc-online/scripts/get-common-snp-probes-osca-rds.R \
@@ -256,7 +260,7 @@ else
     echo "************************************* SKIPPING STEP 6 ****************************"
 fi
 
-if [ $START_AT_STEP -le 7 ]; then
+if [ $START_AT_STEP -le 7 ] && [ $STOP_AFTER_STEP -ge 7 ]; then
     echo "************************************* STEP 7 *************************************"
     echo "************************************* MASH ***************************************"
     Rscript ~/sc-online/scripts/run-mashr.R \
@@ -273,7 +277,7 @@ else
     echo "************************************* SKIPPING STEP 7 ****************************"
 fi
 
-if [ $START_AT_STEP -le 8 ]; then
+if [ $START_AT_STEP -le 8 ] && [ $STOP_AFTER_STEP -ge 8 ]; then
     echo "************************************* STEP 8 *************************************"
     echo "************************************* GS COPY OSCA INPUTS AND OUTPUTS ************"
     gcloud storage cp -r $OSCA_INPUT_DIR $GOOGLE_BUCKET/ && {
