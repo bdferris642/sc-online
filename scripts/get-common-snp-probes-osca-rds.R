@@ -19,60 +19,42 @@ files = files[!grepl("_sig.rds", files)]
 
 names(files) = sapply(files, get_fname_slogan)
 
+basenames = sapply(files, basename)
+cat('\nREADING FOLLOWING FILES FROM ', base, '\n')
+cat(paste0(basenames, "\n"))
+
 rds_list = list()
+common_snp_probes = NULL
 for (slogan in names(files)) {
     cat(paste0("READING ", slogan, "\n"))
     rds = readRDS(files[[slogan]])
     rds$cell_class = slogan
     rds$SNP_probe = paste(rds$SNP, rds$Probe, sep="_")
     rds_list[[slogan]] = rds
+
+    this_snp_probe_set = unique(rds$SNP_probe)
+    if (is.null(common_snp_probes)) {
+        common_snp_probes = this_snp_probe_set
+    } else {
+        common_snp_probes = intersect(common_snp_probes, this_snp_probe_set)
+    }
+    rm(rds)
+    gc(verbose = FALSE)
 }
 
-all_eqtls = do.call(rbind, rds_list)
-
-# cat("READING ASTRO\n")
-# astro = readRDS(file.path(base, "eqtl_astro.rds"))
-# astro$SNP_probe = paste(astro$SNP, astro$Probe, sep="_")
-
-# cat("READING DA\n")
-# da = readRDS(file.path(base, "eqtl_da.rds"))
-# da$SNP_probe = paste(da$SNP, da$Probe, sep="_")
-
-# cat("READING MG\n")
-# mg = readRDS(file.path(base, "eqtl_mg.rds"))
-# mg$SNP_probe = paste(mg$SNP, mg$Probe, sep="_")
-
-# cat("READING OLIGO\n")
-# oligo = readRDS(file.path(base, "eqtl_oligo.rds"))
-# oligo$SNP_probe = paste(oligo$SNP, oligo$Probe, sep="_")
-
-# cat("READING NONDA\n")
-# nonda = readRDS(file.path(base, "eqtl_nonda.rds"))
-# nonda$SNP_probe = paste(nonda$SNP, nonda$Probe, sep="_")
-
-# astro$cell_class = "astro"
-# da$cell_class = "da"
-# mg$cell_class = "mg"
-# oligo$cell_class = "oligo"
-# nonda$cell_class = "nonda"
-
-# cat("SUBSETTING TO COMMON SNPS\n")
-# all_eqtls = rbind(astro, da, mg, oligo, nonda)
-# rm(astro)
-# rm(da)
-# rm(mg)
-# rm(oligo)
-# rm(nonda)
-
 cat("SUBSETTING TO COMMON SNPS\n")
-cell_class_counts = (all_eqtls 
-    %>% group_by(SNP_probe) 
-    %>% summarise(n_cell_classes=n_distinct(cell_class)) 
-    %>% ungroup())
-common_snps = (cell_class_counts 
-    %>% filter(n_cell_classes == length(files))
-    %>% select(SNP_probe))
-eqtl_common_snps = all_eqtls %>% filter(SNP_probe %in% common_snps$SNP_probe)
+for (slogan in names(files)) {
+    cat(paste0("SUBSETTING ", slogan, "\n"))
+    rds = rds_list[[slogan]]
+    rds = rds %>% filter(SNP_probe %in% common_snp_probes)
+    rds_list[[slogan]] = rds
+    rm(rds)
+    gc(verbose = FALSE)
+}
+
+eqtl_common_snps = do.call(rbind, rds_list)
+rm(rds_list)
+
 
 cat("SAVING DATA\n")
 saveRDS(eqtl_common_snps, file.path(base, "eqtl_present_in_all.rds"))
