@@ -64,7 +64,8 @@ done
 # include date in log filenames
 DATE_TIME=$(date +'%Y-%m-%d_%H-%M-%S')
 GOOGLE_BUCKET=gs://macosko_data/ferris/eqtl_outs/$PIPELINE_SLOGAN
-LOG_FNAME="/mnt/accessory/analysis/eqtl/logs/osca_eqtl_pipeline_${DATE_TIME}.log"
+LOG_FNAME="/mnt/accessory/analysis/eqtl/logs/osca_eqtl_pipeline_$PIPELINE_SLOGAN_${DATE_TIME}.log"
+SCRIPT_DIR=/home/ferris/sc-online/scripts/osca_eqtl_pipeline
 
 # redirect stdout and stderr to log file and terminal
 touch "$LOG_FNAME"
@@ -137,7 +138,7 @@ echo "VCF_SLOGAN: $VCF_SLOGAN"
 if [ $START_AT_STEP -le 1 ]; then
     echo "************************************* STEP 1 *************************************"
     echo "************************************* PSEUDOBULK *********************************"
-    python ~/sc-online/scripts/make-eqtl-pseudobulk.py \
+    python $SCRIPT_DIR/make-eqtl-pseudobulk.py \
         --input-dir "$GENE_EXPR_INPUT_DIR" \
         --output-dir "$PB_OUTPUT_DIR" \
         --min-num-cells "$MIN_NUM_CELLS" \
@@ -160,7 +161,7 @@ if [ $START_AT_STEP -le 2 ] && [ $STOP_AFTER_STEP -ge 2 ]; then
     echo "************************************* STEP 2 *************************************"
     echo "************************************* FORMAT OSCA INPUTS *************************"
     # format the OSCA inputs
-    Rscript ~/sc-online/scripts/run-osca-formatting-scanpy.R \
+    Rscript $SCRIPT_DIR/run-osca-formatting-scanpy.R \
         --expression-dir="$PB_OUTPUT_DIR" \
         --output-dir="$OSCA_INPUT_DIR" \
         --vcf-slogan="$VCF_SLOGAN" \
@@ -189,7 +190,7 @@ if [ $START_AT_STEP -le 3 ] && [ $STOP_AFTER_STEP -ge 3 ]; then
 
     # run OSCA on all CCs simultaneously
     cat $CC_FILE | \
-        xargs -I @ echo ~/sc-online/scripts/build_eqtl.sh \
+        xargs -I @ echo $SCRIPT_DIR/build_eqtl.sh \
             "$OSCA_INPUT_DIR/Phenotype_@_osca.txt" \
             "$OSCA_INPUT_DIR/befile_@" \
             "$OSCA_INPUT_DIR/$VCF_SLOGAN" \
@@ -233,7 +234,7 @@ if [ $START_AT_STEP -le 5 ] && [ $STOP_AFTER_STEP -ge 5 ]; then
     echo "************************************* SAVE OSCA RDS, MANHATTAN PLOTS *************"
     # process and plot OSCA outputs in parallel. Makes plots and saves huge tsvs as rds
     cat $CC_FILE | \
-        xargs -I @ echo Rscript ~/sc-online/scripts/process-and-plot-osca-tsv.R \
+        xargs -I @ echo Rscript $SCRIPT_DIR/process-and-plot-osca-tsv.R \
         --path="$OSCA_OUTPUT_DIR/eqtl_@.tsv" | parallel -j 0 --tmpdir /mnt/accessory/tmp && {
             echo "STEP 5 SUCCESSFULLY processed and plotted OSCA outputs."
         } || {
@@ -249,7 +250,7 @@ fi
 if [ $START_AT_STEP -le 6 ] && [ $STOP_AFTER_STEP -ge 6 ]; then
     echo "************************************* STEP 6 *************************************"
     echo "************************************* SUBSET TO COMMON SNP-PROBES ****************"
-    Rscript ~/sc-online/scripts/get-common-snp-probes-osca-rds.R \
+    Rscript $SCRIPT_DIR/get-common-snp-probes-osca-rds.R \
         --base="$OSCA_OUTPUT_DIR" && {
             echo "STEP 6 SUCCESSFULLY created common SNP-by-Gene rds."
         } || {
@@ -263,7 +264,7 @@ fi
 if [ $START_AT_STEP -le 7 ] && [ $STOP_AFTER_STEP -ge 7 ]; then
     echo "************************************* STEP 7 *************************************"
     echo "************************************* MASH ***************************************"
-    Rscript ~/sc-online/scripts/run-mashr.R \
+    Rscript $SCRIPT_DIR/run-mashr.R \
         --path="$OSCA_OUTPUT_DIR/eqtl_present_in_all.rds" \
         --padj-thresh="$MASH_PADJ_THRESH" \
         --num-random="$MASH_NUM_RANDOM" \
