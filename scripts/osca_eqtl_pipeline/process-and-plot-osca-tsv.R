@@ -71,49 +71,43 @@ cat(paste0("\n Step 1: Find lead SNPs per gene\n"))
 # # Step 6: Merge SNP-level FDR back into main df
 # df = df %>% left_join(df_sig_genes %>% select(SNP, Probe, padj_snp), by = c("SNP", "Probe"))
 
-
-# STEP 1: Bonferroni correction within each gene (per gene, correct smallest P)
-df = df %>%
-    group_by(Probe) %>%
-    mutate(p_bonf = pmin(p * n(), 1)) %>%
-    ungroup()
-
-# STEP 2: Get lead SNP (smallest nominal p) per gene
+# STEP 1: Get lead SNP (smallest nominal p) per gene
 gene_leads = df %>%
     group_by(Probe) %>%
     slice_min(order_by = p, n = 1, with_ties = FALSE) %>%
     ungroup()
 
-# STEP 3: Apply gene-wise Bonferroni correction to lead SNPs
-# This step technically already done in STEP 1, but redo here just for clarity
+# STEP 2: Apply gene-wise Bonferroni correction to lead SNPs
 gene_leads = gene_leads %>%
     rowwise() %>%
-    mutate(p_bonf = p * sum(df$Probe == Probe)) %>%
-    mutate(p_bonf = min(p_bonf, 1)) %>%
+    mutate(min_p_bonf_within_gene = min(p * sum(df$Probe == Probe), 1)) %>%
     ungroup()
 
-# STEP 4: Apply BH FDR to the gene-level Bonferroni p-values
-gene_leads = gene_leads %>% mutate(padj_gene = p.adjust(p_bonf, method = "BH"))
+# STEP 3: Apply BH FDR to the gene-level Bonferroni p-values
+gene_leads = gene_leads %>%
+    mutate(padj_gene = p.adjust(min_p_bonf_within_gene, method = "BH"))
 
-# STEP 5: Identify significant eGenes (FDR < 5%)
+# STEP 4: Identify significant eGenes
 signif_genes = gene_leads %>% filter(padj_gene < FDR_THRESH)
 
-# STEP 6 (Revised): Apply BH correction across *all* gene–SNP pairs
+# STEP 5: Apply BH correction across *all* gene–SNP pairs
 df = df %>% mutate(padj_snp = p.adjust(p, method = "BH"))
 
-# STEP 7 (Revised): Determine nominal P threshold from significant gene–SNP pairs
+# STEP 6: Determine nominal P threshold from significant gene–SNP pairs
 signif_pairs = df %>% filter(padj_snp < FDR_THRESH)
 nominal_p_thresh = max(signif_pairs$p)
 
-# STEP 8: Declare all SNPs with nominal P ≤ threshold as significant eSNPs
-signif_esnps = df %>% filter(p <= nominal_p_thresh)
+# STEP 7: Declare all SNPs with nominal P ≤ threshold as significant eSNPs
+signif_esnps = df %>%
+    filter(p <= nominal_p_thresh)
 
-
-# OJO: this is A Choice, but we set NA p-values to 1
+# STEP 8: Set NA-adjusted p-values to 1 (optional, for plotting)
 df$padj_snp[is.na(df$padj_snp)] = 1
-
 df$negative_log10_padj_snp = -log10(df$padj_snp)
 df$negative_log10_padj_snp[df$negative_log10_padj_snp > HARD_CAP] = HARD_CAP
+
+# Add gene-level FDR values to df by joining from gene_leads
+df = df %>% left_join(gene_leads %>% select(Probe, padj_gene), by = "Probe")
 
 df$negative_log10_padj_gene = -log10(df$padj_gene)
 df$negative_log10_padj_gene[df$negative_log10_padj_gene > HARD_CAP] = HARD_CAP
