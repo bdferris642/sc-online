@@ -107,10 +107,12 @@ if (! dir.exists(output_dir)){
     dir.create(output_dir, recursive = TRUE)
 }
 
-if (! is.null(ONLY_CLUSTERS)){
+if (! is.null(CLUSTER_COL)){
     clusters = unique(sobj@meta.data[[CLUSTER_COL]])
-    clusters = clusters[clusters %in% ONLY_CLUSTERS]
-    sobj = sobj[, sobj@meta.data[[CLUSTER_COL]] %in% clusters]
+    if (! is.null(ONLY_CLUSTERS)){    
+        clusters = clusters[clusters %in% ONLY_CLUSTERS]
+        sobj = sobj[, sobj@meta.data[[CLUSTER_COL]] %in% clusters]
+    }
 }
 
 
