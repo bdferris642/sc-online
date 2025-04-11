@@ -298,6 +298,11 @@ if ((! "participant_id" %in% colnames(query@meta.data)) &
         query$participant_id = query$donor_id
     }
 
+if ((! "participant_id" %in% colnames(query@meta.data)) & 
+    ("DONOR" %in% colnames(query@meta.data))) {
+        query$participant_id = query$DONOR
+    }
+
 
 ref_renamed = normalizeScalePcaClusterUmap(
     ref_renamed,
@@ -417,24 +422,21 @@ prob_mat_out = merged@meta.data[,
 ]
 
 prob_mat_out_query = prob_mat_out[prob_mat_out$dataset == "query", c(colnames(prob_mat_combined), "umap_1", "umap_2")]
-prob_mat_out_query = prob_mat_out_query[match(colnames(query_renamed), rownames(prob_mat_out_query)),]
+prob_mat_out_query = prob_mat_out_query[match(colnames(query_orig), rownames(prob_mat_out_query)),]
 
 # paste inferred_<LT_COL>_ to the column names
 new_colnames = paste0("inferred_", LT_COL, "__", colnames(prob_mat_out_query))
 colnames(prob_mat_out_query) = new_colnames
 
-# append this to the actual query object
-query_renamed@meta.data = cbind(query_renamed@meta.data, prob_mat_out_query)
+# append this to the actual original query object metadata
+query_orig@meta.data = cbind(query_orig@meta.data, prob_mat_out_query)
 
 qsave(prob_mat_out, file.path(QUERY_BASE_PATH, MERGED_OUTNAME))
 
 # Do Not save a query object that can have gene names REMOVED from it!!!
-query_final = query_renamed
-query_final@assays$RNA = query_orig@assays$RNA
-
 if (all(rownames(query_orig) %in% rownames(query_final))) {
     print("Row names match. Saving.")
-    qsave(query_renamed, QUERY_PATH)
+    qsave(query_orig, QUERY_PATH)
 } else {
     print("Row names do not match! Not saving query object!")
 }
