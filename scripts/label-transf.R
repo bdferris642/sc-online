@@ -208,14 +208,17 @@ parse.sconline.outs = function(outs, slot="combined_labels") {
 ################# MAIN #################
 dir.create(file.path(QUERY_BASE_PATH, "lt"), showWarnings = FALSE)
 
+print("Loading Query Object")
 query_orig = qread(QUERY_PATH)
 query = query_orig
+DefaultAssay(query) = "RNA"
+
 old_inferred_lt_cols = colnames(query@meta.data)[grepl(paste0("inferred_", LT_COL, "__"), colnames(query@meta.data))]
 if (! is.null(old_inferred_lt_cols)){
     query@meta.data[,old_inferred_lt_cols] = NULL
 }
 
-
+print("Loading Reference Object")
 if (grepl(".qs$", REFERENCE_BASENAME)) {
     ref = qread(REFERENCE_PATH)
 } else if (grepl(".rds$", REFERENCE_BASENAME)){
@@ -224,10 +227,11 @@ if (grepl(".qs$", REFERENCE_BASENAME)) {
     stop("Reference file must be either .qs or .rds")
 }
 
+DefaultAssay(ref) = "RNA"
 ref = ref[,!is.na(ref@meta.data[[LT_COL]])]
 
 if (CONVERT_GENE_NAMES){
-    print("Converting gene names")
+    print("Converting gene names to Query style")
     
     #read in data
     gns = .extraHumanGeneAnnoAdderFn()
@@ -262,7 +266,7 @@ if (CONVERT_GENE_NAMES){
         meta.data = ref@meta.data)
     
 } else {
-    
+    print("Getting Intersect of Genes")
     joint_rownames = sort(intersect(rownames(query), rownames(ref)))
     query = query[joint_rownames,]
     ref_renamed = ref[joint_rownames,]
@@ -305,7 +309,7 @@ if ((! "participant_id" %in% colnames(query@meta.data)) &
         query$participant_id = query$DONOR
     }
 
-
+print("Clustering Reference Dataset")
 ref_renamed = normalizeScalePcaClusterUmap(
     ref_renamed,
     var_feature_subset_col=VAR_FEATURE_SUBSET_COL,
