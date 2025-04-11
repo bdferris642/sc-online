@@ -211,8 +211,6 @@ dir.create(file.path(QUERY_BASE_PATH, "lt"), showWarnings = FALSE)
 print("Loading Query Object")
 query_orig = qread(QUERY_PATH)
 query = query_orig
-DefaultAssay(query) = "RNA"
-
 old_inferred_lt_cols = colnames(query@meta.data)[grepl(paste0("inferred_", LT_COL, "__"), colnames(query@meta.data))]
 if (! is.null(old_inferred_lt_cols)){
     query@meta.data[,old_inferred_lt_cols] = NULL
@@ -227,7 +225,12 @@ if (grepl(".qs$", REFERENCE_BASENAME)) {
     stop("Reference file must be either .qs or .rds")
 }
 
+# only need the RNA assay; other assays/layers can interfere with subsetting by genes
+DefaultAssay(query) = "RNA"
 DefaultAssay(ref) = "RNA"
+query@assays = query@assays["RNA"]
+ref@assays = ref@assays["RNA"]
+
 ref = ref[,!is.na(ref@meta.data[[LT_COL]])]
 
 if (CONVERT_GENE_NAMES){
@@ -270,7 +273,7 @@ if (CONVERT_GENE_NAMES){
     joint_rownames = sort(intersect(rownames(query), rownames(ref)))
     query = query[joint_rownames,]
     ref_renamed = ref[joint_rownames,]
-
+    print(paste0("Subsetted Query and Reference to ", length(joint_rownames), " genes"))
 }
 
 if ((! "cell_class" %in% colnames(ref_renamed@meta.data)) & 
