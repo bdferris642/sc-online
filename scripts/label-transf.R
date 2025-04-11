@@ -211,7 +211,9 @@ dir.create(file.path(QUERY_BASE_PATH, "lt"), showWarnings = FALSE)
 query_orig = qread(QUERY_PATH)
 query = query_orig
 old_inferred_lt_cols = colnames(query@meta.data)[grepl(paste0("inferred_", LT_COL, "__"), colnames(query@meta.data))]
-query@meta.data[,old_inferred_lt_cols] = NULL
+if (! is.null(old_inferred_lt_cols)){
+    query@meta.data[,old_inferred_lt_cols] = NULL
+}
 
 
 if (grepl(".qs$", REFERENCE_BASENAME)) {
