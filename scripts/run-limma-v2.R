@@ -180,7 +180,7 @@ for (x_name in names(pseudocells_list)){
         # run SVA
         
         cd = get_df_with_svs(
-            edata=as.Matrix(counts(x)),
+            edata=as.matrix(counts(x)),
             df=cd,
             cols=c(CONTRAST_COL, COV_LIST),
             ctr_cols=SVA_CTR_COLS,
