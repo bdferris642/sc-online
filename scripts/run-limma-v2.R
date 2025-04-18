@@ -23,7 +23,9 @@ spec <- matrix(c(
     'rand-var', 'rv', 1, "character",
     'de-method', 'dem', 1, "character",
     'only-clusters', 'o', 1, 'character',
-    'suffix', 's', 1, 'character'
+    'suffix', 's', 1, 'character',
+    'sva-ctr-cols', 'scs', 1, 'character',
+    'n-svs', 'ns', 1, 'integer'
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
@@ -88,6 +90,19 @@ if (is.null(opt[['suffix']])){
 }
 SUFFIX = paste0('__', SUFFIX, format(Sys.Date(), "__%Y%m%d"))
 
+if (!is.null(opt[['n-svs']])) {
+    RUN_SVA = TRUE
+    N_SVS = opt[['n-svs']]
+    if (! is.null(opt[['sva-ctr-cols']])) {
+        SVA_CTR_COLS = strsplit(opt[['sva-ctr-cols']], ",")[[1]]
+    } else {
+        SVA_CTR_COLS = NULL
+    }
+} else {
+    RUN_SVA = FALSE
+    SVA_CTR_COLS = NULL
+    N_SVS = NULL
+}
 
 PATH = opt[['path']]
 BASE_PATH = dirname(PATH)
@@ -111,7 +126,9 @@ pseudocells_list = qread(pseudocell_read_path)
 # downstream code expects a list of pseudocell sce; 
 # if the object is just sce, make it a list
 if (class(pseudocells_list) == "SingleCellExperiment"){
-    pseudocells_list = list("all" = pseudocells_list)
+    name = as.data.frame(colData(pseudocells_list))[[CLUSTER_COL]][[1]]
+    pseudocells_list = list(pseudocells_list)
+    names(pseudocells_list) = name
 }
 
 
@@ -154,6 +171,31 @@ for (x_name in names(pseudocells_list)){
 
     print(x_name)
     x=pseudocells_list[[x_name]]
+
+    if (RUN_SVA){
+        # remove pre-existing cols starting with SV
+        cd = as.data.frame(colData(x))
+        cd = cd[, !grepl("^SV", toupper(colnames(cd)))]
+
+        # run SVA
+        
+        cd = get_df_with_svs(
+            edata=as.Matrix(counts(x)),
+            df=cd,
+            cols=c(CONTRAST_COL, COV_LIST),
+            ctr_cols=SVA_CTR_COLS,
+            n=N_SVS)
+        
+
+        # and we want to add the svs to the COV_LIST
+        SV_COLS = colnames(cd)[grepl("^SV", toupper(colnames(cd)))]
+        COV_LIST = c(COV_LIST, SV_COLS)
+        
+        # store the columns used to calculated SVs and the Null model
+        cd$SVA_cols = paste0(c(COV_LIST, SV_COLS), collapse=",")
+        cd$SVA_ctr_cols = paste0(SVA_CTR_COLS, collapse=",")
+        colData(x) = DataFrame(cd)
+    }
 
     if (! is.null(CONTRAST_COL)){
         if (! all(c(CONTRAST_COL, COV_LIST, RAND_VAR, CLUSTER_COL) %in% colnames(colData(x)))){
@@ -252,7 +294,10 @@ for (x_name in names(pseudocells_list)){
                 'cov_list' = COV_LIST,
                 'rand_var' = RAND_VAR,
                 'quantile_norm' = QUANTILE_NORM,
-                'min_num_pseudocells' = MIN_NUM_PSEUDOCELLS
+                'min_num_pseudocells' = MIN_NUM_PSEUDOCELLS,
+                'sva_cols' = SV_COLS,
+                'sva_ctr_cols' = SVA_CTR_COLS,
+                'n_svs' = N_SVS
             )
 
             for(coef in colnames(res$fit$coefficients)){
