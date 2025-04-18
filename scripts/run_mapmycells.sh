@@ -72,7 +72,7 @@ if [ ! -e "${ref_dir}/precomputed_stats.h5" ] || [ "${clobber}" -eq 1 ]; then
 	echo "computing stats for reference"
 	python -m cell_type_mapper.cli.precompute_stats_scrattch \
 		--h5ad_path "${ref}" \
-		--hierarchy '["liger_cluster"]' \
+		--hierarchy  '["Class_label", "Subclass_label", "Group_label", "Cluster_label"]' \
 		--n_processors 12 \
 		--output_path "${ref_dir}/precomputed_stats.h5" \
 		--clobber True \
