@@ -441,11 +441,4 @@ colnames(prob_mat_out_query) = new_colnames
 query_orig@meta.data = cbind(query_orig@meta.data, prob_mat_out_query)
 
 qsave(prob_mat_out, file.path(QUERY_BASE_PATH, MERGED_OUTNAME))
-
-# Do Not save a query object that can have gene names REMOVED from it!!!
-if (all(rownames(query_orig) %in% rownames(query_final))) {
-    print("Row names match. Saving.")
-    qsave(query_orig, QUERY_PATH)
-} else {
-    print("Row names do not match! Not saving query object!")
-}
+qsave(query_orig, QUERY_PATH)
