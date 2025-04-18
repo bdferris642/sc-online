@@ -18,16 +18,16 @@ gene_sets = list(
     syngo_ontologies = "~/genesets/syngo_ontologies.txt"
 )
 
-library(dplyr)
-library(ggplot2)
-library(glue)
-library(getopt)
-library(Matrix)
-library(qs)
-library(Seurat)
+suppressWarnings(suppressMessages(library(dplyr)))
+suppressWarnings(suppressMessages(library(ggplot2)))
+suppressWarnings(suppressMessages(library(glue)))
+suppressWarnings(suppressMessages(library(getopt)))
+suppressWarnings(suppressMessages(library(Matrix)))
+suppressWarnings(suppressMessages(library(qs)))
+suppressWarnings(suppressMessages(library(Seurat)))
 
-source("~/sc-online/plot.R")
-source("~/sc-online/gsea.R")
+suppressWarnings(suppressMessages(source("~/sc-online/plot.R")))
+suppressWarnings(suppressMessages(source("~/sc-online/gsea.R")))
 
 spec <- matrix(c(
     'path', 'p', 1, "character",
