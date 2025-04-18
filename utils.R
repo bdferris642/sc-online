@@ -1,3 +1,9 @@
+suppressMessages(suppressWarnings(library(SingleCellExperiment)))
+suppressMessages(suppressWarnings(library(Seurat)))
+suppressMessages(suppressWarnings(library(dplyr)))
+suppressMessages(suppressWarnings(library(Matrix)))
+suppressMessages(suppressWarnings(library(sva)))
+
 
 .mycBindFn=function(inputList,batchNames=NULL,verbose_level=1){
   # Todo: rename this function to something more descriptive
@@ -499,6 +505,34 @@ getCountProportionDF = function(sobj, cat_col, type_col){
     )
     colnames(df) = c(cat_col, type_col, 'count', 'total_count', 'proportion')
     return(df)
+}
+
+get_df_with_svs = function(edata, df, cols, ctr_cols=NULL, n=10){
+
+    # edata: expression data as Matrix, genes in rows, samples in columns
+    # df: dataframe with columns `cols` and `ctr_cols`, samples in rows
+    # cols: list of columns in df to use as covariates
+    # ctr_cols: list of columns in df to use as covariates
+    # n: number of svs to calculate
+
+    # returns a dataframe with the svs added as new columns
+
+    model_formula = as.formula(paste0("~", paste(cols, collapse = " + ")))
+
+    if (!is.null(ctr_cols)){
+        ctr_formula = as.formula(paste0("~", paste(ctr_cols, collapse = " + ")))
+    } else {
+        ctr_formula = as.formula("~ 1")
+    }
+
+    mod = model.matrix(model_formula, data = df)
+    mod0 = model.matrix(ctr_formula, data = df)
+    svobj = sva(edata, mod, mod0, n.sv = n)
+    sv_factors = as.data.frame(svobj$sv)
+    colnames(sv_factors) = paste0("SV", seq_len(ncol(sv_factors)))
+    df_with_svs = cbind(df, sv_factors)
+
+    return(df_with_svs)
 }
 
 getFracAssignableDemuxlet=function(df){
