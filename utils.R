@@ -709,6 +709,19 @@ broken_stick <- function(sobj, assay = "RNA") {
     theme_minimal()
 }
 
+softmax_cols = function(df, cols){
+    z_cols = paste0(cols, "__z")
+    softmax_cols = paste0(cols, "__softmax")
+    
+    # Z-score normalization of the selected columns
+    df[z_cols] = scale(df[cols])
+    
+    # Apply softmax row-wise: exp of z-scores divided by row sum of exp(z-scores)
+    df[softmax_cols] =  t(apply(df[z_cols], 1, function(x) exp(x) / sum(exp(x))))
+    
+    return(df)
+}
+
 
 TopBottomGenesPerPC <- function(seurat_obj, n = 10, reduction = "pca") {
   # Ensure the reduction exists
