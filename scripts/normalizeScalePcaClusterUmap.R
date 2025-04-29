@@ -53,7 +53,7 @@ if (is.null(opt[["run-harmony"]])) {
 }
 
 if (is.null(opt[["harmony-group-by-vars"]])) {
-    HARMONY_GROUP_BY_VARS = NULL
+    HARMONY_GROUP_BY_VARS = "participant_id"
 } else {
     HARMONY_GROUP_BY_VARS = strsplit(opt[["harmony-group-by-vars"]], ",")[[1]]
 }
@@ -71,7 +71,7 @@ if (is.null(opt[["n-pcs"]])) {
 }
 
 if (is.null(opt[["resolutions"]])) {
-    RESOLUTIONS = c(0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0)
+    RESOLUTIONS = c(0.1, 0.2, 0.3, 0.4, 0.5)
 } else {
     RESOLUTIONS = as.numeric(strsplit(opt[["resolutions"]], ",")[[1]])
 }
