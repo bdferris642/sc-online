@@ -38,11 +38,6 @@ getPercentNonZeroGeneListByCluster = function(
 }
 
 
-getSeuratVarFeatures = function(sobj){
-    # the magical incantation that returns the slot of the attribute of the slot that actually holds the list of variable feature -_-
-    return(sobj@assays$RNA@var.features)
-}
-
 getSeuratVarFeatureIntersectByCol = function(
     seurat_obj,
     subset_col,
@@ -72,7 +67,7 @@ getSeuratVarFeatureIntersectByCol = function(
                 seurat_subset, nfeatures=original_nfeatures, verbose = FALSE)
         })
         
-        hvgs[[id]] = getSeuratVarFeatures(seurat_subset)
+        hvgs[[id]] = VariableFeatures(seurat_subset)
         
     }
 
