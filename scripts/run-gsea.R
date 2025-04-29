@@ -41,7 +41,7 @@ PATH = opt[['path']]
 
 RANK_COL = ifelse(
     is.null(opt[['rank-col']]), 
-    "logFC", 
+    "t", 
     opt[['rank-col']]
 )
 
