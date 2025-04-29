@@ -710,6 +710,10 @@ broken_stick <- function(sobj, assay = "RNA") {
 }
 
 softmax_cols = function(df, cols){
+    # df: dataframe with columns `cols` to be transformed
+    # cols: list of columns in df to be transformed
+    # returns a dataframe with the softmax of the columns in `cols` added as new columns
+    
     z_cols = paste0(cols, "__z")
     softmax_cols = paste0(cols, "__softmax")
     
