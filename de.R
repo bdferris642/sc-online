@@ -601,7 +601,13 @@ pseudobulk_seurat = function(
         stop(paste0("Not all grouping columns are present in the Seurat object!\n",
             "Missing Columns: ", paste(grouping_cols[!grouping_cols %in% colnames(df)], collapse=", ")))
     }
-    df$grouping = apply(df[grouping_cols], 1, function(row) paste(row, collapse = "_"))    
+    
+    # get the data type of each grouping column
+    # weird stuff happens in the match when the column is numeric, it can be negative, a decimal...better to just avoid
+    grouping_is_numeric = sapply(grouping_cols, function(col) {is.numeric(df[[col]])})
+    grouping_cols_non_numeric = grouping_cols[!grouping_is_numeric]
+    
+    df$grouping = apply(df[grouping_cols_non_numeric], 1, function(row) paste(row, collapse = "_"))    
     sobj$grouping = df$grouping
     grouping_cols = c(grouping_cols, "grouping")
 
