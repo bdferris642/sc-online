@@ -35,7 +35,7 @@ print( paste("Reading Seurat object from", SOBJ_PATH))
 sobj = qread(SOBJ_PATH)
 
 for (name in names(gene_sets)){
-    gene_sets[[name]] = gene_sets[[name]][gene_sets[[name]] %in% rownames(sobj@assays[[ASSAY]]$counts)]
+    gene_sets[[name]] = gene_sets[[name]][gene_sets[[name]] %in% rownames(GetAssayData(sobj, slot="counts", assay = ASSAY))]
     print(paste0("Calculating score for ", name))
     print("Genes:")
     print(paste(gene_sets[[name]][1:5], collapse=', '))
@@ -43,7 +43,7 @@ for (name in names(gene_sets)){
 }
 print(sapply(gene_sets, length))
 
-missing_genes <- setdiff(unlist(gene_sets), rownames(sobj@assays[[ASSAY]]$counts))
+missing_genes <- setdiff(unlist(gene_sets), rownames(GetAssayData(sobj, slot="counts", assay = ASSAY)))
 if (length(missing_genes) > 0) {
     print(paste("Missing genes:", paste(missing_genes, collapse = ", ")))
 }
