@@ -50,7 +50,10 @@ if (length(missing_genes) > 0) {
 
 print("Calculating U Scores")
 u_scores = ScoreSignatures_UCell(
-    as.matrix(sobj@assays[[ASSAY]]$counts), gene_sets, assay = ASSAY)
+    as.matrix(
+        GetAssayData(sobj, slot="counts", assay = ASSAY),
+        gene_sets, 
+        assay = ASSAY)
 
 u_scores = u_scores[match(rownames(sobj@meta.data), rownames(u_scores)),]
 u_scores = as.data.frame(u_scores)
