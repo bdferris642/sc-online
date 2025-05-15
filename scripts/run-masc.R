@@ -1,14 +1,15 @@
 ################## LIBRARIES #################
-library(dplyr)
-library(getopt)
-library(ggplot2)
-library(lme4)
-library(Matrix)
-library(qs)
-library(Seurat)
-library(RColorBrewer)
+suppressWarnings(suppressMessages(library(dplyr)))
+suppressWarnings(suppressMessages(library(getopt)))
+suppressWarnings(suppressMessages(library(ggplot2)))
+suppressWarnings(suppressMessages(library(lme4)))
+suppressWarnings(suppressMessages(library(Matrix)))
+suppressWarnings(suppressMessages(library(qs)))
+suppressWarnings(suppressMessages(library(Seurat)))
+suppressWarnings(suppressMessages(library(RColorBrewer)))
+suppressWarnings(suppressMessages(library(RhpcBLASctl)))
 
-source("~/sc-online/masc.R")
+suppressWarnings(suppressMessages(source("~/sc-online/masc.R")))
 
 
 ################## ARGUMENTS #################
@@ -23,7 +24,8 @@ spec <- matrix(c(
     'filter-cluster-n', 'fc', 1, 'numeric',
     'filter-rand-n', 'fr', 1, 'numeric',
     'jk-samples', 'js', 1, 'logical',
-    'leave-out', 'lo', 1, 'character'
+    'leave-out', 'lo', 1, 'character',
+    'num-threads', 'n', 1, 'integer'
 ), byrow = TRUE, ncol = 4)
 
 opt = getopt(spec)
@@ -48,16 +50,22 @@ if (! is.null(LEAVE_OUT)){
 FILTER_CLUSTER_N = if(is.null(opt[['filter-cluster-n']])){ NULL }else{ opt[['filter-cluster-n']] }
 FILTER_RAND_N = if(is.null(opt[['filter-rand-n']])){ NULL }else{ opt[['filter-rand-n']] }
 
-print(paste("PATH:", PATH))
-print(paste("CONTRAST_COL:", CONTRAST_COL))
-print(paste("COVARIATES:", COVARIATES))
-print(paste("RAND_COL:", RAND_COL))
-print(paste("CLUSTER_COL:", CLUSTER_COL))
-print(paste("CONTINUOUS:", CONTINUOUS))
-print(paste("FILTER_CLUSTER_N:", FILTER_CLUSTER_N))
-print(paste("FILTER_RAND_N:", FILTER_RAND_N))
-print(paste("JK_SAMPLES:", JK_SAMPLES))
-print(paste("LEAVE_OUT:", LEAVE_OUT))
+if (! is.null(opt[['num-threads']])){
+    blas_set_num_threads(opt[['num-threads']])
+}
+
+message(paste("PATH:", PATH))
+message(paste("CONTRAST_COL:", CONTRAST_COL))
+message(paste("COVARIATES:", COVARIATES))
+message(paste("RAND_COL:", RAND_COL))
+message(paste("CLUSTER_COL:", CLUSTER_COL))
+message(paste("CONTINUOUS:", CONTINUOUS))
+message(paste("FILTER_CLUSTER_N:", FILTER_CLUSTER_N))
+message(paste("FILTER_RAND_N:", FILTER_RAND_N))
+message(paste("JK_SAMPLES:", JK_SAMPLES))
+message(paste("LEAVE_OUT:", LEAVE_OUT))
+message(paste("SUFFIX:", suffix))
+message(paste("NUM_THREADS:", opt[['num-threads']]))
 
 ################## FUNCTIONS #################
 
@@ -80,26 +88,29 @@ basename = base_path_list[[length(base_path_list)]]
 slogan = gsub(".qs", "", basename)
 out_slogan = paste0(slogan, "__masc_", suffix)
 
-print(paste("Output Slogan:", out_slogan))
+message(paste("Output Slogan:", out_slogan))
 
 if (!dir.exists(file.path(base_path, "masc"))) {
     dir.create(file.path(base_path, "masc"))
 }
 
 sobj = qread(PATH)
-print("Seurat Object Dimensions")
-print(dim(sobj))
+message("Seurat Object Dimensions")
+message(dim(sobj))
 pd = sobj@meta.data[,model_cols]
-print("Seurat Object Meta Data Columns")
-print(colnames(pd))
+message("Seurat Object Meta Data Columns")
+message(colnames(pd))
 
 
 if (!is.null(LEAVE_OUT)) {
     cluster_vec = pd[[CLUSTER_COL]]
-    print(head(cluster_vec))
-    print(length(cluster_vec))
-    print(sum(cluster_vec == LEAVE_OUT))
-    print(dim(pd))
+    message("Cluster Vector Length and Head")
+    message(length(cluster_vec))
+    message(head(cluster_vec))
+    message("Leave Out Vector Length and Head")
+    message(sum(cluster_vec == LEAVE_OUT))
+    message("Phenotype Data Dimensions")
+    message(dim(pd))
     print(head(pd))
     pd = pd[cluster_vec != LEAVE_OUT, ]
 }
@@ -149,16 +160,16 @@ if ("case_control" %in% model_cols) {
 case_name = sort(unique(as.character(pd[[CONTRAST_COL]])), decreasing=T)[[1]]
 ctr_name = sort(unique(as.character(pd[[CONTRAST_COL]])), decreasing=T)[[2]]
 
-print(paste("Case Name:", case_name))
-print(paste("Control Name:", ctr_name))
+message(paste("Case Name:", case_name))
+message(paste("Control Name:", ctr_name))
 
 or_colname = paste0(CONTRAST_COL, case_name, ".OR")
 ci_low_colname = paste0(CONTRAST_COL, case_name, ".OR.95pct.ci.lower")
 ci_high_colname = paste0(CONTRAST_COL, case_name, ".OR.95pct.ci.upper")
 
-print(paste("OR Column Name:", or_colname))
-print(paste("CI High Column Name:", ci_high_colname))
-print(paste("CI Low Column Name:", ci_low_colname))
+message(paste("OR Column Name:", or_colname))
+message(paste("CI High Column Name:", ci_high_colname))
+message(paste("CI Low Column Name:", ci_low_colname))
 
 if (CONTINUOUS) {
     masc_df = masc_fn_continuous(
@@ -170,10 +181,14 @@ if (CONTINUOUS) {
     )
     
 } else {
-    print(dim(pd))
-    print(dim(pd[complete.cases(pd),]))
+    message("Running MASC for categorical data")
+    message("Dimension of input data:")
+    message(dim(pd))
+    message("Number of Complete Cases")
+    message(sum(complete.cases(pd)))
 
     # print summary of all columns, including class
+    message("Summary of input data:")
     print(summary(pd))
     print(head(pd))
 
