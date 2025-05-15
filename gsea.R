@@ -95,7 +95,7 @@ source("~/sc-online/plot.R")
   return(geneSetDB)
 }
 
-.myfGSEAfn=function(rankedVec,gs,minSize  = 15,maxSize  = 250, scoreType='std'){
+.myfGSEAfn=function(rankedVec,gs, minSize  = 15,maxSize  = 250, scoreType='std'){
   require(fgsea)
   fgseaRes <- fgsea(pathways = gs, 
                     stats    = rankedVec,
@@ -109,6 +109,20 @@ source("~/sc-online/plot.R")
   return(fgseaRes)
 }
 
+list_to_geneset = function(gene_set_list, path){
+    # write a names list of gene sets to a format usable by gsea
+    # gene_set_list: list of genesets. Each element is a vector of genes
+    # path: path to save the text file
+    txt_list = list()
+    for(n in names(gene_set_list)){
+      gene_list = gene_set_list[[n]]
+      s = paste0(
+          paste0(n, "\t\t"), paste(gene_list, collapse = "\t"))
+      txt_list[[n]] = s
+    }
+    writeLines(unlist(txt_list), path)
+}
+
 runGSEA = function(
     de_df,
     gs_list_of_char,
@@ -116,7 +130,9 @@ runGSEA = function(
     gene_id_col='gene_short_name',
     desc=FALSE,
     abs=TRUE,
-    scoreType='std'){
+    scoreType='std',
+    min_size=15,
+    max_size=250){
 
     de_df=de_df[!duplicated(de_df[[gene_id_col]]),]
     
@@ -131,7 +147,7 @@ runGSEA = function(
     
     print(head(ranked_vec))
 
-    res_fGSEA=.myfGSEAfn(rankedVec=ranked_vec,gs=gs_list_of_char, scoreType=scoreType)
+    res_fGSEA=.myfGSEAfn(rankedVec=ranked_vec,gs=gs_list_of_char, scoreType=scoreType, minSize=min_size, maxSize=max_size)
     res_fGSEA=res_fGSEA[order(res_fGSEA$padj,decreasing=F),]
     return(res_fGSEA)
 }
