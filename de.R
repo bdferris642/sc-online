@@ -446,12 +446,19 @@ source("~/sc-online/extraGenes.R")
   }
 
   
-  #sl_data=inputExpData;model=model_matrix;random_effect=randomEffect;quantile.norm = quantile.norm;TMMnorm=norm.tmm;VSTnorm=norm.vst;prior.count=prior.count;pd=colData(inputExpData)
+  #sl_data=inputExpData;model=model_matrix;random_effect=randomEffect;quantile.norm = quantile.norm;
+  #TMMnorm=norm.tmm;VSTnorm=norm.vst;prior.count=prior.count;pd=colData(inputExpData)
   switch(DEmethod,
-         Trend=.extra_sconline.Fit_LimmaTrendFn(sl_data=inputExpData,model=model_matrix,random_effect=randomEffect,quantile.norm = quantile.norm,TMMnorm=norm.tmm,VSTnorm=norm.vst,prior.count=prior.count,bkg_genes=bkg_genes,no_normalization=no_normalization,dc.object=dc.object,include.malat1.as.covariate),
-         Dream=.extra_sconline.Fit_LimmaDreamFn(sl_data=inputExpData,model=model_matrix,pd=as.data.frame(colData(inputExpData)),random_effect=randomEffect,quantile.norm = quantile.norm,TMMnorm=norm.tmm,VSTnorm=norm.vst,prior.count=prior.count,bkg_genes=bkg_genes,no_normalization=no_normalization,dc.object=dc.object,include.malat1.as.covariate,ncores = dream_ncores),
-         Voom=.extra_sconline.Fit_LimmaVoomFn(sl_data=inputExpData,model=model_matrix,random_effect=randomEffect,quantile.norm=quantile.norm,sample.weights=F,TMMnorm=norm.tmm,bkg_genes=bkg_genes,dc.object=dc.object),
-         VoomSampleWeights=.extra_sconline.Fit_LimmaVoomFn(sl_data=inputExpData,model=model_matrix,random_effect=randomEffect,quantile.norm=quantile.norm,sample.weights=T,TMMnorm=norm.tmm,bkg_genes=bkg_genes,dc.object=dc.object))
+         Trend=.extra_sconline.Fit_LimmaTrendFn(sl_data=inputExpData,model=model_matrix,random_effect=randomEffect,
+            quantile.norm = quantile.norm,TMMnorm=norm.tmm,VSTnorm=norm.vst,prior.count=prior.count,
+            bkg_genes=bkg_genes,no_normalization=no_normalization,dc.object=dc.object,include.malat1.as.covariate),
+         Dream=.extra_sconline.Fit_LimmaDreamFn(sl_data=inputExpData,model=model_matrix,pd=as.data.frame(colData(inputExpData)),
+            random_effect=randomEffect,quantile.norm = quantile.norm,TMMnorm=norm.tmm,VSTnorm=norm.vst,prior.count=prior.count,
+            bkg_genes=bkg_genes,no_normalization=no_normalization,dc.object=dc.object,include.malat1.as.covariate,ncores = dream_ncores),
+         Voom=.extra_sconline.Fit_LimmaVoomFn(sl_data=inputExpData,model=model_matrix,random_effect=randomEffect,
+            quantile.norm=quantile.norm,sample.weights=F,TMMnorm=norm.tmm,bkg_genes=bkg_genes,dc.object=dc.object),
+         VoomSampleWeights=.extra_sconline.Fit_LimmaVoomFn(sl_data=inputExpData,model=model_matrix,random_effect=randomEffect,
+            quantile.norm=quantile.norm,sample.weights=T,TMMnorm=norm.tmm,bkg_genes=bkg_genes,dc.object=dc.object))
   
 }
 
@@ -650,4 +657,71 @@ pseudobulk_seurat = function(
     return(
         list(counts=counts_bulk, metadata=df_bulk)
     )
+}
+
+
+build_robustness_df = function( 
+    master_de_csv_path, jk_dir, cov_col, 
+    padj_col = "adj.P.Val", sig_thresh=0.05, neg_log_padj_ceil=30) {
+    
+    # master_de_csv_path is the path to the master DE csv run against all the data
+    # jk_dir is a directory that should contain a set of subdirectories, each containing JK DE csvs
+    # cov_col is the covariate name to use for the robustness analysis
+
+    master_df = read.csv(master_de_csv_path)
+    master_df$significant = master_df[[padj_col]] < sig_thresh
+    master_df$negative_log10_padj = -log10(master_df[[padj_col]] + 1e-30)
+    master_df$negative_log10_padj[master_df$negative_log10_padj > neg_log_padj_ceil] = neg_log_padj_ceil
+
+    cnames = colnames(master_df)
+    cnames[!cnames == "gene"] = paste0(cnames[!cnames == "gene"], "__master")
+    colnames(master_df) = cnames
+
+
+    files=list.files(jk_dir, recursive=T, full.name=T, pattern=paste0("*", cov_col, ".csv"))
+    de_dfs = lapply(files, function(x) {
+        df = read.csv(x)
+        df$significant = df$adj.P.Val < sig_thresh
+        df$negative_log10_padj = -log10(df[[padj_col]] + 1e-30)
+        df$negative_log10_padj[df$negative_log10_padj > neg_log_padj_ceil] = neg_log_padj_ceil
+
+        bndn = basename(dirname(x))
+        bndn_list = strsplit(bndn, "__")[[1]]
+        jk = bndn_list[[length(bndn_list)]]
+        cnames = colnames(df)
+        cnames[!cnames == "gene"] = paste0(cnames[!cnames == "gene"], "__jk_", jk)
+        colnames(df) = cnames
+        return(df)
+    })
+
+    # full outer join all of these together on the gene column
+    de_df = Reduce(function(x, y) merge(x, y, by = "gene", all = T), de_dfs)
+    de_df = merge(master_df, de_df, by = "gene", all = T)
+
+    # Identify the logFC columns (excluding master)
+    jk_cols = grep("^logFC__jk_", names(df), value = TRUE)
+
+    de_df = de_df %>%
+        rowwise() %>%
+        mutate(
+            robustness = {
+                master_sign = sign(logFC__master)
+                jk_signs = sign(c_across(starts_with("logFC__jk_")))
+                mean(jk_signs == master_sign)
+            }
+        ) %>%
+        ungroup()
+    
+    cnames_to_save = colnames(de_df)[grepl("master", colnames(de_df))]
+    cnames_to_save = c("gene", "robustness", cnames_to_save)
+    de_df = de_df[,cnames_to_save]
+
+    slogan = gsub(".csv", "", basename(master_de_csv_path))
+    out_path = file.path(
+        dirname(master_de_csv_path),
+        paste0(slogan, "_robustness.csv")
+    )
+    write.csv(de_df, out_path, row.names=F)
+    return(de_df)
+    
 }
