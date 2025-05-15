@@ -11,11 +11,15 @@
 
 # add the paths to the gene sets you want to use here
 gene_sets = list(
+    # cell_class_markers_1 = "~/genesets/dapi_nurr_merged_seurat_clean_ctr_markers__cell_type__avg_log2FC_gt_0.5_expr_ratio_gt_1.33.txt",
+    # cell_type_markers_1 = "~/genesets/dapi_nurr_merged_seurat_clean_ctr_markers__cell_class__avg_log2FC_gt_0.5_expr_ratio_gt_1.33.txt"
     kegg_2021_human = "~/genesets/KEGG_2021_Human.txt",
     go_process = "~/genesets/GO_Biological_Process_2021.txt",
     go_function = "~/genesets/GO_Molecular_Function_2021.txt",
     msigdb_hallmark = "~/genesets/MSigDB_Hallmark_2020.txt",
-    syngo_ontologies = "~/genesets/syngo_ontologies.txt"
+    syngo_ontologies = "~/genesets/syngo_ontologies.txt",
+    cort_and_snap = "~/genesets/cort_and_snap.txt",
+    handsaker_genes = "~/genesets/handsaker_genes.txt"
 )
 
 suppressWarnings(suppressMessages(library(dplyr)))
@@ -33,7 +37,9 @@ spec <- matrix(c(
     'path', 'p', 1, "character",
     'rank-col', 'r', 1, "character",
     'segment-by', 's', 1, "character",
-    'abs', 'a', 0, "logical"
+    'abs', 'a', 0, "logical",
+    'min-size', 'min', 1, "integer",
+    'max-size', 'max', 1, "integer"
 ), byrow = TRUE, ncol = 4)
 
 opt = getopt(spec)
@@ -61,6 +67,18 @@ if (ABS){
     abs_str = "Absolute_Value"
 } else {
     abs_str = "Signed"
+}
+
+if (is.null(opt[['min-size']])){
+    MIN_SIZE = 15
+} else {
+    MIN_SIZE = opt[['min-size']]
+}
+
+if (is.null(opt[['max-size']])){
+    MAX_SIZE = 250
+} else {
+    MAX_SIZE = opt[['max-size']]
 }
 
 basename = basename(PATH)
@@ -101,18 +119,21 @@ for (segment in names(dataDE_list)){
         gs=.sconline.GSEA.readGMT(
             file=geneset_path,
             bkg_genes=dataDE$gene_short_name,
-            min.gs.size=15,max.gs.size=250)
-        gsea = runGSEA(dataDE, gs, rank_col=RANK_COL, abs=ABS, desc=TRUE)
+            min.gs.size=MIN_SIZE, max.gs.size=MAX_SIZE)
+        message(paste0("Gene set list: ", gene_set, " has ", length(gs), " gene sets"))
+        gsea = runGSEA(dataDE, gs, rank_col=RANK_COL, abs=ABS, desc=TRUE, min_size=MIN_SIZE, max_size=MAX_SIZE)
         gsea$gene_set = gene_set
         #gsea = gsea[which(gsea$padj<0.05),]
 
         if (nrow(gsea) > 0){
             gsea_list[[gene_set]] = gsea
+        } else {
+            message(paste0("No genes in gene set: ", gene_set))
         }
     }
     gsea_df = do.call(rbind, gsea_list)
 
-    cat(paste0("\nWriting GSEA Results for ", de_slogan, "\n"))
+    cat(paste0("\nWriting GSEA Results for ", de_slogan, "\nto ", de_slogan, "_gsea.csv\n"))
     write.csv(gsea_df, file.path(gsea_outdir, paste0(de_slogan, "_gsea.csv")), row.names=FALSE)
 
     for (gene_set in unique(gsea_df$gene_set)){
