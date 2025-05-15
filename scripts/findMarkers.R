@@ -66,17 +66,19 @@ marker_path = file.path(base_path, MARKER_SUBDIR, paste0(slogan, "_markers_", cl
 print(paste('Run Slogan =', slogan))
 print(paste('Reading Seurat object at', path, '...'))
 s_obj = qread(path)
-
 DefaultAssay(s_obj) = DEFAULT_ASSAY
 
-Idents(s_obj) = s_obj[[cluster_col]]
+Idents(s_obj) = s_obj@meta.data[[cluster_col]]
 
 print(paste('Collecting markers and saving to', marker_path, '...'))
 # Find all markers; adjust parameters as needed
 markers = FindAllMarkers(
     s_obj, 
-    logfc.threshold=logfc_threshold, min.pct=min_pct,
-    only.pos=ONLY_POS, verbose=TRUE, return.thresh=0.05)
+    logfc.threshold=logfc_threshold, 
+    min.pct=min_pct,
+    only.pos=ONLY_POS, 
+    verbose=TRUE, 
+    return.thresh=0.05)
 
 markers = markers[markers$p_val_adj < 0.05, c("cluster", "gene", "avg_log2FC", "pct.1", "pct.2", "p_val_adj")]
 markers$p_val_adj = round(markers$p_val_adj, 6)
