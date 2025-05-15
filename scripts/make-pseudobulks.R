@@ -27,11 +27,15 @@ spec <- matrix(c(
     'sample-col', 'sc', 1, 'character',
     'grouping-cols', 'g', 1, 'character',
     'only-clusters', 'oc', 1, 'character',
+    'filter-samples', 'fs', 1, 'character',
     'assay', 'a', 1, 'character',
     'min-n-cells', 'mnc', 1, 'numeric',
     'min-counts-gene', 'mcg', 1, 'numeric',
     'min-frac-gene', 'mfg', 1, 'numeric',
-    'suffix', 's', 1, 'character'
+    'suffix', 's', 1, 'character',
+    'sva-cols', 'sva', 1, 'character',
+    'sva-ctr-cols', 'svac', 1, 'character',
+    'n-svs', 'nsv', 1, 'integer'
 ), byrow = TRUE, ncol = 4)
 
 opt = getopt(spec)
@@ -43,7 +47,26 @@ SAMPLE_COL = opt[['sample-col']]
 
 cat(paste("Reading Seurat object from: ", PATH, "\n"))
 sobj = qread(PATH)
+DefaultAssay(sobj) = "RNA"
+
+if (is.null(opt[['filter-samples']])){
+    FILTER_SAMPLES = NULL
+} else {
+    FILTER_SAMPLES = strsplit(opt[['filter-samples']], ",")[[1]]
+    message(paste("\nFiltering samples: ", paste(FILTER_SAMPLES, collapse=", ")))
+    sobj = sobj[,!sobj@meta.data[[SAMPLE_COL]] %in% FILTER_SAMPLES] 
+}
+
+cat(paste("Seurat Object Loaded with", nrow(sobj), "genes and", ncol(sobj), "cells\n"))
 md = sobj@meta.data
+
+md_cols = colnames(md)
+numi_cols = md_cols[grepl("numi", tolower(md_cols))]
+md$nUMI = md[[numi_cols[[1]]]]
+
+if (! SAMPLE_COL %in% colnames(md)){
+    stop(paste("Error: Sample column not found in metadata: ", SAMPLE_COL))
+}
 md[[SAMPLE_COL]] = paste0("sample_", md[[SAMPLE_COL]])
 md[[SAMPLE_COL]] = gsub("-", "_", md[[SAMPLE_COL]])
 
@@ -51,12 +74,24 @@ if (is.null(opt[['cluster-col']])){
     CLUSTER_COL = NULL
 } else {
     CLUSTER_COL = opt[['cluster-col']]
+    if (! CLUSTER_COL %in% colnames(md)){
+        stop(paste("Error: Cluster column not found in metadata: ", CLUSTER_COL))
+    }
 }
 
 if (! is.null(CLUSTER_COL)){
     md[[CLUSTER_COL]] = gsub(" ", "_", md[[CLUSTER_COL]])
+
+    if( !(CLUSTER_COL %in% GROUPING_COLS)){
+        print(paste("Adding cluster column to grouping columns: ", CLUSTER_COL))
+        GROUPING_COLS = c(GROUPING_COLS, CLUSTER_COL)
+    }
 }
-md[[CONTRAST_COL]] = factor(md[[CONTRAST_COL]], levels = sort(unique(md[[CONTRAST_COL]])))
+
+if (! is.null(CONTRAST_COL)){
+    md[[CONTRAST_COL]] = factor(md[[CONTRAST_COL]], levels = sort(unique(md[[CONTRAST_COL]])))
+}
+
 if ("age" %in% colnames(md)){
     md$age = as.numeric(md$age)
 }
@@ -102,7 +137,7 @@ if(is.null(opt[['suffix']])){
 }
 
 slogan = gsub(".qs", "", basename(PATH))
-output_dir = file.path(dirname(PATH), "pseudobulk")
+output_dir = file.path(dirname(PATH), "pseudobulk", slogan)
 if (! dir.exists(output_dir)){
     dir.create(output_dir, recursive = TRUE)
 }
@@ -115,6 +150,33 @@ if (! is.null(CLUSTER_COL)){
     }
 }
 
+if (! is.null(opt[['n-svs']])){
+    N_SVS = opt[['n-svs']]
+} else {
+    N_SVS = 0
+    SVA_COLS=NULL
+    SVA_CTR_COLS = NULL
+
+}
+
+if (N_SVS > 0){
+    RUN_SVA = TRUE
+    if (is.null(opt[['sva-cols']])){
+        stop("Error: Please provide sva-cols if N_SVS > 0")
+    } else {
+        SVA_COLS = strsplit(opt[['sva-cols']], ",")[[1]]
+    }
+
+    if (! is.null(opt[['sva-ctr-cols']])){
+        SVA_CTR_COLS = strsplit(opt[['sva-ctr-cols']], ",")[[1]]
+    } else {
+        SVA_CTR_COLS = NULL
+    }
+}
+all_cols = sort(unique(c(GROUPING_COLS,CONTRAST_COL,CLUSTER_COL,SAMPLE_COL,SVA_COLS,SVA_CTR_COLS)))
+if (! all(all_cols %in% colnames(md))){
+    stop(paste("Error: One or more grouping columns not found in metadata:\n", paste(all_cols[! all_cols %in% colnames(md)], collapse=", ")))
+}
 
 print("**************** RUNNING PSEUDOBULK CODE ****************")
 
@@ -149,6 +211,7 @@ if (is.null(CLUSTER_COL)){
             contrast_col=CONTRAST_COL)
         counts_list[[cluster]] = pb_list[["counts"]]
         metadata_list[[cluster]] = pb_list[["metadata"]]
+        print(head(pb_list[["metadata"]]))
     }
 }
 
@@ -165,6 +228,27 @@ if (OUTPUT_TYPE == "seurat"){
         obj_list[[cluster]] = sobj_pb
     }
     merged_obj = mergeSeuratListWithMetaData(obj_list)
+
+    if (RUN_SVA){
+        # remove pre-existing cols starting with SV
+        cd = merged_obj@meta.data
+        cd = cd[, !grepl("^SV", toupper(colnames(cd)))]
+
+        # run SVA
+        cd = get_df_with_svs(
+            edata=as.matrix(GetAssayData(merged_obj, slot="counts", assay="RNA")), # always want to run SVA on raw counts
+            df=cd,
+            cols=SVA_COLS,
+            ctr_cols=SVA_CTR_COLS,
+            n=N_SVS)
+        
+        # store the columns used to calculated SVs and the Null model
+        cd$SVA_cols = paste0(SVA_COLS, collapse=",")
+        cd$SVA_ctr_cols = paste0(SVA_CTR_COLS, collapse=",")
+        
+        merged_obj@meta.data = cd
+    }
+
     cat("Saving Seurat object for Cluster: ", cluster, "\n")
     qsave(merged_obj, file.path(output_dir, paste0(slogan, "_pb_seurat__", cluster, "__", suffix, ".qs")))
 
@@ -178,7 +262,44 @@ if (OUTPUT_TYPE == "seurat"){
             colData = metadata)
         obj_list[[cluster]] = sce
     }
-    merged_obj = .mycBindFn(obj_list)
-    cat("Saving SingleCellExperiment object for Cluster: ", cluster, "\n")
-    qsave(merged_obj, file.path(output_dir, paste0(slogan, "_pb_sce__", cluster, "__", suffix, ".qs")))
+
+    if (RUN_SVA){
+
+        for (cluster in names (obj_list)){
+            cat("Running SVA for Cluster: ", cluster, "\n")
+            sce = obj_list[[cluster]]
+            cd = as.data.frame(colData(sce))
+            cd = cd[, !grepl("^SV", toupper(colnames(cd)))]
+            
+            # run SVA
+            cd = get_df_with_svs(
+                edata=as.matrix(counts(sce)),
+                df=cd,
+                cols=SVA_COLS,
+                ctr_cols=SVA_CTR_COLS,
+                n=N_SVS)
+            
+            # store the columns used to calculated SVs and the Null model
+            cd$sva_cols = paste0(SVA_COLS, collapse=",")
+            cd$sva_ctr_cols = paste0(SVA_CTR_COLS, collapse=",")
+            colData(sce) = DataFrame(cd)
+            obj_list[[cluster]] = sce
+
+            cat("Saving SingleCellExperiment object for Cluster: ", cluster, "\n")
+            if (suffix == ""){
+                output_basename = paste0(slogan, "__", cluster, "__pb_sce.qs")
+            } else {
+                output_basename = paste0(slogan, "__", cluster, "__pb_sce__", suffix, ".qs")
+            }
+            qsave(sce, file.path(output_dir, output_basename))
+        }
+    }
+
+    # cat("Saving SingleCellExperiment object for Cluster: ", cluster, "\n")
+    # if (suffix == ""){
+    #     output_basename = paste0(slogan, "__pb_sce.qs")
+    # } else {
+    #     output_basename = paste0(slogan, "__pb_sce_", suffix, ".qs")
+    # }
+    # qsave(merged_obj, file.path(output_dir, output_basename))
 }
