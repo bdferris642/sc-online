@@ -6,6 +6,7 @@ suppressWarnings(suppressMessages(source("~/code/sconline_code.R")))
 suppressWarnings(suppressMessages(library(getopt)))
 suppressWarnings(suppressMessages(library(Matrix)))
 suppressWarnings(suppressMessages(library(Seurat)))
+suppressWarnings(suppressMessages(library(RhpcBLASctl)))
 suppressWarnings(suppressMessages(library(SingleCellExperiment)))
 suppressWarnings(suppressMessages(library(tidyr)))
 
@@ -25,12 +26,17 @@ spec <- matrix(c(
     'only-clusters', 'o', 1, 'character',
     'suffix', 's', 1, 'character',
     'sva-ctr-cols', 'scs', 1, 'character',
-    'n-svs', 'ns', 1, 'integer'
+    'n-svs', 'ns', 1, 'integer',
+    'num-threads', 'n', 1, 'integer'
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
 print(spec)
 print(opt)
+
+if (! is.null(opt[['num-threads']])){
+    blas_set_num_threads(opt[['num-threads']])
+}
 
 BKG_GENE_COUNT_THR = ifelse(
     is.null(opt[['bkg-gene-count']]), 
@@ -60,16 +66,24 @@ if( is.null(opt[['contrast-col']])) {
 }
 print(paste('contrast-col:', CONTRAST_COL))
 
-CLUSTER_COL = ifelse(
-    is.null(opt[['cluster-col']]), 
-    "cell_class", 
-    opt[['cluster-col']])
+if (! is.null(opt[['cluster-col']])){
+    CLUSTER_COL = opt[['cluster-col']]
+} else {
+    CLUSTER_COL = NULL
+}
+
 print(paste('cluster-col:', CLUSTER_COL))
 
 if (is.null(opt[['cov-list']])) {
     COV_LIST = c('case_control', 'sex', 'age', 'QC_Gene_total_log', 'pct_mito', "pct_intronic")
 } else {
     COV_LIST = strsplit(opt[['cov-list']], ",")[[1]]
+}
+
+if (! is.null(CONTRAST_COL) && !CONTRAST_COL %in% COV_LIST) {
+    print("CODE ASSUMES CONTRAST COL IS IN COV LIST")
+    print("Adding contrast col to cov list")
+    COV_LIST = c(COV_LIST, CONTRAST_COL)
 }
 
 DE_METHOD = ifelse(
@@ -108,10 +122,6 @@ PATH = opt[['path']]
 BASE_PATH = dirname(PATH)
 PSEUDOCELL_BASENAME = basename(PATH)
 
-# to get the seurat basename, take the pseudocell basename until the _pseudocell
-# and remove everything that comes after it as well. Finally, append .qs
-SEURAT_BASENAME = gsub("_pseudocell.*", ".qs", PSEUDOCELL_BASENAME)
-
 
 # hard code these for now
 QUANTILE_NORM=T
@@ -126,7 +136,12 @@ pseudocells_list = qread(pseudocell_read_path)
 # downstream code expects a list of pseudocell sce; 
 # if the object is just sce, make it a list
 if (class(pseudocells_list) == "SingleCellExperiment"){
-    name = as.data.frame(colData(pseudocells_list))[[CLUSTER_COL]][[1]]
+    if (is.null(CLUSTER_COL)){
+        name = "all"
+    } else {
+        name = as.data.frame(colData(pseudocells_list))[[CLUSTER_COL]][[1]]
+    }
+
     pseudocells_list = list(pseudocells_list)
     names(pseudocells_list) = name
 }
@@ -172,6 +187,13 @@ for (x_name in names(pseudocells_list)){
     print(x_name)
     x=pseudocells_list[[x_name]]
 
+    # convert cols to numeric if need be
+    for (col in c("age", "pmi_interp")){
+        if (col %in% colnames(colData(x))){
+            colData(x)[[col]] = as.numeric(colData(x)[[col]])
+        }
+    }
+
     if (RUN_SVA){
         # remove pre-existing cols starting with SV
         cd = as.data.frame(colData(x))
@@ -182,7 +204,7 @@ for (x_name in names(pseudocells_list)){
         cd = get_df_with_svs(
             edata=as.matrix(counts(x)),
             df=cd,
-            cols=c(CONTRAST_COL, COV_LIST),
+            cols=COV_LIST,
             ctr_cols=SVA_CTR_COLS,
             n=N_SVS)
         
@@ -192,7 +214,7 @@ for (x_name in names(pseudocells_list)){
         COV_LIST = c(COV_LIST, SV_COLS)
         
         # store the columns used to calculated SVs and the Null model
-        cd$SVA_cols = paste0(c(COV_LIST, SV_COLS), collapse=",")
+        cd$SVA_cols = paste0(c(CONTRAST_COL, COV_LIST, SV_COLS), collapse=",")
         cd$SVA_ctr_cols = paste0(SVA_CTR_COLS, collapse=",")
         colData(x) = DataFrame(cd)
     }
@@ -216,6 +238,8 @@ for (x_name in names(pseudocells_list)){
         }
         cd = colData(x)[, c(COV_LIST, RAND_VAR, CLUSTER_COL)]
         x = x[, complete.cases(cd)]
+        print(dim(x))
+        print(colnames(cd))
     }
 
     print(paste0("num pseudocells: ", ncol(x)))
@@ -228,16 +252,19 @@ for (x_name in names(pseudocells_list)){
         print(dim(x))
         
         if(!is.null(BKG_GENE_COUNT_THR)){
-
-            anno = as.data.frame(colData(data_sce))[[CLUSTER_COL]]
             
-            tmp_bkg_genes=counts(data_sce)[,which(anno==x_name)]
-            
-            tmp_bkg_genes_counts=rowSums(tmp_bkg_genes>0)
-
-            tmp_bkg_genes_frac=tmp_bkg_genes_counts/sum(anno==x_name)
-
-            tmp_bkg_genes=row.names(data_sce)[tmp_bkg_genes_frac>=BKG_GENE_PCT_THR&tmp_bkg_genes_counts>=BKG_GENE_COUNT_THR]
+            if (! is.null(CLUSTER_COL)){
+                anno = as.data.frame(colData(x))[[CLUSTER_COL]]
+                tmp_bkg_genes=counts(x)[,which(anno==x_name)]
+                tmp_bkg_genes_counts=rowSums(tmp_bkg_genes>0)
+                tmp_bkg_genes_frac=tmp_bkg_genes_counts/sum(anno==x_name)
+                tmp_bkg_genes=row.names(x)[tmp_bkg_genes_frac>=BKG_GENE_PCT_THR&tmp_bkg_genes_counts>=BKG_GENE_COUNT_THR]
+            } else {
+                tmp_bkg_genes=counts(x)
+                tmp_bkg_genes_counts=rowSums(tmp_bkg_genes>0)
+                tmp_bkg_genes_frac=tmp_bkg_genes_counts/ncol(x)
+                tmp_bkg_genes=row.names(x)[tmp_bkg_genes_frac>=BKG_GENE_PCT_THR&tmp_bkg_genes_counts>=BKG_GENE_COUNT_THR]
+            }
         } else {
             tmp_bkg_genes=NULL
         }
@@ -275,6 +302,8 @@ for (x_name in names(pseudocells_list)){
 
                 
                 csv_write_path = gsub(".qs", paste0("__", CONTRAST_COL, ".csv"), write_path)
+
+                res_pd = res_pd[, c("gene", "logFC", "P.Value", "adj.P.Val", "AveExpr", "t", "B")]
                 write.csv(res_pd, csv_write_path, row.names=FALSE)
             } else { 
                 res_pd = "NONE"
@@ -295,7 +324,6 @@ for (x_name in names(pseudocells_list)){
                 'rand_var' = RAND_VAR,
                 'quantile_norm' = QUANTILE_NORM,
                 'min_num_pseudocells' = MIN_NUM_PSEUDOCELLS,
-                'sva_cols' = SV_COLS,
                 'sva_ctr_cols' = SVA_CTR_COLS,
                 'n_svs' = N_SVS
             )
@@ -309,6 +337,8 @@ for (x_name in names(pseudocells_list)){
 
                 tt = tt[order(-tt$logFC),]
                 tt$gene = rownames(tt)
+
+                tt = tt[,c("gene", "logFC", "P.Value", "adj.P.Val", "AveExpr", "t", "B")]
                 write.csv(tt, gsub(".qs", paste0("__", coef, ".csv"), write_path))
                 output_list[[paste0('tt_', coef)]] = tt 
             }
