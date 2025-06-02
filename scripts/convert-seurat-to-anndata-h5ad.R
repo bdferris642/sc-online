@@ -1,10 +1,9 @@
-library(Seurat)
-library(SeuratDisk)
-library(anndata)
-library(getopt)
-library(Matrix)
-library(qs)
-
+suppressWarnings(suppressMessages(library(Seurat)))
+suppressWarnings(suppressMessages(library(SeuratDisk)))
+suppressWarnings(suppressMessages(library(anndata)))
+suppressWarnings(suppressMessages(library(getopt)))
+suppressWarnings(suppressMessages(library(Matrix)))
+suppressWarnings(suppressMessages(library(qs)))
 
 
 # Parse command line arguments
@@ -30,12 +29,7 @@ DefaultAssay(seurat_obj) <- "RNA"
 # Keep only the RNA assay
 # if seurat object version is 5 or later, counts is accessed with $, 4 or earlier with @
 
-if (seurat_obj@version >= 5) {
-    seurat_obj[["RNA"]] <- CreateAssayObject(counts = seurat_obj@assays$RNA$counts)
-} else {
-    seurat_obj[["RNA"]] <- CreateAssayObject(counts = seurat_obj@assays$RNA@counts)
-}
-
+seurat_obj[["RNA"]] = CreateAssayObject(counts = GetAssayData(seurat_obj, slot="counts", assay="RNA"))
 
 # Remove all other assays
 seurat_obj@assays <- list(RNA = seurat_obj[["RNA"]])
