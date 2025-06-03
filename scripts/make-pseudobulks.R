@@ -35,7 +35,10 @@ spec <- matrix(c(
     'suffix', 's', 1, 'character',
     'sva-cols', 'sva', 1, 'character',
     'sva-ctr-cols', 'svac', 1, 'character',
-    'n-svs', 'nsv', 1, 'integer'
+    'n-svs', 'nsv', 1, 'integer',
+    'numi-col', 'numi', 1, 'character',
+    'mito-col', 'mito', 1, 'character',
+    'intronic-col', 'intr', 1, 'character'
 ), byrow = TRUE, ncol = 4)
 
 opt = getopt(spec)
@@ -46,7 +49,7 @@ CONTRAST_COL = opt[['contrast-col']]
 SAMPLE_COL = opt[['sample-col']]
 
 cat(paste("Reading Seurat object from: ", PATH, "\n"))
-sobj = qread(PATH)
+sobj = load_obj(PATH)
 DefaultAssay(sobj) = "RNA"
 
 if (is.null(opt[['filter-samples']])){
@@ -61,8 +64,53 @@ cat(paste("Seurat Object Loaded with", nrow(sobj), "genes and", ncol(sobj), "cel
 md = sobj@meta.data
 
 md_cols = colnames(md)
-numi_cols = md_cols[grepl("numi", tolower(md_cols))]
-md$nUMI = md[[numi_cols[[1]]]]
+
+if(is.null(opt[['numi-col']])){
+    NUMI_COL = "nCount_RNA"
+} else {
+    NUMI_COL = opt[['numi-col']]
+}
+if (! NUMI_COL %in% colnames(md)){
+    stop(paste("Error: nUMI column not found in metadata: ", NUMI_COL))
+}
+md$nUMI = md[[NUMI_COL]]
+
+if(is.null(opt[['mito-col']])){
+    MITO_COL = "pct_mito"
+} else {
+    MITO_COL = opt[['mito-col']]
+}
+if (! MITO_COL %in% colnames(md)){
+    warning(
+        paste("WARNING: Mitochondrial percentage column not found in metadata: ", MITO_COL,
+        "\nCalculating pct_mito from gene names starting with MT-"))
+    
+    mito_genes = rownames(sobj)[grepl("^MT-", toupper(rownames(sobj)))]
+
+    if (length(mito_genes) == 0){
+        warning("WARNING: No mitochondrial genes found in the Seurat object!\nSetting pct_mito to 0 for all cells!")
+        md$pct_mito = 0
+    } else{
+        counts = GetAssayData(sobj, slot="counts", assay="RNA")
+        md$pct_mito = 100 * colSums(counts[mito_genes, ]) / colSums(counts)
+    } 
+} else {
+    md$pct_mito = md[[MITO_COL]]
+}
+
+if(is.null(opt[['intronic-col']])){
+    INTRONIC_COL = "pct_intronic"
+} else {
+    INTRONIC_COL = opt[['intronic-col']]
+}
+if (! INTRONIC_COL %in% colnames(md)){
+    warning(
+        paste("WARNING: Intronic percentage column not found in metadata: ", INTRONIC_COL, 
+              "\nSetting pct_intronic to 0 for all cells!"))
+    md$pct_intronic = 0
+} else {
+    md$pct_intronic = md[[INTRONIC_COL]]
+}
 
 if (! SAMPLE_COL %in% colnames(md)){
     stop(paste("Error: Sample column not found in metadata: ", SAMPLE_COL))
