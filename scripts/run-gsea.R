@@ -116,12 +116,19 @@ for (segment in names(dataDE_list)){
     for (gene_set in names(gene_sets)){
         geneset_path = gene_sets[[gene_set]]
 
+        # ojo: specific carve-out for handsaker_genes, which has large gene set sizes that we nevertheless feel to be relevant
+        if (gene_set == "handsaker_genes"){
+            this_max_size = 50000
+        } else {
+            this_max_size = MAX_SIZE
+        }
+
         gs=.sconline.GSEA.readGMT(
             file=geneset_path,
             bkg_genes=dataDE$gene_short_name,
-            min.gs.size=MIN_SIZE, max.gs.size=MAX_SIZE)
+            min.gs.size=MIN_SIZE, max.gs.size=this_max_size)
         message(paste0("Gene set list: ", gene_set, " has ", length(gs), " gene sets"))
-        gsea = runGSEA(dataDE, gs, rank_col=RANK_COL, abs=ABS, desc=TRUE, min_size=MIN_SIZE, max_size=MAX_SIZE)
+        gsea = runGSEA(dataDE, gs, rank_col=RANK_COL, abs=ABS, desc=TRUE, min_size=MIN_SIZE, max_size=this_max_size)
         gsea$gene_set = gene_set
         #gsea = gsea[which(gsea$padj<0.05),]
 
