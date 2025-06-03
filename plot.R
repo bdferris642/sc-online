@@ -1,21 +1,29 @@
-source("~/sc-online/utils.R")
+suppressWarnings(suppressMessages(library(caret)))
+suppressWarnings(suppressMessages(library(dplyr)))
+suppressWarnings(suppressMessages(library(ggplot2)))
+suppressWarnings(suppressMessages(library(ggrepel)))
+suppressWarnings(suppressMessages(library(ggvenn)))
+suppressWarnings(suppressMessages(library(grid)))
+suppressWarnings(suppressMessages(library(gridExtra)))
+suppressWarnings(suppressMessages(library(patchwork)))
+suppressWarnings(suppressMessages(library(pheatmap)))
+suppressWarnings(suppressMessages(library(RColorBrewer)))
+suppressWarnings(suppressMessages(library(rhdf5)))
+suppressWarnings(suppressMessages(library(rlang)))
+suppressWarnings(suppressMessages(library(tidyr)))
+suppressWarnings(suppressMessages(library(VennDiagram)))
+suppressWarnings(suppressMessages(library(viridis)))
+suppressWarnings(suppressMessages(library(viridisLite)))
+suppressWarnings(suppressMessages(library(textplot)))
 
-library(caret)
-library(dplyr)
-library(ggplot2)
-library(ggrepel)
-library(ggvenn)
-library(grid)
-library(gridExtra)
-library(patchwork)
-library(pheatmap)
-library(RColorBrewer)
-library(rhdf5)
-library(rlang)
-library(tidyr)
-library(viridis)
-library(viridisLite)
-library(textplot)
+suppressWarnings(suppressMessages(source("~/sc-online/utils.R")))
+
+
+col2hex <- function(x, alpha = FALSE) {
+  args <- as.data.frame(t(col2rgb(x, alpha = alpha)))
+  args <- c(args, list(names = x, maxColorValue = 255))
+  do.call(rgb, args)
+}
 
 display_plot_grid = function(plot_list, nrow, ncol, row_labels=NULL, col_labels=NULL, label_font_size=12) {
   num_plots <- length(plot_list)
@@ -826,8 +834,9 @@ plotOverlappingProbabilityHistograms = function(
     breaks=seq(0, 1, by=0.05),
     title=NULL,
     xlim=c(0,1),
+    ylim=c(0,1),
     colorlist = c("dodgerblue", "red")
-    ){
+){
 
   if (is.null(title)) {
       title = paste0("Probability Histogram of ", plot_col, " by ", group_col)
@@ -857,8 +866,13 @@ plotOverlappingProbabilityHistograms = function(
     geom_bar(stat = "identity", position = "identity", alpha = 0.4, width = bin_width) +
     scale_fill_manual(values = colorlist) +
     xlim(xlim) +
-    theme_minimal() +
-    labs(title = title, x = "Value", y = "Probability")
+    ylim(ylim) +
+    labs(title = title, x = "Value", y = "Probability") + 
+    theme(
+        plot.title = element_text(size=16),
+        axis.text = element_text(size = 14),  # Increase tick label font size
+        axis.title = element_text(size = 15),  # Increase axis label font size
+    )
   
   print(p)
 }
@@ -1170,7 +1184,7 @@ volcano_plot = function(
     y_label=expression(log[10]*"(adjusted p-value)"),
     title = NULL,
     annot_genes = NULL,
-    vline_intercept=c(-1, 1),
+    vline_intercept=c(0),
     xlim=c(-3,3),
     point_padding=0.5,
     nudge_y=0.25,
