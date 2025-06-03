@@ -9,6 +9,7 @@ library(fgsea)
 library(qs)
 
 source("~/sc-online/plot.R")
+source("~/sc-online/utils.R")
 
 
 .extraHumanGeneAnnoAdderFn=function(inputGeneNames=NULL){
