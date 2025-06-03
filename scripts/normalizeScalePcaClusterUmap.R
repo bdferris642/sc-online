@@ -22,7 +22,8 @@ spec <- matrix(c(
     'harmony-group-by-vars', 'hg', 1, 'character',
     'n-hvgs', 'nh', 1, 'numeric',
     'n-pcs', 'np', 1, 'numeric',
-    'resolutions', 'r', 1, 'character'
+    'resolutions', 'r', 1, 'character',
+    "assay", 'a', 1, 'character'
 ), byrow = TRUE, ncol = 4)
 
 opt <- getopt(spec)
@@ -76,7 +77,14 @@ if (is.null(opt[["resolutions"]])) {
     RESOLUTIONS = as.numeric(strsplit(opt[["resolutions"]], ",")[[1]])
 }
 
+if(is.null(opt[["assay"]])) {
+    ASSAY = "RNA"
+} else {
+    ASSAY = opt[["assay"]]
+}
+
 sobj = qread(PATH)
+DefaultAssay(sobj) = ASSAY
 
 sobj = normalizeScalePcaClusterUmap(
     sobj,
@@ -85,7 +93,8 @@ sobj = normalizeScalePcaClusterUmap(
     n_hvgs_orig=N_HVGS, 
     n_dims_use=N_PCS,
     regression_vars=REGRESSION_VARS,
-    resolutions=RESOLUTIONS)
+    resolutions=RESOLUTIONS,
+    assay=ASSAY)
 
 if (RUN_HARMONY) {
     sobj = (sobj 
