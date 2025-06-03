@@ -7,11 +7,14 @@ suppressWarnings(suppressMessages(library(Seurat)))
 suppressWarnings(suppressMessages(library(qs)))
 suppressWarnings(suppressMessages(library(dplyr)))
 suppressWarnings(suppressMessages(library(UCell)))
+suppressWarnings(suppressMessages(library(RhpcBLASctl)))
+suppressWarnings(suppressMessages(source("~/sc-online/utils.R")))
 
 spec <- matrix(c(
     'sobj-path', 'p', 1, "character",
     'score-path', 's', 1, "character",
-    'assay', 'a', 1, "character"
+    'assay', 'a', 1, "character",
+    'num-threads', 'n', 1, "integer"
 ), byrow = TRUE, ncol = 4)
 opt = getopt(spec)
 
@@ -21,6 +24,9 @@ if(is.null(opt[['assay']])) {
     ASSAY = "RNA"
 } else {
     ASSAY = opt[["assay"]]
+}
+if(! is.null(opt[['num-threads']])) {
+    blas_set_num_threads(opt[['num-threads']])
 }
 
 print( paste0("Reading gene scores from ", SCORE_PATH))
@@ -32,7 +38,7 @@ gene_sets = lapply(score_list_df$genes, function(genes) {
 names(gene_sets) = score_list_df$score_name
 
 print( paste("Reading Seurat object from", SOBJ_PATH))
-sobj = qread(SOBJ_PATH)
+sobj = load_obj(SOBJ_PATH)
 
 for (name in names(gene_sets)){
     gene_sets[[name]] = gene_sets[[name]][gene_sets[[name]] %in% rownames(GetAssayData(sobj, slot="counts", assay = ASSAY))]
@@ -64,4 +70,4 @@ if (all(rownames(u_scores) == rownames(sobj@meta.data))){
 }
 
 print("Saving Seurat object")
-qsave(sobj, SOBJ_PATH)
+save_obj(sobj, SOBJ_PATH)
