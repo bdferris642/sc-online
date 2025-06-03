@@ -11,38 +11,38 @@ source("~/sc-online/extraGenes.R")
     weights = NULL){
 
   require(limma)
-  y <- limma:::getEAWP(object)
+  y = limma:::getEAWP(object)
   print(dim(y$design))
-  M <- y$exprs
-  ngenes <- nrow(M)
-  narrays <- ncol(M)
+  M = y$exprs
+  ngenes = nrow(M)
+  narrays = ncol(M)
   if (is.null(design)) 
-    design <- y$design
+    design = y$design
   if (is.null(design)) 
-    design <- matrix(1, ncol(y$exprs), 1)
+    design = matrix(1, ncol(y$exprs), 1)
   else {
-    design <- as.matrix(design)
+    design = as.matrix(design)
     if (mode(design) != "numeric") 
       stop("design must be a numeric matrix")
   }
   
   if (nrow(design) != narrays)
     stop("Number of rows of design matrix does not match number of arrays")
-  ne <- limma:::nonEstimable(design)
+  ne = limma:::nonEstimable(design)
   if (!is.null(ne)) 
     cat("Coefficients not estimable:", paste(ne, collapse = " "), 
         "\n")
-  nbeta <- ncol(design)
+  nbeta = ncol(design)
   if (missing(ndups) && !is.null(y$printer$ndups)) 
-    ndups <- y$printer$ndups
+    ndups = y$printer$ndups
   if (missing(spacing) && !is.null(y$printer$spacing)) 
-    spacing <- y$printer$spacing
+    spacing = y$printer$spacing
   if (missing(weights) && !is.null(y$weights)) 
-    weights <- y$weights
+    weights = y$weights
   if (!is.null(weights)) {
-    weights <- asMatrixWeights(weights, dim(M))
-    weights[weights <= 0] <- NA
-    M[!is.finite(weights)] <- NA
+    weights = asMatrixWeights(weights, dim(M))
+    weights[weights <= 0] = NA
+    M[!is.finite(weights)] = NA
   }
   if (is.null(block)) {
     if (ndups < 2) {
@@ -51,55 +51,55 @@ source("~/sc-online/extraGenes.R")
     }
     if (is.character(spacing)) {
       if (spacing == "columns") 
-        spacing <- 1
+        spacing = 1
       if (spacing == "rows") 
-        spacing <- object$printer$nspot.c
+        spacing = object$printer$nspot.c
       if (spacing == "topbottom") 
-        spacing <- nrow(M)/2
+        spacing = nrow(M)/2
     }
-    Array <- rep(1:narrays, rep(ndups, narrays))
+    Array = rep(1:narrays, rep(ndups, narrays))
   }
   else {
-    ndups <- 1
-    nspacing <- 1
-    Array <- block
+    ndups = 1
+    nspacing = 1
+    Array = block
   }
   if (is.null(block)) {
-    M <- limma:::unwrapdups(M, ndups = ndups, spacing = spacing)
-    ngenes <- nrow(M)
+    M = limma:::unwrapdups(M, ndups = ndups, spacing = spacing)
+    ngenes = nrow(M)
     if (!is.null(weights)) 
-      weights <- limma:::unwrapdups(weights, ndups = ndups, spacing = spacing)
-    design <- design %x% rep(1, ndups)
+      weights = limma:::unwrapdups(weights, ndups = ndups, spacing = spacing)
+    design = design %x% rep(1, ndups)
   }
   if (!requireNamespace("statmod", quietly = TRUE)) 
     stop("statmod package required but is not installed")
-  rho <- rep(NA, ngenes)
-  nafun <- function(e) NA
+  rho = rep(NA, ngenes)
+  nafun = function(e) NA
   for (i in 1:ngenes) {
-    y <- drop(M[i, ])
-    o <- is.finite(y)
-    A <- factor(Array[o])
-    nobs <- sum(o)
-    nblocks <- length(levels(A))
+    y = drop(M[i, ])
+    o = is.finite(y)
+    A = factor(Array[o])
+    nobs = sum(o)
+    nblocks = length(levels(A))
     if (nobs > (nbeta + 2) && nblocks > 1 && nblocks < nobs - 1) {
-      y <- y[o]
-      X <- design[o, , drop = FALSE]
-      Z <- model.matrix(~0 + A)
+      y = y[o]
+      X = design[o, , drop = FALSE]
+      Z = model.matrix(~0 + A)
       if (!is.null(weights)) {
-        w <- drop(weights[i, ])[o]
-        s <- tryCatch(statmod::mixedModel2Fit(y, X, Z, 
+        w = drop(weights[i, ])[o]
+        s = tryCatch(statmod::mixedModel2Fit(y, X, Z, 
                                               w, only.varcomp = TRUE, maxit = 20)$varcomp, error = nafun)
       } else{
-        s <- tryCatch(statmod::mixedModel2Fit(y, X, 
+        s = tryCatch(statmod::mixedModel2Fit(y, X, 
                                               Z, only.varcomp = TRUE, maxit = 20)$varcomp, 
                       error = nafun)
       } 
       if (!is.na(s[1])) 
-        rho[i] <- s[2]/sum(s)
+        rho[i] = s[2]/sum(s)
     }
   }
-  arho <- atanh(pmax(-1, rho))
-  mrho <- tanh(mean(arho, trim = trim, na.rm = TRUE))
+  arho = atanh(pmax(-1, rho))
+  mrho = tanh(mean(arho, trim = trim, na.rm = TRUE))
   list(consensus.correlation = mrho, cor = mrho, atanh.correlations = arho,value.list=arho)
 }
 
@@ -128,7 +128,7 @@ source("~/sc-online/extraGenes.R")
   
   sl_data=sl_data[rowSds(as.matrix(counts(sl_data))) > 0, ]
   
-  dge <- DGEList(counts=counts(sl_data))
+  dge = DGEList(counts=counts(sl_data))
   if(is.null(bkg_genes)){
     tmpCount=apply(counts(sl_data),1,function(x) sum(x>0))
     keep=tmpCount>10
@@ -137,10 +137,10 @@ source("~/sc-online/extraGenes.R")
     keep=row.names(sl_data) %in% bkg_genes
   }
   
-  dge <- dge[keep,,keep.lib.sizes=FALSE]
+  dge = dge[keep,,keep.lib.sizes=FALSE]
   
   if(TMMnorm){
-    dge <- calcNormFactors(dge)
+    dge = calcNormFactors(dge)
   }
   
   # estimate weights using linear mixed model of dream
@@ -185,10 +185,10 @@ source("~/sc-online/extraGenes.R")
     if(!is.null(bkg_genes)){
       keep=row.names(sl_data) %in% bkg_genes
     } else {
-      keep <- rowSums(logCPM>3)>(0.05*ncol(logCPM))
+      keep = rowSums(logCPM>3)>(0.05*ncol(logCPM))
     }
     
-    logCPM <- logCPM[keep,]
+    logCPM = logCPM[keep,]
   } else if(no_normalization){
     logCPM=counts(sl_data)
     if(quantile.norm){
@@ -210,14 +210,14 @@ source("~/sc-online/extraGenes.R")
     #                  min.total.count = max(0.02*ncol(sl_data),10))
     print(paste("Number of expressed genes:",sum(keep)))
     tmpexp=counts(sl_data)[keep,]
-    dge <- DGEList(tmpexp)
+    dge = DGEList(tmpexp)
     
     if(TMMnorm){
-      dge <- calcNormFactors(dge)
+      dge = calcNormFactors(dge)
     }
     
-    logCPM <- new("EList")
-    logCPM$E <- edgeR::cpm(dge,normalized.lib.sizes = TMMnorm, log = TRUE, prior.count = prior.count)
+    logCPM = new("EList")
+    logCPM$E = edgeR::cpm(dge,normalized.lib.sizes = TMMnorm, log = TRUE, prior.count = prior.count)
     if(quantile.norm){
       logCPM$E=limma::normalizeQuantiles(logCPM$E)
     }
@@ -241,7 +241,7 @@ source("~/sc-online/extraGenes.R")
     if(is.null(dc.object)){
 
         # MAJOR TODO! WHY SHOULD THERE EVER BE A MISMATCH BETWEEN DESIGN AND LOGCPM?!
-      dc <- .extra_sconline.duplicateCorrelation(logCPM,design=model, block=colData(sl_data)[,random_effect])
+      dc = .extra_sconline.duplicateCorrelation(logCPM,design=model, block=colData(sl_data)[,random_effect])
     } else {
       dc=dc.object
     }
@@ -254,16 +254,16 @@ source("~/sc-online/extraGenes.R")
   if(!is.null(dc)){
     if(!is.nan(dc$consensus.correlation)){
       if(abs(dc$consensus.correlation)<0.9){
-        fit <- lmFit(logCPM, model,block = as.character(colData(sl_data)[,random_effect]), correlation=dc$consensus.correlation)
+        fit = lmFit(logCPM, model,block = as.character(colData(sl_data)[,random_effect]), correlation=dc$consensus.correlation)
         blocked_analysis=T
       } else {
-        fit <- lmFit(logCPM, model)
+        fit = lmFit(logCPM, model)
       }
     } else {
-      fit <- lmFit(logCPM, model)
+      fit = lmFit(logCPM, model)
     }
   } else {
-    fit <- lmFit(logCPM, model)
+    fit = lmFit(logCPM, model)
   }
   
   
@@ -284,7 +284,7 @@ source("~/sc-online/extraGenes.R")
   require(limma)
   
   
-  dge <- DGEList(counts=counts(sl_data))
+  dge = DGEList(counts=counts(sl_data))
   if(is.null(bkg_genes)){
     tmpCount=apply(counts(sl_data),1,function(x) sum(x>0))
     keep=tmpCount>10
@@ -293,30 +293,30 @@ source("~/sc-online/extraGenes.R")
     keep=row.names(sl_data) %in% bkg_genes
   }
   
-  dge <- dge[keep,,keep.lib.sizes=FALSE]
+  dge = dge[keep,,keep.lib.sizes=FALSE]
   
   if(TMMnorm){
-    dge <- calcNormFactors(dge)
+    dge = calcNormFactors(dge)
   }
   
   if(sample.weights){
     if(quantile.norm){
-      logCPM <- voomWithQualityWeights(dge, model, normalize.method="quantile",plot = T,save.plot=T)
+      logCPM = voomWithQualityWeights(dge, model, normalize.method="quantile",plot = T,save.plot=T)
     } else {
-      logCPM <- voomWithQualityWeights(dge, model,plot = T,save.plot=T)
+      logCPM = voomWithQualityWeights(dge, model,plot = T,save.plot=T)
     }
   } else {
     if(quantile.norm){
-      logCPM <- voom(dge, model, normalize.method="quantile",plot = T,save.plot=T)
+      logCPM = voom(dge, model, normalize.method="quantile",plot = T,save.plot=T)
     } else {
-      logCPM <- voom(dge, model,plot = T,save.plot=T)
+      logCPM = voom(dge, model,plot = T,save.plot=T)
     }
   }
   
   dc=NULL
   if(!is.null(random_effect)){
     if(is.null(dc.object)){
-      dc <- .extra_sconline.duplicateCorrelation(logCPM,design=model, block=colData(sl_data)[,random_effect])
+      dc = .extra_sconline.duplicateCorrelation(logCPM,design=model, block=colData(sl_data)[,random_effect])
     } else {
       dc=dc.object
     }
@@ -327,16 +327,16 @@ source("~/sc-online/extraGenes.R")
   if(!is.null(dc)){
     if(!is.nan(dc$consensus.correlation)){
       if(abs(dc$consensus.correlation)<0.9){
-        fit <- lmFit(logCPM, model,block = colData(sl_data)[,random_effect], correlation=dc$consensus.correlation)
+        fit = lmFit(logCPM, model,block = colData(sl_data)[,random_effect], correlation=dc$consensus.correlation)
         blocked_analysis=T
       } else {
-        fit <- lmFit(logCPM, model)
+        fit = lmFit(logCPM, model)
       }
     } else {
-      fit <- lmFit(logCPM, model)
+      fit = lmFit(logCPM, model)
     }
   } else {
-    fit <- lmFit(logCPM, model)
+    fit = lmFit(logCPM, model)
   }
   
   
@@ -724,4 +724,249 @@ build_robustness_df = function(
     write.csv(de_df, out_path, row.names=F)
     return(de_df)
     
+}
+
+get_residual_corrected_scaled_sample_sign_agreement = function(
+    res,
+    contrast_col,
+    case_col,
+    contrast_coef_df
+){
+    # given a df of coefficients of interest and a limma fit object
+    # residualize the expression data by removing the effect of all other covariates
+    # and calculate what fraction of samples agree with the sign of the coefficients
+    #   (e.g. if a coefficient is positive, 
+    #   what fraction of case samples are above the median and controls below the median?)
+    # scaled by the max and min values achievable given any imbalance in the number of cases vs. controls
+
+    # res: a list, containing 
+        # a `normData$EList` matrix of normalized gene expression
+        # a `fit` MArrayLM, iself containing
+        #   `design` matrix of covariates
+        #   `coefficients` matrix of coefficients
+        #   `block` vector of sample IDs for each
+
+    # contrast_col: the name of the column in the design matrix that contains the condition of interest
+    #   e.g. "condition" or "case_control"
+    # case_col: the name of the column in the design matrix that contains the case/control status
+    #   will usually contain the contrast_col as a substring 
+    #   e.g. "case_controlPD" or "conditionXDP"
+    # contrast_coef_df: a dataframe containing the coefficients of interest (logFC)
+    #   must have columns logFC and gene (todo: parametrize if need be)
+
+    fit = res[["fit"]]
+    design = fit[["design"]]              # nsamp × ncoef
+    coef_mat = fit[["coefficients"]]     # ngene × ncoef
+    expr = res[["normData"]]$E             # ngene × nsamp
+    sample_ids = fit[["block"]]           # nsamp
+
+
+    # Identify the columns corresponding to contrast_col
+    cond_cols = grep(contrast_col, colnames(design))  # or exact match(s)
+    non_cond_cols = setdiff(seq_len(ncol(design)), cond_cols)
+
+    # Subset design and coefficients for non-contrast_col terms
+    design_nocond = design[, non_cond_cols, drop = FALSE]
+    coef_nocond = coef_mat[, non_cond_cols, drop = FALSE]
+
+    # Compute predicted values: (genes × covariates) %*% (covariates × samples)
+    fitted_nocond = coef_nocond %*% t(design_nocond)  # ngene × nsamp
+    residualized_expr = expr - fitted_nocond
+
+    # We assume the presence of a random effect / sample vector stored in `fit[["block"]]`
+    # and we average the residualized expression within every sample
+    design_by_sample = as.data.frame(design)
+    design_by_sample$block = sample_ids
+    design_by_sample = (design_by_sample %>%
+        group_by(block) %>%
+        summarise(across(everything(), mean, na.rm = TRUE)))
+
+    residualized_expr_by_sample = as.data.frame(t(residualized_expr))
+    residualized_expr_by_sample$block = sample_ids
+
+    residualized_expr_by_sample = (residualized_expr_by_sample %>%
+        group_by(block) %>%
+        summarise(across(everything(), mean, na.rm = TRUE)))
+
+    # we want to figure out how many cases are above / controls below the median residualize expression across samples
+    # from every column, subtract the median of that column
+    sample_ids = residualized_expr_by_sample$block # remove `$block` for median calculation and add back in later
+    residualized_expr_by_sample$block = NULL 
+    residualized_expr_by_sample = sweep(
+        residualized_expr_by_sample, 2, 
+        apply(residualized_expr_by_sample, 2, median, na.rm = TRUE), 
+        FUN = "-")
+    residualized_expr_by_sample$block = sample_ids
+
+    # Get the sign of the contrast coefficients
+    contrast_coef_df$sign = sign(contrast_coef_df$logFC)
+    contrast_coef_df = contrast_coef_df[match(colnames(residualized_expr_by_sample), contrast_coef_df$gene), ]
+    contrast_coef_df = contrast_coef_df[!is.na(contrast_coef_df$gene), ]
+    contrast_coef_df$sign = sign(contrast_coef_df$logFC)
+
+    # Create an outer comparison matrix: samples x genes
+    # 1 if (case & gene up) OR (control & gene down)
+    # -1 otherwise
+    genes = colnames(residualized_expr_by_sample)
+    samples = residualized_expr_by_sample$block
+    expected_signs = setNames(contrast_coef_df$sign, contrast_coef_df$gene)
+    gene_signs = expected_signs[genes]
+    sample_is_case = design_by_sample[[case_col]] == 1
+    expected_direction_matrix = outer(
+        sample_is_case, gene_signs,
+        FUN = function(case, direction) {
+            as.integer((case & direction == 1) | (!case & direction == -1))
+        }
+    )
+    expected_direction_matrix[expected_direction_matrix == 0] = -1
+
+    # Compute match: 1 if sign matches, 0 otherwise
+    common_genes = intersect(colnames(residualized_expr_by_sample), colnames(expected_direction_matrix))
+    resid_expr = residualized_expr_by_sample[, common_genes, drop = TRUE]
+    expected_dir = expected_direction_matrix[, common_genes, drop = TRUE]
+    match_matrix = sign(resid_expr) == sign(expected_dir)
+    match_matrix = ifelse(is.na(match_matrix), 0L, as.integer(match_matrix))
+
+    # scale match matrix to [0, 1] using min and max possible values
+    case_idx = which(design_by_sample[[case_col]] == 1)
+    control_idx = which(design_by_sample[[case_col]] == 0)
+    n_samples = nrow(design_by_sample)
+    max_possible = (n_samples / 2) + min(length(case_idx), length(control_idx))
+    min_possible = (n_samples / 2) - min(length(case_idx), length(control_idx))
+
+    gene_scores = colSums(match_matrix)
+    gene_scores_scaled = (gene_scores - min_possible) / (max_possible - min_possible)
+    gene_scores_scaled = gene_scores_scaled[contrast_coef_df$gene]
+    contrast_coef_df$scaled_sample_sign_agreement = gene_scores_scaled
+
+    return(contrast_coef_df)
+}
+
+purity_score_categorical = function(x, group) {
+    stopifnot(length(x) == length(group))
+    stopifnot(all(group %in% c(0, 1)))
+
+    ranks = rank(x)
+    case_ranks = ranks[group == 1]
+    control_ranks = ranks[group == 0]
+
+    n_case = length(case_ranks)
+    n_control = length(control_ranks)
+
+    # U-statistic: count of (case > control) pairs
+    U = sum(outer(case_ranks, control_ranks, FUN = function(c, k) as.numeric(c > k)))
+
+    score = 2 * (U / (n_case * n_control)) - 1
+    return(score)
+}
+
+
+get_residual_corrected_purity_score = function(
+    res,
+    col,
+    coef_df,
+    categorical=TRUE,
+    case_col=NULL
+){
+    # given a df of coefficients of interest and a limma fit object
+    # residualize the expression data by removing the effect of all other covariates
+    # and calculate the rank purity score for each gene
+    #   (e.g. if a coefficient is positive, 
+    #   what fraction of case samples are above all controls (normalized to [-1,1])
+
+    # if a contrast col is given, this is equivalent to the Mann-Whitney U Score
+    # if not, the spearman rank correlation is used
+
+    # res: a list, containing 
+        # a `normData$EList` matrix of normalized gene expression
+        # a `fit` MArrayLM, iself containing
+        #   `design` matrix of covariates
+        #   `coefficients` matrix of coefficients
+        #   `block` vector of sample IDs for each
+
+    # col: the name of the column in the design matrix that contains the condition of interest
+    #   e.g. "condition", "case_control", "age"
+    # case_col: the name of the column in the design matrix that contains the case/control status
+    #   will usually contain the contrast_col as a substring 
+    #   e.g. "case_controlPD" or "conditionXDP"
+    # coef_df: a dataframe containing the coefficients of interest
+    #   must have columns logFC and gene (todo: parametrize if need be)
+
+    fit = res[["fit"]]
+    design = fit[["design"]]              # nsamp × ncoef
+    coef_mat = fit[["coefficients"]]     # ngene × ncoef
+    expr = res[["normData"]]$E             # ngene × nsamp
+    block_ids = fit[["block"]]           # nsamp
+
+    # what a crazy bug...if there are colnames in design by sample that are gene names, there will be an error 
+    # as they are given .x and .y suffixes later on
+    colnames(design)[colnames(design) %in% coef_df$gene] = paste0(
+      colnames(design)[colnames(design) %in% coef_df$gene], "_design"
+    )
+
+    # Identify the columns corresponding to contrast_col
+    cond_cols = grep(col, colnames(design))  # or exact match(s)
+    non_cond_cols = setdiff(seq_len(ncol(design)), cond_cols)
+
+    # Subset design and coefficients for non-contrast_col terms
+    design_nocond = design[, non_cond_cols, drop = FALSE]
+    coef_nocond = coef_mat[, non_cond_cols, drop = FALSE]
+
+    # Compute predicted values: (genes × covariates) %*% (covariates × samples)
+    fitted_nocond = coef_nocond %*% t(design_nocond)  # ngene × nsamp
+    residualized_expr = expr - fitted_nocond
+
+    # We assume the presence of a random effect / sample vector stored in `fit[["block"]]`
+    # and we average the residualized expression within every sample
+    design_by_sample = as.data.frame(design)
+    design_by_sample$block = block_ids
+    design_by_sample = (design_by_sample %>%
+        group_by(block) %>%
+        summarise(across(everything(), mean, na.rm = TRUE)))
+
+    residualized_expr_by_sample = as.data.frame(t(residualized_expr))
+    residualized_expr_by_sample$block = block_ids
+
+    residualized_expr_by_sample = (residualized_expr_by_sample %>%
+        group_by(block) %>%
+        summarise(across(everything(), mean, na.rm = TRUE)))
+
+    # we want to figure out how many cases are above / controls below the median residualize expression across samples
+    # from every column, subtract the median of that column
+    sample_ids = residualized_expr_by_sample$block # remove `$block` for median calculation and add back in later
+    residualized_expr_by_sample$block = NULL 
+    residualized_expr_by_sample = sweep(
+        residualized_expr_by_sample, 2, 
+        apply(residualized_expr_by_sample, 2, median, na.rm = TRUE), 
+        FUN = "-")
+    residualized_expr_by_sample$block = sample_ids
+
+    residualized_expr_by_sample = merge(
+        residualized_expr_by_sample, 
+        design_by_sample, 
+        by = "block"
+    )
+
+    coef_df = coef_df[match(colnames(residualized_expr_by_sample), coef_df$gene), ]
+    coef_df = coef_df[!is.na(coef_df$gene), ]
+
+    if (categorical){
+        coef_df$rank_purity = sapply(
+            colnames(residualized_expr_by_sample)[!colnames(residualized_expr_by_sample) %in% colnames(design_by_sample)],
+            function(gene) {
+                purity_score_categorical(residualized_expr_by_sample[[gene]], residualized_expr_by_sample[[case_col]])
+            })
+    } else {
+        coef_df$rank_purity = sapply(
+            colnames(residualized_expr_by_sample)[!colnames(residualized_expr_by_sample) %in% colnames(design_by_sample)],
+            function(gene) {
+                cor(residualized_expr_by_sample[[gene]], residualized_expr_by_sample[[col]], method = "spearman")
+            })
+    }
+
+    # get absolute value. But first, if the sign of the rank_purity is opposite to the sign of the logFC, set it to 0
+    coef_df$rank_purity[(coef_df$rank_purity * coef_df$logFC) < 0] = 0
+    coef_df$rank_purity = abs(coef_df$rank_purity)
+
+    return(coef_df)
 }
