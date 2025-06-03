@@ -1,8 +1,42 @@
+suppressMessages(suppressWarnings(library(biomaRt)))
 suppressMessages(suppressWarnings(library(SingleCellExperiment)))
 suppressMessages(suppressWarnings(library(Seurat)))
 suppressMessages(suppressWarnings(library(dplyr)))
 suppressMessages(suppressWarnings(library(Matrix)))
 suppressMessages(suppressWarnings(library(sva)))
+
+convert_ensembl_to_symbol <- function(ensembl_ids) {
+  # Connect to GRCh38 Ensembl
+  mart <- useEnsembl(biomart = "genes", dataset = "hsapiens_gene_ensembl", version = "108")
+
+  # Query mapping
+  mapping <- getBM(
+    attributes = c("ensembl_gene_id", "hgnc_symbol"),
+    filters = "ensembl_gene_id",
+    values = ensembl_ids,
+    mart = mart
+  )
+
+  mapping_unique <- mapping %>%
+    distinct(ensembl_gene_id, .keep_all = TRUE)
+
+  result <- data.frame(ensembl_gene_id = ensembl_ids, stringsAsFactors = FALSE) %>%
+    left_join(mapping_unique, by = "ensembl_gene_id") %>%
+    mutate(
+      hgnc_symbol = ifelse(is.na(hgnc_symbol) | hgnc_symbol == "", ensembl_gene_id, hgnc_symbol)
+    )
+
+
+  # Find duplicated symbols
+  dupes <- result$hgnc_symbol[duplicated(result$hgnc_symbol)]
+
+  result <- result %>%
+    mutate(
+      final_symbol = ifelse(hgnc_symbol %in% dupes, paste0(hgnc_symbol, "_", ensembl_gene_id), hgnc_symbol)
+    )
+
+  return(result$final_symbol)
+}
 
 
 .mycBindFn=function(inputList,batchNames=NULL,verbose_level=1){
@@ -750,5 +784,40 @@ TopBottomGenesPerPC <- function(seurat_obj, n = 10, reduction = "pca") {
     # Print results
     cat("Top", n, "genes:\n", paste(top_genes, collapse = ", "), "\n")
     cat("Bottom", n, "genes:\n", paste(bottom_genes, collapse = ", "), "\n")
+  }
+}
+
+prop = function(vector){
+  if(length(vector) == 0){
+    stop("Vector is empty")
+  }
+  return(sum(vector) / length(vector))
+}
+
+
+load_obj = function(path){
+  if(grepl("\\.rds$", path)){
+    obj = readRDS(path)
+  } else if(grepl("\\.qs$", path)){
+    obj = qread(path)
+  } else {
+    stop("Path must end with .rds or .qs")
+  }
+  return(obj)
+}
+
+save_obj = function(obj, path){
+  # if the path ends with ".rds", save as rds. If ".qs", save as qs
+  # otherwise throw an error
+  if(!dir.exists(dirname(path))){
+    dir.create(dirname(path), recursive = TRUE)
+  }
+
+  if(grepl("\\.rds$", path)){
+    saveRDS(obj, path)
+  } else if(grepl("\\.qs$", path)){
+    qsave(obj, path)
+  } else {
+    stop("Path must end with .rds or .qs")
   }
 }
