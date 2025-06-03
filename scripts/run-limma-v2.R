@@ -12,6 +12,7 @@ suppressWarnings(suppressMessages(library(tidyr)))
 
 suppressWarnings(suppressMessages(source("/home/ferris/code/sconline_code.R"))) # <-- TODO inherit from de.R
 suppressWarnings(suppressMessages(source("/home/ferris/sc-online/utils.R")))
+suppressWarnings(suppressMessages(source("/home/ferris/sc-online/de.R")))
 ########################################### ARGUMENTS & CONSTANTS ###########################################
 
 spec <- matrix(c(
@@ -27,7 +28,8 @@ spec <- matrix(c(
     'suffix', 's', 1, 'character',
     'sva-ctr-cols', 'scs', 1, 'character',
     'n-svs', 'ns', 1, 'integer',
-    'num-threads', 'n', 1, 'integer'
+    'num-threads', 'n', 1, 'integer',
+    'calc-purity', 'cp', 1, 'logical'
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
@@ -104,6 +106,12 @@ if (is.null(opt[['suffix']])){
 }
 SUFFIX = paste0('__', SUFFIX, format(Sys.Date(), "__%Y%m%d"))
 
+CALC_PURITY = ifelse(
+    is.null(opt[['calc-purity']]),
+    TRUE,
+    opt[['calc-purity']]
+)
+
 if (!is.null(opt[['n-svs']])) {
     RUN_SVA = TRUE
     N_SVS = opt[['n-svs']]
@@ -173,7 +181,10 @@ if (! is.null(CONTRAST_COL)){
     print(paste("Contrast string:", contrast_str))
 }
 
-print(paste("Performing DE analysis on clusters:", paste(names(pseudocells_list), collapse=", "), "from cluster column", CLUSTER_COL, "..."))
+print(paste(
+    "Performing DE analysis on clusters:", 
+    paste(names(pseudocells_list), collapse=", "), 
+    "from cluster column", CLUSTER_COL, "..."))
 for (x_name in names(pseudocells_list)){
 
     if (! is.null(ONLY_CLUSTERS)) {
@@ -281,6 +292,8 @@ for (x_name in names(pseudocells_list)){
                 prior.count=1) #TODO: check if this is the right value for prior.count
             #check the dc object, the usual consensus.correlation that I get is in the range of ~0.2 or above if rand=T
             
+            expr = res[["normData"]]$E  # ngene × nsamp
+            ave_expr_vec = rowMeans(expr)
             write_path = file.path(de_dir, paste0(tolower(DE_METHOD), '__', x_name, SUFFIX, '.qs'))
 
             if (! is.null(CONTRAST_COL)){
@@ -299,12 +312,20 @@ for (x_name in names(pseudocells_list)){
 
                 res_pd = res_pd[order(-res_pd$logFC),]
                 res_pd$gene = rownames(res_pd)
+                res_pd$AveExpr = ave_expr_vec[res_pd$gene]
 
-                
+                res_pd = get_residual_corrected_purity_score(
+                    res=res,
+                    col=CONTRAST_COL,
+                    case_col=paste0(CONTRAST_COL, category1),
+                    coef_df=res_pd,
+                    categorical=TRUE
+                )
+
+                res_pd = res_pd[, c("gene", "logFC", "adj.P.Val", "rank_purity", "AveExpr", "P.Value", "t", "B")] %>% arrange(desc(logFC))
                 csv_write_path = gsub(".qs", paste0("__", CONTRAST_COL, ".csv"), write_path)
-
-                res_pd = res_pd[, c("gene", "logFC", "P.Value", "adj.P.Val", "AveExpr", "t", "B")]
                 write.csv(res_pd, csv_write_path, row.names=FALSE)
+
             } else { 
                 res_pd = "NONE"
             }
@@ -337,8 +358,20 @@ for (x_name in names(pseudocells_list)){
 
                 tt = tt[order(-tt$logFC),]
                 tt$gene = rownames(tt)
+                tt$AveExpr = ave_expr_vec[tt$gene]
 
-                tt = tt[,c("gene", "logFC", "P.Value", "adj.P.Val", "AveExpr", "t", "B")]
+                if(CALC_PURITY){
+                    tt = get_residual_corrected_purity_score(
+                        res=res,
+                        col=coef,
+                        coef_df=tt,
+                        categorical=FALSE)
+                } else {
+                    tt$rank_purity = NA
+                }
+                
+
+                tt = tt[, c("gene", "logFC", "adj.P.Val", "rank_purity", "AveExpr", "P.Value", "t", "B")] %>% arrange(desc(logFC))
                 write.csv(tt, gsub(".qs", paste0("__", coef, ".csv"), write_path))
                 output_list[[paste0('tt_', coef)]] = tt 
             }
