@@ -25,6 +25,10 @@ while [[ "$#" -gt 0 ]]; do
 			output_path="$2"
 			shift
 			;;
+		-p|--prefix)
+			prefix="$2"
+			shift
+			;;
 		-c|--clobber)
 			clobber=0
 			;;
@@ -72,7 +76,7 @@ if [ ! -e "${ref_dir}/precomputed_stats.h5" ] || [ "${clobber}" -eq 1 ]; then
 	echo "computing stats for reference"
 	python -m cell_type_mapper.cli.precompute_stats_scrattch \
 		--h5ad_path "${ref}" \
-		--hierarchy  '["Class_label", "Subclass_label", "Group_label", "Cluster_label"]' \
+		--hierarchy '["cell_type_plot_condensed", "cell_type_plot"]' \
 		--n_processors 12 \
 		--output_path "${ref_dir}/precomputed_stats.h5" \
 		--clobber True \
@@ -123,6 +127,6 @@ if [ ! -e "${output_path}/mapping_output_higher_factor" ] || [ "${clobber}" -eq 
 		--type_assignment.n_processors 4 \
 		--type_assignment.normalization raw \
 		--query_path "$query" \
-		--extended_result_path "${output_path}/mapping_output.json" \
-		--csv_result_path "${output_path}/mapping_output.csv"
+		--extended_result_path "${output_path}/${prefix}mapping_output.json" \
+		--csv_result_path "${output_path}/${prefix}mapping_output.csv"
 fi
