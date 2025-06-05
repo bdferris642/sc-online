@@ -1,3 +1,21 @@
+# A script that, given a Seurat Object with metadata,
+# Trains a mixed effect model to infer statistically significant differences in cluster proportions
+# Saving output as a csv as well as figures
+
+# path: path to a seurat .qs
+# covariates: comma-separated list of covariates to include in the model
+# contrast-col: the column in the metadata that contains the contrast to test
+# cluster-col: the column in the metadata that contains the cluster annotations to iterate over (e.g. cell_class)
+# rand-col: the column in the metadata that contains the random effects annotations (e.g. donor_id)
+# suffix (optional): a suffix to add to the output file name
+# continuous (optional): whether the contrast is continuous or categorical (default: FALSE)
+# filter-cluster-n (optional): minimum number of cells in a cluster to include it in the analysis
+    # (cell classes with very few cells can have extremely high error estimates)
+# filter-rand-n (optional): minimum number of cells in a random effect split to include in the analysis 
+    # (don't want to be biased by proportions coming from donors with very few cells)
+# leave-out (optional): a comma-separated list of clusters to leave out of the analysis
+# num-threads (optional): number of threads to use for the analysis
+
 ################## LIBRARIES #################
 suppressWarnings(suppressMessages(library(dplyr)))
 suppressWarnings(suppressMessages(library(getopt)))
@@ -23,7 +41,6 @@ spec <- matrix(c(
     'continuous', 'C', 1, 'logical',
     'filter-cluster-n', 'fc', 1, 'numeric',
     'filter-rand-n', 'fr', 1, 'numeric',
-    'jk-samples', 'js', 1, 'logical',
     'leave-out', 'lo', 1, 'character',
     'num-threads', 'n', 1, 'integer'
 ), byrow = TRUE, ncol = 4)
@@ -35,7 +52,6 @@ CONTRAST_COL = opt[['contrast-col']]
 CLUSTER_COL = opt[['cluster-col']]
 RAND_COL = opt[['rand-col']]
 CONTINUOUS = if(is.null(opt[['continuous']])){ FALSE }else{ opt[['continuous']] }
-JK_SAMPLES = if(is.null(opt[['jk-samples']])){ FALSE }else{ opt[['jk']] }
 LEAVE_OUT = if(is.null(opt[['leave-out']])){ FALSE }else{ opt[['leave-out']] }
 # today = format(Sys.Date(), "%y_%m_%d")
 suffix = if(!is.null(opt[['suffix']])){
@@ -98,6 +114,9 @@ sobj = qread(PATH)
 message("Seurat Object Dimensions")
 message(dim(sobj))
 pd = sobj@meta.data[,model_cols]
+pd[[CLUSTER_COL]] = factor(
+    pd[[CLUSTER_COL]], 
+    levels= sort(unique(as.character(pd[[CLUSTER_COL]]))))
 message("Seurat Object Meta Data Columns")
 message(colnames(pd))
 
@@ -226,11 +245,15 @@ if (CONTINUOUS){
 
     # Create the forest plot with ticks on error bars, axis lines with ticks, RdBu color map, and opaque white circles on top
     p = ggplot(masc_df, aes(y = cluster_name, x = or)) +
-        ggtitle(paste("Change in", str_to_title(gsub("_", " ", CLUSTER_COL)), "Proportion per Additional Unit of", str_to_title(CONTRAST_COL))) +
+        ggtitle(paste(
+            "Change in", str_to_title(gsub("_", " ", CLUSTER_COL)), 
+            "Proportion per Additional Unit of", str_to_title(CONTRAST_COL))) +
         xlab("Odds Ratio") +
         ylab(str_to_title(gsub("_", " ", CLUSTER_COL))) +
         geom_vline(xintercept = 1, linetype = "dotted", color = "gray") +  # Add dotted vertical line at x=0
-        geom_segment(aes(x = ci_lower, xend = ci_upper, y = cluster_name, yend = cluster_name, color = rank), size = 1) +  # Add horizontal error bars
+        geom_segment(aes(
+            x = ci_lower, xend = ci_upper, 
+            y = cluster_name, yend = cluster_name, color = rank), size = 1) +  # Add horizontal error bars
         geom_point(size = 3, aes(color = or), shape = 1) +  # Add points for effect sizes
         geom_point(size = 3, shape = 21, fill = "white") +  # Add opaque white circle on top of the error bar line
         scale_color_gradientn(colors = RColorBrewer::brewer.pal(11, "RdBu")) +  # Use RdBu color map
@@ -251,9 +274,14 @@ if (CONTINUOUS){
 
     # Create the forest plot with ticks on error bars, axis lines with ticks, RdBu color map, and opaque white circles on top
     p = ggplot(masc_df, aes(y = cluster_name, x = log2_or)) +
-        ggtitle(paste0(str_to_title(gsub("_", " ", CLUSTER_COL)), " Enrichment in ", toupper(case_name), " vs. ", str_to_title(tolower(ctr_name)))) +  # Title
+        ggtitle(paste0(str_to_title(
+            gsub("_", " ", CLUSTER_COL)), 
+            " Enrichment in ", toupper(case_name), " vs. ", 
+            str_to_title(tolower(ctr_name)))) +  # Title
         geom_vline(xintercept = 0, linetype = "dotted", color = "gray") +  # Add dotted vertical line at x=0
-        geom_segment(aes(x = log2_or_ci_low, xend = log2_or_ci_high, y = cluster_name, yend = cluster_name, color = rank), size = 1) +  # Add horizontal error bars
+        geom_segment(aes(
+            x = log2_or_ci_low, xend = log2_or_ci_high, 
+            y = cluster_name, yend = cluster_name, color = rank), size = 1) +  # Add horizontal error bars
         geom_point(size = 3, aes(color = log2_or), shape = 1) +  # Add points for effect sizes
         geom_point(size = 3, shape = 21, fill = "white") +  # Add opaque white circle on top of the error bar line
         scale_color_gradientn(colors = RColorBrewer::brewer.pal(11, "RdBu")) +  # Use RdBu color map
@@ -270,10 +298,8 @@ if (CONTINUOUS){
             axis.title = element_text(size = 15)  # Increase axis label font size
         )
 
-    ggsave(file.path(base_path, "masc", paste0(out_slogan, ".png")), plot = p, width = 11, height = 7, bg="white", dpi=400)
+    ggsave(file.path(base_path, "masc", paste0(out_slogan, ".png")), 
+        plot = p, width = 11, height = 7, bg="white", dpi=400)
 
 }
-
-
-
 
