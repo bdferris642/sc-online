@@ -1,209 +1,125 @@
-library(Seurat)
-library(devtools)
-library(Matrix)
-library(qs)
-library(TRADE)
-library(ashr)
-library(limma)
-library(ggplot2)
-library(getopt)
-library(Matrix)
+suppressWarnings(suppressMessages(library(Seurat)))
+suppressWarnings(suppressMessages(library(devtools)))
+suppressWarnings(suppressMessages(library(Matrix)))
+suppressWarnings(suppressMessages(library(ashr)))
+suppressWarnings(suppressMessages(library(getopt)))
+suppressWarnings(suppressMessages(library(ggplot2)))
+suppressWarnings(suppressMessages(library(limma)))
+suppressWarnings(suppressMessages(library(Matrix)))
+suppressWarnings(suppressMessages(library(qs)))
+suppressWarnings(suppressMessages(library(RhpcBLASctl)))
+suppressWarnings(suppressMessages(library(TRADEtools)))
 
-# `path` is the absolute path to a psuedocell directory (should be in `de` directory)
-# this pseudocell directory should contain .qs files of DE results
+suppressWarnings(suppressMessages(source("~/sc-online/utils.R")))
 
-# TODO: make generalizable to whatever contrast is
-# TODO: make sexMale vs sexFemale generalizable
+# path is absolute path to qs or rds file of limma results from run-limma-v2.R
+# contrast-col, optional: the name of the coefficient to be used as a contrast
+# contrast-str, optional: the string to be used as a contrast, e.g. "conditionA - conditionB"
 
 spec <- matrix(c(
-    'path', 'pp', 1, "character"
+    'path', 'p', 1, "character",
+    'contrast-col', 'cc', 1, "character",
+    'contrast-str', 'cs', 1, "character",
+    'num-threads', 'n', 1, 'integer'
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
 
-print(spec)
-print(opt)
+if (! is.null(opt[['num-threads']])){
+    blas_set_num_threads(opt[['num-threads']])
+}
 
-path = opt[['path']]
-base_path = dirname(path)
+PATH = opt[['path']]
+CONTRAST_COL = opt[['contrast-col']]
+CONTRAST_STR = opt[['contrast-str']]
 
-pseudocell_basename = basename(path)
-pseudocell_slogan = gsub("\\.qs$", "", pseudocell_basename)
-
-print("DE FILES:")
-list.files(path, pattern = ".*.qs$", full.names = FALSE)
-de_basenames = list.files(path, pattern = ".*.qs$", full.names = FALSE)
-
-trade_dir = file.path(path, "trade")
-print("")
-print(paste("WRITING OUTPUT TO:", trade_dir))
+trade_dir = file.path(dirname(PATH), "trade")
 if (!dir.exists(trade_dir)) {
-    print(paste("Creating directory", trade_dir))
     dir.create(trade_dir, recursive=TRUE)
-    dir.create(file.path(trade_dir, "case_control"), recursive=TRUE)
-    dir.create(file.path(trade_dir, "age"), recursive=TRUE)
-    dir.create(file.path(trade_dir, "sex"), recursive=TRUE)
 }
+slogan = gsub(".qs$", "", basename(PATH))
+slogan = gsub(".rds$", "", slogan)
 
-trade_dfs_pd = list()
-trade_outputs_pd = list()
-summary_list_pd = list()
+res = load_obj(PATH)[["res"]]
+fit = res$fit 
+coefs = colnames(res$fit)
 
-trade_dfs_age = list()
-trade_outputs_age = list()
-summary_list_age = list()
+trade_input_dfs = list()
 
-trade_dfs_sex = list()
-trade_outputs_sex = list()
-summary_list_sex = list()
+# 1. prepare TRADE inputs: SE's, logFCs, t stats, un-adjusted P values, all pre-shrinking
+# first specify inputs for the contrast (should it be specified), then for all other coefs
+cat("\nPreparing TRADE inputs...\n")
+if (!is.null(CONTRAST_COL) & !is.null(CONTRAST_STR)){
+    cat("Preparing Inputs for contrast column:", CONTRAST_COL, "\n")
+    coefs = coefs[!grepl(CONTRAST_COL, coefs)]
 
-print("")
-print("LOADING TRADE INPUTS:")
-for (de_basename in de_basenames) {
-
-    slogan = sub(".qs$", "", de_basename)
-    if (length(strsplit(slogan, "__")[[1]]) <= 3){
-        ct = strsplit(slogan, "__")[[1]][[2]]
-    } else {
-        ct = paste0(strsplit(slogan, "__")[[1]][[2]], '__', strsplit(slogan, "__")[[1]][[3]])
-    }
-
-    print(paste("Loading", de_basename, "and storing as", ct))
-    de_path = file.path(path, de_basename)
-    de_obj = qread(de_path)
-    res = de_obj[['res']]
-    
-    print("Case/Control")
-    # PD vs Control
-    contr = makeContrasts(case_controlpd - case_controlctr, levels = res$model)
+    contr = makeContrasts(CONTRAST_STR, levels = res$model)
     fit2 = contrasts.fit(res$fit, contrasts=contr)
-
-    # PD
     # Calculate standard errors for the contrast coefficients (pre-shrunk)
-    se_before_eBayes_pd = as.data.frame(fit2$stdev.unscaled * fit2$sigma)
-    se_before_eBayes_pd = se_before_eBayes_pd[rownames(fit2),]
+    se_before_eBayes = as.data.frame(fit2$stdev.unscaled * fit2$sigma)
+    se_before_eBayes = se_before_eBayes[rownames(fit2),]
+    logFCs = fit2$coef
+    logFCs = logFCs[rownames(fit2),]
 
-    logFCs_pd = fit2$coef
-    logFCs_pd = logFCs_pd[rownames(fit2),]
-    
-    ordinary_tstat_pd = fit2$coef / (fit2$stdev.unscaled * fit2$sigma)
-    colnames(ordinary_tstat_pd) = c("tstat")
-    ordinary_tstat_pd = ordinary_tstat_pd[rownames(fit2),]
-    
+    ordinary_tstat = fit2$coef / (fit2$stdev.unscaled * fit2$sigma)
+
+    colnames(ordinary_tstat) = c("tstat")
+    ordinary_tstat = ordinary_tstat[rownames(fit2),]
+
     #Two sided t-test p-value
-    p_value_pd = as.data.frame(2 * pt(-abs(ordinary_tstat_pd), fit2$df.residual))
-    p_value_pd = p_value_pd[rownames(fit2),]
+    p_value = as.data.frame(2 * pt(-abs(ordinary_tstat), fit2$df.residual))
+    p_value = p_value[rownames(fit2),]
+
+    res_no_ebayes = as.data.frame(cbind(se_before_eBayes, logFCs, ordinary_tstat, p_value))
+    colnames(res_no_ebayes) = c("lfcSE", "log2FoldChange", "tstat", "pvalue")
+    res_no_ebayes$coef = CONTRAST_COL
+    trade_input_dfs[[CONTRAST_COL]] = res_no_ebayes
+
+} else {
+    warning("WARNING:\nNo contrast col and/or contrast string specified.\nPerforming TRADE on all coefficients without contrasts.")
+}
+# now prepare TRADE inputs for all non-contrast coefficients
+cat("Preparing Inputs for all other coefficients...\n")
+for (coef in coefs){
+    se_before_eBayes = setNames(as.data.frame(fit$stdev.unscaled)[[coef]] * fit$sigma, rownames(fit))
+    logFCs = setNames(as.data.frame(fit$coef)[[coef]], rownames(fit))
+    ordinary_tstat = as.data.frame(fit$coef)[[coef]] / (as.data.frame(fit$stdev.unscaled)[[coef]] * fit$sigma)
+    p_value = setNames(2 * pt(-abs(ordinary_tstat), fit$df.residual), rownames(fit)) #Two sided t-test p-value
+    res_no_ebayes = data.frame(
+        lfcSE = se_before_eBayes, 
+        log2FoldChange = logFCs, 
+        tstat = ordinary_tstat, 
+        pvalue = p_value,
+        coef = coef)
+    trade_input_dfs[[coef]] = res_no_ebayes
+}
+
+# 2. run TRADE for all coefs
+trade_outputs = list()
+for (coef in names(trade_input_dfs)){
+    cat("\nRunning TRADE for coefficient:", coef, "\n")
     
-    res_no_ebayes_pd = as.data.frame(cbind(se_before_eBayes_pd, logFCs_pd, ordinary_tstat_pd, p_value_pd))
-    colnames(res_no_ebayes_pd) = c("lfcSE", "log2FoldChange", "tstat", "pvalue")
-    trade_dfs_pd[[ct]] = res_no_ebayes_pd
-
-    print("Age")
-    fit = res$fit 
-    # Age
-    se_before_eBayes_age = setNames(as.data.frame(fit$stdev.unscaled)$age * fit$sigma, rownames(fit))
-    logFCs_age = setNames(as.data.frame(fit$coef)$age, rownames(fit))
-    ordinary_tstat_age = as.data.frame(fit$coef)$age / (as.data.frame(fit$stdev.unscaled)$age * fit$sigma)
-    p_value_age = setNames(2 * pt(-abs(ordinary_tstat_age), fit$df.residual), rownames(fit)) #Two sided t-test p-value
-    res_no_ebayes_age = data.frame(
-        lfcSE = se_before_eBayes_age, 
-        log2FoldChange = logFCs_age, 
-        tstat = ordinary_tstat_age, 
-        pvalue = p_value_age)
-    trade_dfs_age[[ct]] = res_no_ebayes_age
-
-    # Sex
-    print("Sex")
-    se_before_eBayes_sex = setNames(as.data.frame(fit$stdev.unscaled)$sexMale * fit$sigma, rownames(fit))
-    logFCs_sex = setNames(as.data.frame(fit$coef)$sexMale, rownames(fit))
-    ordinary_tstat_sex = as.data.frame(fit$coef)$sexMale / (as.data.frame(fit$stdev.unscaled)$sexMale * fit$sigma)
-    p_value_sex = setNames(2 * pt(-abs(ordinary_tstat_sex), fit$df.residual), rownames(fit)) #Two sided t-test p-value
-    res_no_ebayes_sex = data.frame(
-        lfcSE = se_before_eBayes_sex, 
-        log2FoldChange = logFCs_sex, 
-        tstat = ordinary_tstat_sex, 
-        pvalue = p_value_sex)
-    trade_dfs_sex[[ct]] = res_no_ebayes_sex
-
-}
-print("")
-print("")
-print("RUNNING TRADE: Case/Control")
-for (cc in names(trade_dfs_pd)) {
-    print(paste("Running TRADE for", cc))
-    res = trade_dfs_pd[[cc]]
     trade = TRADE(
         mode="univariate",
-        results1=res
+        results1=trade_input_dfs[[coef]]
     )
-    trade$cell_class = cc
-    trade_outputs_pd[[cc]] = trade
-}
-print("")
-print("RUNNING TRADE: Age")
-for (cc in names(trade_dfs_age)) {
-    print(paste("Running TRADE for", cc))
-    res = trade_dfs_age[[cc]]
-    trade = TRADE(
-        mode="univariate",
-        results1=res
-    )
-    trade$cell_class = cc
-    trade_outputs_age[[cc]] = trade
-}
-print("")
-print("RUNNING TRADE: Sex")
-for (cc in names(trade_dfs_sex)) {
-    print(paste("Running TRADE for", cc))
-    res = trade_dfs_sex[[cc]]
-    trade = TRADE(
-        mode="univariate",
-        results1=res
-    )
-    trade$cell_class = cc
-    trade_outputs_sex[[cc]] = trade
+    trade$coef = coef
+    trade_outputs[[coef]] = trade
 }
 
-print("")
-print("")
-print("SUMMARIZING TRADE OUTPUTS")
-print("Case/Control")
-for (cc in names(trade_outputs_pd)) {
-    res = trade_outputs_pd[[cc]][["distribution_summary"]]
-    res$cell_class = cc
-    summary_list_pd[[cc]] = res
+# summarize TRADE outputs
+summary_list = list()
+cat("\nSummarizing TRADE outputs...\n")
+for (coef in names(trade_input_dfs)){
+    distsum = trade_outputs[[coef]][["distribution_summary"]]
+    distsum$coef = coef
+    summary_list[[coef]] = distsum
 }
-summary_df_pd = do.call(rbind, summary_list_pd)
 
-print("Age")
-for (cc in names(trade_outputs_age)) {
-    res = trade_outputs_age[[cc]][["distribution_summary"]]
-    res$cell_class = cc
-    summary_list_age[[cc]] = res
-}
-summary_df_age = do.call(rbind, summary_list_age)
+input_df = do.call(rbind, trade_input_dfs)
+distsum_df = do.call(rbind, summary_list)
 
-print("Sex")
-for (cc in names(trade_outputs_sex)) {
-    res = trade_outputs_sex[[cc]][["distribution_summary"]]
-    res$cell_class = cc
-    summary_list_sex[[cc]] = res
-}
-summary_df_sex = do.call(rbind, summary_list_sex)
-
-print("")
-print("")
-print("WRITING DATA")
-print("Case/Control")
-write.csv(summary_df_pd, file.path(trade_dir, "case_control/trade_summary_df__case_control.csv"))
-qsave(trade_dfs_pd, file.path(trade_dir, "case_control/trade_inputs__case_control.qs"))
-qsave(trade_outputs_pd, file.path(trade_dir, "case_control/trade_outputs__case_control.qs"))
-
-print("Age")
-write.csv(summary_df_age, file.path(trade_dir, "age/trade_summary_df__age.csv"))
-qsave(trade_dfs_age, file.path(trade_dir, "age/trade_inputs__age.qs"))
-qsave(trade_outputs_age, file.path(trade_dir, "age/trade_outputs__age.qs"))
-
-print("Sex")
-write.csv(summary_df_sex, file.path(trade_dir, "sex/trade_summary_df__sex.csv"))
-qsave(trade_dfs_sex, file.path(trade_dir, "sex/trade_inputs__sex.qs"))
-qsave(trade_outputs_sex, file.path(trade_dir, "sex/trade_outputs__sex.qs"))
+cat("\nSaving TRADE inputs, outputs, and summary...\n")
+write.csv(input_df, file.path(trade_dir, paste0(slogan, "__trade_input.csv")), row.names=TRUE)
+write.csv(distsum_df, file.path(trade_dir, paste0(slogan, "__trade_distribution_summary.csv")), row.names=TRUE)
+qsave(trade_outputs, file.path(trade_dir, paste0(slogan, "__trade_outputs.qs")))
+cat("\nTRADE analysis completed and saved in directory:", trade_dir, "\n")
