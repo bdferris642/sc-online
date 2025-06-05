@@ -70,6 +70,9 @@ if (! is.null(opt[['num-threads']])){
     blas_set_num_threads(opt[['num-threads']])
 }
 
+# TODO: parametrize
+JK_SAMPLES = FALSE
+
 message(paste("PATH:", PATH))
 message(paste("CONTRAST_COL:", CONTRAST_COL))
 message(paste("COVARIATES:", COVARIATES))
