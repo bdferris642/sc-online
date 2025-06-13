@@ -38,7 +38,8 @@ spec <- matrix(c(
     'n-svs', 'nsv', 1, 'integer',
     'numi-col', 'numi', 1, 'character',
     'mito-col', 'mito', 1, 'character',
-    'intronic-col', 'intr', 1, 'character'
+    'intronic-col', 'intr', 1, 'character',
+    'drop-na', 'dn', 1, 'logical'
 ), byrow = TRUE, ncol = 4)
 
 opt = getopt(spec)
@@ -185,6 +186,7 @@ if(is.null(opt[['suffix']])){
 }
 
 slogan = gsub(".qs", "", basename(PATH))
+slogan = gsub(".rds", "", slogan)
 output_dir = file.path(dirname(PATH), "pseudobulk", slogan)
 if (! dir.exists(output_dir)){
     dir.create(output_dir, recursive = TRUE)
@@ -223,7 +225,37 @@ if (N_SVS > 0){
 }
 all_cols = sort(unique(c(GROUPING_COLS,CONTRAST_COL,CLUSTER_COL,SAMPLE_COL,SVA_COLS,SVA_CTR_COLS)))
 if (! all(all_cols %in% colnames(md))){
-    stop(paste("Error: One or more grouping columns not found in metadata:\n", paste(all_cols[! all_cols %in% colnames(md)], collapse=", ")))
+    stop(paste("Error: One or more grouping columns not found in metadata:\n", 
+        paste(all_cols[! all_cols %in% colnames(md)], collapse=", ")))
+}
+
+# NA handling
+warning(paste(
+    "\nWARNING! The following columns contain NA values:\n", 
+    paste(all_cols[colSums(is.na(md[all_cols])) > 0], collapse = "\n")))
+
+# if true, drop any samples that are missing values
+if (is.null(opt[['drop-na']])){
+    DROP_NA = TRUE
+} else {
+    DROP_NA = opt[['drop-na']]
+}
+if (DROP_NA){
+    md_complete = md[, all_cols]
+    md_complete = md_complete[complete.cases(md_complete), ]
+
+    print(dim(md))
+    print(dim(md_complete))
+
+    rownames_to_drop = rownames(md)[!rownames(md) %in% rownames(md_complete)]
+    print(head(rownames_to_drop))
+    warning(paste(
+        "\nWARNING! Dropping", 
+        length(rownames_to_drop), 
+        "cells with missing values in any of",  
+        paste(all_cols, collapse=", ")))
+    sobj = sobj[, rownames(md_complete)]
+
 }
 
 print("**************** RUNNING PSEUDOBULK CODE ****************")
@@ -281,7 +313,6 @@ if (OUTPUT_TYPE == "seurat"){
         # remove pre-existing cols starting with SV
         cd = merged_obj@meta.data
         cd = cd[, !grepl("^SV", toupper(colnames(cd)))]
-
         # run SVA
         cd = get_df_with_svs(
             edata=as.matrix(GetAssayData(merged_obj, slot="counts", assay="RNA")), # always want to run SVA on raw counts
@@ -318,6 +349,11 @@ if (OUTPUT_TYPE == "seurat"){
             sce = obj_list[[cluster]]
             cd = as.data.frame(colData(sce))
             cd = cd[, !grepl("^SV", toupper(colnames(cd)))]
+
+
+            print(dim(sce))
+            print(dim(counts(sce)))
+            print(dim(cd))
             
             # run SVA
             cd = get_df_with_svs(
