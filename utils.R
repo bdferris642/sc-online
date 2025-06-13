@@ -38,6 +38,13 @@ convert_ensembl_to_symbol <- function(ensembl_ids) {
   return(result$final_symbol)
 }
 
+print_markers = function(df, clusters=NULL, logFC_thresh=0.5, sig_thresh=0.05){
+    df = df[df$p_val_adj < sig_thresh & abs(df$avg_log2FC) >= logFC_thresh, ]
+    if(!is.null(clusters)){
+        df = df[df$cluster %in% clusters, ]
+    }
+    print(df[,c("cluster", "gene", "avg_log2FC", "pct.1", "pct.2")], row.names=F)
+}
 
 .mycBindFn=function(inputList,batchNames=NULL,verbose_level=1){
   # Todo: rename this function to something more descriptive
@@ -559,6 +566,23 @@ get_df_with_svs = function(edata, df, cols, ctr_cols=NULL, n=10){
         ctr_formula = as.formula("~ 1")
     }
 
+    cat(paste("\nRunning SVA with Formula:", deparse(model_formula)))
+    cat(paste("\nAnd with Null Formula:", deparse(ctr_formula)))
+
+    # Check if the columns in df are present in edata
+    if (!all(unique(c(cols, ctr_cols)) %in% colnames(df))) {
+        mensaje = paste("Error in get_df_with_svs: The following columns are not present in the dataframe:\n", 
+                          paste(setdiff(unique(c(cols, ctr_cols)), colnames(df)), collapse = "\n"))
+        stop(mensaje)
+    }
+
+    # throw an error if any of the sva columns contain NA values
+    if (any (is.na(df[unique(c(cols, ctr_cols))]))) {
+      mensaje = paste("Error in get_df_with_svs: The following columns contain NA values:\n", 
+                      paste(unique(c(cols, ctr_cols))[colSums(is.na(df[unique(c(cols, ctr_cols))])) > 0], collapse = "\n"))
+      stop(mensaje)
+    }
+
     mod = model.matrix(model_formula, data = df)
     mod0 = model.matrix(ctr_formula, data = df)
     svobj = sva(edata, mod, mod0, n.sv = n)
@@ -567,6 +591,29 @@ get_df_with_svs = function(edata, df, cols, ctr_cols=NULL, n=10){
     df_with_svs = cbind(df, sv_factors)
 
     return(df_with_svs)
+}
+
+join_df_to_sobj_metadata = function(sobj, df, metadata_join_cols, df_join_cols){
+    # join a dataframe into seurat object metadata
+    md = sobj@meta.data
+
+    # save the rownames in the column or it will be lost in the merge
+    md$rownames = rownames(md)
+
+    # left join so that you don't lose any rows of meta.data
+    md_new = merge(md, df, by.x=metadata_join_cols, by.y=df_join_cols, all.x=TRUE)
+
+    # reorder new meta.data df 
+    md_new = md_new[match(md$rownames, md_new$rownames),]
+    rownames(md_new) = md_new$rownames
+
+    if (! all(rownames(md_new) == rownames(md))){
+        stop("Row names of new metadata do not match original metadata row names.")
+    }
+
+    md_new$rownames=NULL
+    sobj@meta.data = md_new
+    return(sobj)
 }
 
 getFracAssignableDemuxlet=function(df){
