@@ -14,7 +14,7 @@
 while [[ "$#" -gt 0 ]]; do
 	case $1 in
         	-r|--ref) # For flags for reference h5ad
-	        	ref="$2"
+	        ref="$2"
 			shift # Shift past the argument value
 			;;
 		-q|--query) # For flags for query h5ad
@@ -103,10 +103,10 @@ fi
 # Get query markers
 echo "get query markers"
 ref_marker_path_list=$(printf '["%s"]' "${ref_dir}/reference_markers.h5")
-if [ ! -e "${ref_dir}/query_markers.json" ] || [ "${clobber}" -eq 1 ]; then
+if [ ! -e "${ref_dir}/${prefix}query_markers.json" ] || [ "${clobber}" -eq 1 ]; then
 	echo "computing query markers"
 	python -m cell_type_mapper.cli.query_markers \
-		--output_path "${ref_dir}/query_markers.json" \
+		--output_path "${ref_dir}/${prefix}query_markers.json" \
 		--reference_marker_path_list "$ref_marker_path_list" \
 		--n_per_utility 100 \
 		--n_processors 12
@@ -116,7 +116,7 @@ fi
 
 # Labeling data
 echo "label data"
-query_marker_path="${ref_dir}/query_markers.json"
+query_marker_path="${ref_dir}/${prefix}query_markers.json"
 if [ ! -e "${output_path}/mapping_output_higher_factor" ] || [ "${clobber}" -eq 1 ]; then
 	python -m cell_type_mapper.cli.from_specified_markers \
 		--precomputed_stats.path "${ref_dir}/precomputed_stats.h5" \
