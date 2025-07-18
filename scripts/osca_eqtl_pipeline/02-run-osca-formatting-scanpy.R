@@ -225,6 +225,5 @@ for (cc in common_prefixes) {
     print(cols_to_remove)
 
     cov2_reduced = cov2[, !colnames(cov2) %in% cols_to_remove]
-    write.table(cov2_reduced, paste0(OUTPUT_DIR, "cov2_", cc, "_reduced.txt"), sep = "\t", quote = F, row.names = F)
+    write.table(cov2_reduced, paste0(OUTPUT_DIR, "/cov2_", cc, "_reduced.txt"), sep = "\t", quote = F, row.names = F)
 }
-
