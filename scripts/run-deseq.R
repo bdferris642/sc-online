@@ -30,6 +30,7 @@ suppressMessages(suppressWarnings(library(ggplot2)))
 suppressMessages(suppressWarnings(library(Matrix)))
 suppressMessages(suppressWarnings(library(qs)))
 suppressMessages(suppressWarnings(library(Seurat)))
+suppressMessages(suppressWarnings(library(here)))
 
 spec <- matrix(c(
     'path', 'p', 1, "character",
@@ -235,7 +236,7 @@ write_list = function(x, fil){
     }
 }
 
-GSEA_SCRIPT_PATH = "/home/ferris/sc-online/scripts/run-gsea.R"
+GSEA_SCRIPT_PATH = here("scripts/run-gsea.R")
 
 ################################# MAIN #################################
 

@@ -9,14 +9,15 @@ suppressMessages(suppressWarnings(library(DESeq2)))
 suppressMessages(suppressWarnings(library(dplyr)))
 suppressMessages(suppressWarnings(library(getopt)))
 suppressMessages(suppressWarnings(library(ggplot2)))
+suppressMessages(suppressWarnings(library(here)))
 suppressMessages(suppressWarnings(library(Matrix)))
 suppressMessages(suppressWarnings(library(qs)))
 suppressMessages(suppressWarnings(library(Seurat)))
 suppressMessages(suppressWarnings(library(SingleCellExperiment)))
 
-suppressMessages(suppressWarnings(source("/home/ferris/sc-online/de.R")))
-suppressMessages(suppressWarnings(source("/home/ferris/sc-online/utils.R")))
-suppressMessages(suppressWarnings(source("/home/ferris/sc-online/getData.R")))
+suppressMessages(suppressWarnings(source(here("de.R"))))
+suppressMessages(suppressWarnings(source(here("utils.R"))))
+suppressMessages(suppressWarnings(source(here("getData.R"))))
 
 print("**************** PARSING ARGUMENTS ****************")
 spec <- matrix(c(

@@ -2,7 +2,7 @@
 
 print("Loading libraries...")
 
-suppressWarnings(suppressMessages(source("~/code/sconline_code.R")))
+suppressWarnings(suppressMessages(source("~/code/sconline_code.R"))) # <-- TODO inherit from de.R
 suppressWarnings(suppressMessages(library(getopt)))
 suppressWarnings(suppressMessages(library(glue)))
 suppressWarnings(suppressMessages(library(Matrix)))
@@ -11,8 +11,8 @@ suppressWarnings(suppressMessages(library(RhpcBLASctl)))
 suppressWarnings(suppressMessages(library(SingleCellExperiment)))
 suppressWarnings(suppressMessages(library(tidyr)))
 
-suppressWarnings(suppressMessages(source("/home/ferris/code/sconline_code.R"))) # <-- TODO inherit from de.R
-suppressWarnings(suppressMessages(source("/home/ferris/sc-online/utils.R")))
+suppressMessages(suppressWarnings(library(here)))
+suppressWarnings(suppressMessages(source(here("utils.R"))))
 ########################################### ARGUMENTS & CONSTANTS ###########################################
 
 spec <- matrix(c(
@@ -160,7 +160,7 @@ command_str = glue(
     --path={JK_PATH}/$f \\
     --rand-var={RAND_VAR} \\
     --cov-list={paste(COV_LIST, collapse = \",\")} \\
-    {CLUSTER_STR} {CONTRAST_STR} --num-threads=1 \\
+    {CLUSTER_STR} {CONTRAST_STR} --num-threads=1 --calc-purity=FALSE \\
     --suffix=$s' | parallel -j 36" 
 )
 

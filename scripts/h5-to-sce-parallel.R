@@ -27,9 +27,10 @@
 
 ###################### LIBRARIES ######################
 
-source("/home/ferris/sc-online/extraGenes.R")
-source("/home/ferris/sc-online/getData.R")
-source("/home/ferris/sc-online/myExpSetCreatorFn.R")
+library(here)
+source(here("extraGenes.R"))
+source(here("getData.R"))
+source(here("myExpSetCreatorFn.R"))
 source("/home/ferris/sc-online/utils.R")
 
 library(caret)

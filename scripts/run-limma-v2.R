@@ -9,10 +9,11 @@ suppressWarnings(suppressMessages(library(Seurat)))
 suppressWarnings(suppressMessages(library(RhpcBLASctl)))
 suppressWarnings(suppressMessages(library(SingleCellExperiment)))
 suppressWarnings(suppressMessages(library(tidyr)))
+suppressWarnings(suppressMessages(library(here)))
 
 suppressWarnings(suppressMessages(source("/home/ferris/code/sconline_code.R"))) # <-- TODO inherit from de.R
-suppressWarnings(suppressMessages(source("/home/ferris/sc-online/utils.R")))
-suppressWarnings(suppressMessages(source("/home/ferris/sc-online/de.R")))
+suppressWarnings(suppressMessages(source(here("utils.R"))))
+suppressWarnings(suppressMessages(source(here("de.R"))))
 ########################################### ARGUMENTS & CONSTANTS ###########################################
 
 spec <- matrix(c(

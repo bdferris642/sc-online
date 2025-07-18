@@ -1,16 +1,16 @@
-source("~/code/sconline_code.R")
+source("~/code/sconline_code.R") # <-- TODO inherit from de.R
 ########################################## IMPORTS ###########################################
 
 print("Loading libraries...")
 
-library(getopt)
-library(Matrix)
-library(Seurat)
-library(SingleCellExperiment)
-library(tidyr)
+suppressMessages(suppressWarnings(library(getopt)))
+suppressMessages(suppressWarnings(library(Matrix)))
+suppressMessages(suppressWarnings(library(Seurat)))
+suppressMessages(suppressWarnings(library(SingleCellExperiment)))
+suppressMessages(suppressWarnings(library(tidyr)))
+suppressMessages(suppressWarnings(library(here)))
 
-source("/home/ferris/code/sconline_code.R") # <-- TODO inherit from de.R
-source("/home/ferris/sc-online/utils.R")
+suppressMessages(suppressWarnings(source(here("utils.R"))))
 
 
 
@@ -30,9 +30,6 @@ spec <- matrix(c(
     'suffix', 's', 1, 'character'
 ), byrow = TRUE, ncol = 4)
 opt <- getopt(spec)
-
-# 'base-path', 'bp', 1, "character",
-#     'pseudocell-basename', 'pbn', 1, 'character',
 
 print(spec)
 print(opt)
@@ -96,11 +93,13 @@ if (is.null(opt[['only-clusters']])) {
     ONLY_CLUSTERS = strsplit(opt[['only-clusters']], ",")[[1]]
 }
 
-SUFFIX = ifelse(
-    is.null(opt[['suffix']]),
-    format(Sys.Date(), "__%Y%m%d"), 
-    paste0('__', opt[['suffix']])
-)
+if (is.null(opt[['suffix']])){
+    SUFFIX = ""
+} else {
+    SUFFIX = opt[['suffix']]
+}
+SUFFIX = paste0('__', SUFFIX, format(Sys.Date(), "__%Y%m%d"))
+
 
 PATH = opt[['path']]
 BASE_PATH = dirname(PATH)
