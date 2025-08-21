@@ -70,15 +70,22 @@ echo "Reference Directory: ${ref_dir}"
 echo "Query Directory: ${query}"
 echo "Output Directory: ${output_path}"
 
+# reference prefix is the basename of the reference file with .h5ad removed
+ref_prefix=$(basename "${ref}" .h5ad)
+ref_precomp_stats_path="${ref_dir}/${ref_prefix}_precomputed_stats.h5"
+ref_marker_path="${ref_dir}/${ref_prefix}_reference_markers.h5"
+
+query_marker_path="${ref_dir}/${prefix}_query_markers.json"
+
 # Get precomputed stats
 echo "get precomputed stats"
-if [ ! -e "${ref_dir}/precomputed_stats.h5" ] || [ "${clobber}" -eq 1 ]; then
+if [ ! -e "${ref_precomp_stats_path}" ] || [ "${clobber}" -eq 1 ]; then
 	echo "computing stats for reference"
 	python -m cell_type_mapper.cli.precompute_stats_scrattch \
 		--h5ad_path "${ref}" \
-		--hierarchy '["cell_type_plot_condensed", "cell_type_plot"]' \
+		--hierarchy '["cell_class", "cell_type"]' \
 		--n_processors 12 \
-		--output_path "${ref_dir}/precomputed_stats.h5" \
+		--output_path "${ref_precomp_stats_path}" \
 		--clobber True \
 		--normalization raw
 else
@@ -87,8 +94,8 @@ fi
 
 # Get reference markers
 echo "get reference markers"
-precompute_path_list=$(printf '["%s"]' "${ref_dir}/precomputed_stats.h5")
-if [ ! -e "${ref_dir}/reference_markers.h5" ] || [ "${clobber}" -eq 1 ]; then
+precompute_path_list=$(printf '["%s"]' "${ref_precomp_stats_path}")
+if [ ! -e "${ref_marker_path}" ] || [ "${clobber}" -eq 1 ]; then
 	echo "computing reference markers"
 	python -m cell_type_mapper.cli.reference_markers \
 		--precomputed_path_list "$precompute_path_list" \
@@ -102,11 +109,11 @@ fi
 
 # Get query markers
 echo "get query markers"
-ref_marker_path_list=$(printf '["%s"]' "${ref_dir}/reference_markers.h5")
-if [ ! -e "${ref_dir}/${prefix}query_markers.json" ] || [ "${clobber}" -eq 1 ]; then
+ref_marker_path_list=$(printf '["%s"]' "${ref_marker_path}")
+if [ ! -e "${query_marker_path}" ] || [ "${clobber}" -eq 1 ]; then
 	echo "computing query markers"
 	python -m cell_type_mapper.cli.query_markers \
-		--output_path "${ref_dir}/${prefix}query_markers.json" \
+		--output_path "${query_marker_path}" \
 		--reference_marker_path_list "$ref_marker_path_list" \
 		--n_per_utility 100 \
 		--n_processors 12
@@ -116,10 +123,10 @@ fi
 
 # Labeling data
 echo "label data"
-query_marker_path="${ref_dir}/${prefix}query_markers.json"
+
 if [ ! -e "${output_path}/mapping_output_higher_factor" ] || [ "${clobber}" -eq 1 ]; then
 	python -m cell_type_mapper.cli.from_specified_markers \
-		--precomputed_stats.path "${ref_dir}/precomputed_stats.h5" \
+		--precomputed_stats.path "${ref_precomp_stats_path}" \
 		--query_markers.serialized_lookup "${query_marker_path}" \
 		--type_assignment.bootstrap_factor 0.5 \
 		--type_assignment.bootstrap_iteration 1000 \
@@ -127,6 +134,6 @@ if [ ! -e "${output_path}/mapping_output_higher_factor" ] || [ "${clobber}" -eq 
 		--type_assignment.n_processors 4 \
 		--type_assignment.normalization raw \
 		--query_path "$query" \
-		--extended_result_path "${output_path}/${prefix}mapping_output.json" \
-		--csv_result_path "${output_path}/${prefix}mapping_output.csv"
+		--extended_result_path "${output_path}/${prefix}_mapping_output.json" \
+		--csv_result_path "${output_path}/${prefix}_mapping_output.csv"
 fi
