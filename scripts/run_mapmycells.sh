@@ -97,12 +97,16 @@ echo "get reference markers"
 precompute_path_list=$(printf '["%s"]' "${ref_precomp_stats_path}")
 if [ ! -e "${ref_marker_path}" ] || [ "${clobber}" -eq 1 ]; then
 	echo "computing reference markers"
+	
+	rm "${ref_dir}/reference_markers.h5"
 	python -m cell_type_mapper.cli.reference_markers \
 		--precomputed_path_list "$precompute_path_list" \
 		--n_valid 30 \
 		--n_processors 12 \
 		--output_dir "${ref_dir}" \
 		--clobber True
+	
+	mv "${ref_dir}/reference_markers.h5" "${ref_marker_path}"
 else
 	echo "reference markers already exist. Skipping"
 fi
