@@ -5,19 +5,31 @@
 # Each Pseudobulk in the list will have at least as many columns as there are distinct groupings of GROUPING_COLS in the input data. 
 
 print("**************** LOADING LIBRARIES ****************")
+# Detect script path when running via Rscript
+args <- commandArgs(trailingOnly = FALSE)
+script_path <- sub("^--file=", "", args[grep("^--file=", args)])
+
+if (length(script_path) == 1) {
+  script_dir <- dirname(normalizePath(script_path))
+  setwd(script_dir)
+  message("Working directory set to: ", script_dir)
+} else {
+  stop("Cannot determine script path. Are you running via Rscript?")
+}
+
+
 suppressMessages(suppressWarnings(library(DESeq2)))
 suppressMessages(suppressWarnings(library(dplyr)))
 suppressMessages(suppressWarnings(library(getopt)))
 suppressMessages(suppressWarnings(library(ggplot2)))
-suppressMessages(suppressWarnings(library(here)))
 suppressMessages(suppressWarnings(library(Matrix)))
 suppressMessages(suppressWarnings(library(qs)))
 suppressMessages(suppressWarnings(library(Seurat)))
 suppressMessages(suppressWarnings(library(SingleCellExperiment)))
 
-suppressMessages(suppressWarnings(source(here("de.R"))))
-suppressMessages(suppressWarnings(source(here("utils.R"))))
-suppressMessages(suppressWarnings(source(here("getData.R"))))
+suppressMessages(suppressWarnings(source("../de.R")))
+suppressMessages(suppressWarnings(source("../utils.R")))
+suppressMessages(suppressWarnings(source("../getData.R")))
 
 print("**************** PARSING ARGUMENTS ****************")
 spec <- matrix(c(
@@ -27,6 +39,9 @@ spec <- matrix(c(
     'cluster-col', 'cl', 1, 'character',
     'sample-col', 'sc', 1, 'character',
     'grouping-cols', 'g', 1, 'character',
+    'cols-to-mean', 'c', 1, 'character',
+    'cols-to-weighted-avg', 'w', 1, 'character',
+    'cols-to-median', 'cm', 1, 'character',
     'only-clusters', 'oc', 1, 'character',
     'filter-samples', 'fs', 1, 'character',
     'assay', 'a', 1, 'character',
@@ -37,9 +52,6 @@ spec <- matrix(c(
     'sva-cols', 'sva', 1, 'character',
     'sva-ctr-cols', 'svac', 1, 'character',
     'n-svs', 'nsv', 1, 'integer',
-    'numi-col', 'numi', 1, 'character',
-    'mito-col', 'mito', 1, 'character',
-    'intronic-col', 'intr', 1, 'character',
     'drop-na', 'dn', 1, 'logical'
 ), byrow = TRUE, ncol = 4)
 
@@ -66,53 +78,6 @@ cat(paste("Seurat Object Loaded with", nrow(sobj), "genes and", ncol(sobj), "cel
 md = sobj@meta.data
 
 md_cols = colnames(md)
-
-if(is.null(opt[['numi-col']])){
-    NUMI_COL = "nCount_RNA"
-} else {
-    NUMI_COL = opt[['numi-col']]
-}
-if (! NUMI_COL %in% colnames(md)){
-    stop(paste("Error: nUMI column not found in metadata: ", NUMI_COL))
-}
-md$nUMI = md[[NUMI_COL]]
-
-if(is.null(opt[['mito-col']])){
-    MITO_COL = "pct_mito"
-} else {
-    MITO_COL = opt[['mito-col']]
-}
-if (! MITO_COL %in% colnames(md)){
-    warning(
-        paste("WARNING: Mitochondrial percentage column not found in metadata: ", MITO_COL,
-        "\nCalculating pct_mito from gene names starting with MT-"))
-    
-    mito_genes = rownames(sobj)[grepl("^MT-", toupper(rownames(sobj)))]
-
-    if (length(mito_genes) == 0){
-        warning("WARNING: No mitochondrial genes found in the Seurat object!\nSetting pct_mito to 0 for all cells!")
-        md$pct_mito = 0
-    } else{
-        counts = GetAssayData(sobj, slot="counts", assay="RNA")
-        md$pct_mito = 100 * colSums(counts[mito_genes, ]) / colSums(counts)
-    } 
-} else {
-    md$pct_mito = md[[MITO_COL]]
-}
-
-if(is.null(opt[['intronic-col']])){
-    INTRONIC_COL = "pct_intronic"
-} else {
-    INTRONIC_COL = opt[['intronic-col']]
-}
-if (! INTRONIC_COL %in% colnames(md)){
-    warning(
-        paste("WARNING: Intronic percentage column not found in metadata: ", INTRONIC_COL, 
-              "\nSetting pct_intronic to 0 for all cells!"))
-    md$pct_intronic = 0
-} else {
-    md$pct_intronic = md[[INTRONIC_COL]]
-}
 
 if (! SAMPLE_COL %in% colnames(md)){
     stop(paste("Error: Sample column not found in metadata: ", SAMPLE_COL))
@@ -184,6 +149,24 @@ if(is.null(opt[['suffix']])){
     suffix = ""
 } else {
     suffix = opt[['suffix']]
+}
+
+if (is.null(opt[['cols-to-mean']])){
+    COLS_TO_MEAN = NULL
+} else {
+    COLS_TO_MEAN = strsplit(opt[['cols-to-mean']], ",")[[1]]
+}
+
+if (is.null(opt[['cols-to-weighted-avg']])){
+    COLS_TO_WEIGHTED_AVG = NULL
+} else {
+    COLS_TO_WEIGHTED_AVG = strsplit(opt[['cols-to-weighted-avg']], ",")[[1]]
+}
+
+if (is.null(opt[['cols-to-median']])){
+    COLS_TO_MEDIAN = NULL
+} else {
+    COLS_TO_MEDIAN = strsplit(opt[['cols-to-median']], ",")[[1]]
 }
 
 slogan = gsub(".qs", "", basename(PATH))
@@ -274,7 +257,8 @@ if (is.null(CLUSTER_COL)){
         min_n_cells=MIN_N_CELLS, 
         min_counts_gene=MIN_COUNTS_GENE,
         min_frac_gene=MIN_FRAC_GENE,
-        contrast_col=CONTRAST_COL)
+        contrast_col=CONTRAST_COL,
+        cols_to_avg=COLS_TO_AVG)
 
     counts_list[[cluster]] = pb_list[["counts"]] 
     metadata_list[[cluster]] = pb_list[["metadata"]]
@@ -289,7 +273,10 @@ if (is.null(CLUSTER_COL)){
             min_n_cells=MIN_N_CELLS, 
             min_counts_gene=MIN_COUNTS_GENE,
             min_frac_gene=MIN_FRAC_GENE,
-            contrast_col=CONTRAST_COL)
+            contrast_col=CONTRAST_COL,
+            cols_to_mean=COLS_TO_MEAN,
+            cols_to_weighted_avg=COLS_TO_WEIGHTED_AVG,
+            cols_to_median=COLS_TO_MEDIAN)
         counts_list[[cluster]] = pb_list[["counts"]]
         metadata_list[[cluster]] = pb_list[["metadata"]]
         print(head(pb_list[["metadata"]]))
@@ -380,11 +367,4 @@ if (OUTPUT_TYPE == "seurat"){
         }
     }
 
-    # cat("Saving SingleCellExperiment object for Cluster: ", cluster, "\n")
-    # if (suffix == ""){
-    #     output_basename = paste0(slogan, "__pb_sce.qs")
-    # } else {
-    #     output_basename = paste0(slogan, "__pb_sce_", suffix, ".qs")
-    # }
-    # qsave(merged_obj, file.path(output_dir, output_basename))
 }
