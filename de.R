@@ -590,73 +590,123 @@ get_de_correspondence_mats = function(de_dfs, union_min=50, mode="union"){
 }
 
 pseudobulk_seurat = function(
-  sobj, 
-  grouping_cols, 
-  assay="RNA", 
-  min_n_cells = 10, 
-  min_counts_gene = 10, 
-  min_frac_gene = 0.01, 
-  contrast_col="case_control"){
+    sobj, 
+    grouping_cols, 
+    assay="RNA", 
+    min_n_cells = 10, 
+    min_counts_gene = 10, 
+    min_frac_gene = 0.01, 
+    contrast_col="case_control",
+    cols_to_mean=NULL,
+    cols_to_weighted_avg=NULL,
+    cols_to_median=NULL,
+    weight_col="nCount_RNA"){
+    # sobj: Seurat object containing metadata columns 
+    # (commonly nUMI or nCount_RNA, pct_intronic, pct_mito, etc.)
 
     create_df_with_contrast_col = function() {
-      setNames(data.frame(factor(levels = sort(unique(md[[contrast_col]])))), contrast_col)
+        setNames(data.frame(factor(levels = sort(unique(md[[contrast_col]])))), contrast_col)
     }
-    # sobj: Seurat object containing metadata columns nUMI, pct_intronic, pct_mito
-    
+
     df = sobj@meta.data
     if (! all(grouping_cols %in% colnames(df))){
-        stop(paste0("Not all grouping columns are present in the Seurat object!\n",
-            "Missing Columns: ", paste(grouping_cols[!grouping_cols %in% colnames(df)], collapse=", ")))
+        stop(paste0(
+            "Not all grouping columns are present in the Seurat object!\n",
+            "Missing Columns: ", paste(grouping_cols[!grouping_cols %in% colnames(df)], collapse=", ")
+        ))
     }
-    
-    # get the data type of each grouping column
-    # weird stuff happens in the match when the column is numeric, it can be negative, a decimal...better to just avoid
+
+    # normalize selection vectors
+    if (is.null(cols_to_mean)) cols_to_mean <- character(0)
+    if (is.null(cols_to_weighted_avg)) cols_to_weighted_avg <- character(0)
+    if (is.null(cols_to_median)) cols_to_median <- character(0)
+
+    # stop if there are missing columns
+    stop_missing <- function(cols, label){
+        missing <- setdiff(cols, colnames(df))
+        if (length(missing)) {
+            stop(sprintf("%s not found in metadata: %s", label, paste(missing, collapse=", ")))
+        }
+    }
+    stop_missing(cols_to_mean, "cols_to_mean")
+    stop_missing(cols_to_weighted_avg, "cols_to_weighted_avg")
+    stop_missing(cols_to_median, "cols_to_median")
+
+    # guard against overlaps across lists (ambiguous summaries)
+    ov1 = intersect(cols_to_mean, cols_to_weighted_avg)
+    ov2 = intersect(cols_to_mean, cols_to_median)
+    ov3 = intersect(cols_to_weighted_avg, cols_to_median)
+    if (length(ov1) + length(ov2) + length(ov3) > 0){
+        msg <- c(
+            if(length(ov1)) sprintf("mean & weighted_avg: %s", paste(ov1, collapse=", ")),
+            if(length(ov2)) sprintf("mean & median: %s", paste(ov2, collapse=", ")),
+            if(length(ov3)) sprintf("weighted_avg & median: %s", paste(ov3, collapse=", "))
+        )
+        stop("Columns cannot appear in multiple summary lists:\n  - ", paste(msg, collapse="\n  - "))
+    }
+
+    # choose a per-cell weight column
+    if (!weight_col %in% colnames(df)) {
+        stop(sprintf("`weight_col` '%s' not found in metadata. Provide a valid column name.", weight_col))
+    }
+
+    # get the data type of each grouping column; build a stable string "grouping" to avoid numeric weirdness
     grouping_is_numeric = sapply(grouping_cols, function(col) {is.numeric(df[[col]])})
     grouping_cols_non_numeric = grouping_cols[!grouping_is_numeric]
-    
-    df$grouping = apply(df[grouping_cols_non_numeric], 1, function(row) paste(row, collapse = "_"))    
+    df$grouping = apply(df[grouping_cols_non_numeric, drop=FALSE], 1, function(row) paste(row, collapse = "_"))
     sobj$grouping = df$grouping
     grouping_cols = c(grouping_cols, "grouping")
 
-    # group by participant_id
-    # sum nUMI 
-    # weighted average of pct_intronic and pct_mito (weighted by nUMI)
-    # take log10 of summed nUMI
-    # the following columns should be identical for all cells in the same participant:
-    # age, sex, brain_bank, case_control
     cat(paste("Grouping By Columns: ", paste(grouping_cols, collapse=", "), "\n"))
 
-    df_bulk = (df 
-        %>% group_by(across(all_of(grouping_cols)))
-        %>% summarise(
-            n_cells = n(),
-            sum_nUMI = sum(nUMI),
-            pct_mito = weighted.mean(pct_mito, nUMI),
-            pct_intronic = weighted.mean(pct_intronic, nUMI))
-        %>% mutate(log10_nUMI = log10(sum_nUMI))
-    )
-    df_bulk = df_bulk[df_bulk$n_cells >= min_n_cells,]
+    # summarise per group
+    df_bulk = df %>%
+    dplyr::group_by(dplyr::across(dplyr::all_of(grouping_cols))) %>%
+    dplyr::summarise(
+        n_cells = dplyr::n(),
+        sum_nUMI = sum(nCount_RNA, na.rm = TRUE),
+        dplyr::across( # simple means
+            dplyr::all_of(cols_to_mean),
+             ~ mean(.x, na.rm = TRUE), 
+             .names = "{.col}"), 
+        dplyr::across( # medians
+            dplyr::all_of(cols_to_median), 
+            ~ stats::median(.x, na.rm = TRUE), 
+            .names = "{.col}"), 
+        dplyr::across( # averages weighted by `weight_col`
+            dplyr::all_of(cols_to_weighted_avg),
+            ~ stats::weighted.mean(.x, w = .data[[weight_col]], na.rm = TRUE),
+            .names = "{.col}"),
+        .groups = "drop"
+    ) %>%
+    dplyr::mutate(log10_nUMI = log10(sum_nUMI))
+
+    # filter on min cells
+    df_bulk = df_bulk[df_bulk$n_cells >= min_n_cells, ]
     if (nrow(df_bulk) == 0){
         return(list(counts=NULL,  metadata=create_df_with_contrast_col()))
     }
 
-    sobj = sobj[,df$grouping %in% df_bulk$grouping]
-    
-    counts_bulk = AggregateExpression(sobj, group.by = "grouping")[[assay]]
-    
-    counts_orig = GetAssayData(sobj, assay, slot="counts")
-    counts_bulk = counts_bulk[rowSums(counts_orig)>= min_counts_gene & rowMeans(counts_orig > 0) >= min_frac_gene,]
-    
-    colnames(counts_bulk) = gsub("-", '_', colnames(counts_bulk))
-    df_bulk = df_bulk[match(colnames(counts_bulk), df_bulk$grouping),]
-    
+    # keep only cells in retained groups
+    sobj = sobj[, df$grouping %in% df_bulk$grouping]
+
+    # aggregate counts and apply gene filters
+    counts_bulk = Seurat::AggregateExpression(sobj, group.by = "grouping")[[assay]]
+    counts_orig = Seurat::GetAssayData(sobj, assay, slot="counts")
+    counts_bulk = counts_bulk[
+        rowSums(counts_orig) >= min_counts_gene &
+        rowMeans(counts_orig > 0) >= min_frac_gene, 
+    ]
+
+    # sync metadata to count columns
+    colnames(counts_bulk) = gsub("-", "_", colnames(counts_bulk))
+    df_bulk = df_bulk[match(colnames(counts_bulk), df_bulk$grouping), ]
+
     if (nrow(df_bulk) == 0){
         return(list(counts=NULL, metadata=create_df_with_contrast_col()))
     }
 
-    return(
-        list(counts=counts_bulk, metadata=df_bulk)
-    )
+    return(list(counts = counts_bulk, metadata = df_bulk))
 }
 
 
