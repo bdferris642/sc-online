@@ -97,13 +97,20 @@ for (coef in coefs){
 trade_outputs = list()
 for (coef in names(trade_input_dfs)){
     cat("\nRunning TRADE for coefficient:", coef, "\n")
+
+    input_df = trade_input_dfs[[coef]]
+    # OJO: exclude MALAT1 which can have anomalously high p values for low logFCs
+    input_df = input_df[!rownames(res_no_ebayes) %in% c("MALAT1"),]
     
-    trade = TRADE(
-        mode="univariate",
-        results1=trade_input_dfs[[coef]]
-    )
-    trade$coef = coef
-    trade_outputs[[coef]] = trade
+    tryCatch({
+        trade = TRADE(
+            mode="univariate",
+            results1=input_df
+        )
+        trade$coef = coef
+        trade_outputs[[coef]] = trade
+    }, error = function(e) {
+        message(paste("Error in TRADE for coefficient", coef, ":", e$message))})
 }
 
 # summarize TRADE outputs
