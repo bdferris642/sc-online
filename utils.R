@@ -5,9 +5,9 @@ suppressMessages(suppressWarnings(library(dplyr)))
 suppressMessages(suppressWarnings(library(Matrix)))
 suppressMessages(suppressWarnings(library(sva)))
 
-convert_ensembl_to_symbol <- function(ensembl_ids) {
+convert_ensembl_to_symbol <- function(ensembl_ids, dataset="hsapiens_gene_ensembl", version="108") {
   # Connect to GRCh38 Ensembl
-  mart <- useEnsembl(biomart = "genes", dataset = "hsapiens_gene_ensembl", version = "108")
+  mart <- useEnsembl(biomart = "genes", dataset = dataset, version = version)
 
   # Query mapping
   mapping <- getBM(
@@ -593,7 +593,13 @@ get_df_with_svs = function(edata, df, cols, ctr_cols=NULL, n=10){
     return(df_with_svs)
 }
 
-join_df_to_sobj_metadata = function(sobj, df, metadata_join_cols, df_join_cols){
+join_df_to_sobj_metadata = function(sobj, df, metadata_join_cols, df_join_cols=NULL){
+
+    if (is.null(df_join_cols)){
+        # if df_join_cols is not provided, use metadata_join_cols
+        df_join_cols = metadata_join_cols
+    }
+    
     # join a dataframe into seurat object metadata
     md = sobj@meta.data
 
@@ -609,6 +615,10 @@ join_df_to_sobj_metadata = function(sobj, df, metadata_join_cols, df_join_cols){
 
     if (! all(rownames(md_new) == rownames(md))){
         stop("Row names of new metadata do not match original metadata row names.")
+    }
+
+    if (! nrow(md_new) == nrow(md)){
+        stop("New metadata has different number of rows than original metadata.")
     }
 
     md_new$rownames=NULL
