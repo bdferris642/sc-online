@@ -1,5 +1,18 @@
 ########################################## IMPORTS ###########################################
 
+# Detect script path when running via Rscript
+args <- commandArgs(trailingOnly = FALSE)
+script_path <- sub("^--file=", "", args[grep("^--file=", args)])
+
+if (length(script_path) == 1) {
+  script_dir <- dirname(normalizePath(script_path))
+  setwd(script_dir)
+  message("Working directory set to: ", script_dir)
+} else {
+  stop("Cannot determine script path. Are you running via Rscript?")
+}
+
+
 print("Loading libraries...")
 
 suppressWarnings(suppressMessages(source("~/code/sconline_code.R")))
@@ -9,11 +22,10 @@ suppressWarnings(suppressMessages(library(Seurat)))
 suppressWarnings(suppressMessages(library(RhpcBLASctl)))
 suppressWarnings(suppressMessages(library(SingleCellExperiment)))
 suppressWarnings(suppressMessages(library(tidyr)))
-suppressWarnings(suppressMessages(library(here)))
 
 suppressWarnings(suppressMessages(source("/home/ferris/code/sconline_code.R"))) # <-- TODO inherit from de.R
-suppressWarnings(suppressMessages(source(here("utils.R"))))
-suppressWarnings(suppressMessages(source(here("de.R"))))
+suppressWarnings(suppressMessages(source("../utils.R")))
+suppressWarnings(suppressMessages(source("../de.R")))
 ########################################### ARGUMENTS & CONSTANTS ###########################################
 
 spec <- matrix(c(
@@ -314,14 +326,17 @@ for (x_name in names(pseudocells_list)){
                 res_pd = res_pd[order(-res_pd$logFC),]
                 res_pd$gene = rownames(res_pd)
                 res_pd$AveExpr = ave_expr_vec[res_pd$gene]
-
-                res_pd = get_residual_corrected_purity_score(
-                    res=res,
-                    col=CONTRAST_COL,
-                    case_col=paste0(CONTRAST_COL, category1),
-                    coef_df=res_pd,
-                    categorical=TRUE
-                )
+                if(CALC_PURITY){
+                    res_pd = get_residual_corrected_purity_score(
+                        res=res,
+                        col=CONTRAST_COL,
+                        case_col=paste0(CONTRAST_COL, category1),
+                        coef_df=res_pd,
+                        categorical=TRUE
+                    )
+                } else {
+                    res_pd$rank_purity = NA
+                }
 
                 res_pd = res_pd[, c("gene", "logFC", "adj.P.Val", "rank_purity", "AveExpr", "P.Value", "t", "B")] %>% arrange(desc(logFC))
                 csv_write_path = gsub(".qs", paste0("__", CONTRAST_COL, ".csv"), write_path)
