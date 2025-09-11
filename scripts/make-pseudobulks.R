@@ -214,9 +214,13 @@ if (! all(all_cols %in% colnames(md))){
 }
 
 # NA handling
-warning(paste(
+if (any(colSums(is.na(md[all_cols])) > 0)){
+    warning(paste(
     "\nWARNING! The following columns contain NA values:\n", 
     paste(all_cols[colSums(is.na(md[all_cols])) > 0], collapse = "\n")))
+} else {
+    print("No missing values found in grouping columns")
+}
 
 # if true, drop any samples that are missing values
 if (is.null(opt[['drop-na']])){
@@ -232,14 +236,42 @@ if (DROP_NA){
     print(dim(md_complete))
 
     rownames_to_drop = rownames(md)[!rownames(md) %in% rownames(md_complete)]
-    print(head(rownames_to_drop))
-    warning(paste(
-        "\nWARNING! Dropping", 
-        length(rownames_to_drop), 
-        "cells with missing values in any of",  
-        paste(all_cols, collapse=", ")))
-    sobj = sobj[, rownames(md_complete)]
+    if (length(rownames_to_drop) == 0){
+        print("No cells with missing values to drop")
+        rownames_to_drop = NULL
+    } else {
+        print(head(rownames_to_drop))
+        warning(paste(
+            "\nWARNING! Dropping", 
+            length(rownames_to_drop), 
+            "cells with missing values in any of",  
+            paste(all_cols, collapse=", ")))
+        sobj = sobj[, rownames(md_complete)]
+    }
 
+}
+
+
+sanitize_col_values = function(md, col){
+    if (is.numeric(md[[col]])){
+        return(md)
+    }
+
+    if (! col %in% colnames(md)){
+        return(md)
+    }
+
+    md[[col]] = gsub(" ", "_", md[[col]])
+    md[[col]] = gsub("/", "_", md[[col]])
+    md[[col]] = gsub("-", "_", md[[col]])
+    md[[col]] = gsub("\\.", "_", md[[col]])
+    md[[col]] = gsub("\\(", "_", md[[col]])
+    md[[col]] = gsub("\\)", "_", md[[col]])
+    md[[col]] = gsub(",", "_", md[[col]])
+    md[[col]] = gsub(";", "_", md[[col]])
+    md[[col]] = gsub(":", "_", md[[col]])
+    md[[col]] = gsub("\\|", "_", md[[col]]) 
+    return(md)
 }
 
 print("**************** RUNNING PSEUDOBULK CODE ****************")
@@ -258,7 +290,9 @@ if (is.null(CLUSTER_COL)){
         min_counts_gene=MIN_COUNTS_GENE,
         min_frac_gene=MIN_FRAC_GENE,
         contrast_col=CONTRAST_COL,
-        cols_to_avg=COLS_TO_AVG)
+        cols_to_mean=COLS_TO_MEAN,
+        cols_to_weighted_avg=COLS_TO_WEIGHTED_AVG,
+        cols_to_median=COLS_TO_MEDIAN)
 
     counts_list[[cluster]] = pb_list[["counts"]] 
     metadata_list[[cluster]] = pb_list[["metadata"]]
@@ -281,6 +315,24 @@ if (is.null(CLUSTER_COL)){
         metadata_list[[cluster]] = pb_list[["metadata"]]
         print(head(pb_list[["metadata"]]))
     }
+}
+
+all_cols = unique(c(
+    GROUPING_COLS,
+    CLUSTER_COL,
+    CONTRAST_COL, 
+    SAMPLE_COL, 
+    SVA_COLS, 
+    SVA_CTR_COLS
+))
+
+for (cluster in names(metadata_list)){
+    print(paste("Sanitizing metadata for cluster", cluster))
+    md = metadata_list[[cluster]]
+    for (col in all_cols){
+        md = sanitize_col_values(md, col)
+    }
+    metadata_list[[cluster]] = md
 }
 
 obj_list = list()
@@ -337,12 +389,9 @@ if (OUTPUT_TYPE == "seurat"){
             sce = obj_list[[cluster]]
             cd = as.data.frame(colData(sce))
             cd = cd[, !grepl("^SV", toupper(colnames(cd)))]
-
-
             print(dim(sce))
             print(dim(counts(sce)))
             print(dim(cd))
-            
             # run SVA
             cd = get_df_with_svs(
                 edata=as.matrix(counts(sce)),
