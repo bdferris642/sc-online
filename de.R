@@ -325,7 +325,7 @@ source("~/sc-online/extraGenes.R")
   
   blocked_analysis=F
   if(!is.null(dc)){
-    if(!is.nan(dc$consensus.correlation)){make
+    if(!is.nan(dc$consensus.correlation)){
       if(abs(dc$consensus.correlation)<0.9){
         fit = lmFit(logCPM, model,block = colData(sl_data)[,random_effect], correlation=dc$consensus.correlation)
         blocked_analysis=T
@@ -594,8 +594,8 @@ pseudobulk_seurat = function(
     grouping_cols, 
     assay="RNA", 
     min_n_cells = 10, 
-    min_counts_gene = 10, 
-    min_frac_gene = 0.01, 
+    min_counts_gene = 0, 
+    min_frac_gene = 0, 
     contrast_col="case_control",
     cols_to_mean=NULL,
     cols_to_weighted_avg=NULL,
@@ -687,7 +687,8 @@ pseudobulk_seurat = function(
             .names = "{.col}"),
         .groups = "drop"
     ) %>%
-    dplyr::mutate(log10_nUMI = log10(sum_nUMI))
+    dplyr::mutate(log10_sum_nUMI = log10(sum_nUMI)) %>% 
+    dplyr::mutate(log10_nUMI) = log10(sum_nUMI / n_cells)
 
     # filter on min cells
     df_bulk = df_bulk[df_bulk$n_cells >= min_n_cells, ]
