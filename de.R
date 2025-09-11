@@ -325,7 +325,7 @@ source("~/sc-online/extraGenes.R")
   
   blocked_analysis=F
   if(!is.null(dc)){
-    if(!is.nan(dc$consensus.correlation)){
+    if(!is.nan(dc$consensus.correlation)){make
       if(abs(dc$consensus.correlation)<0.9){
         fit = lmFit(logCPM, model,block = colData(sl_data)[,random_effect], correlation=dc$consensus.correlation)
         blocked_analysis=T
@@ -654,6 +654,14 @@ pseudobulk_seurat = function(
     grouping_is_numeric = sapply(grouping_cols, function(col) {is.numeric(df[[col]])})
     grouping_cols_non_numeric = grouping_cols[!grouping_is_numeric]
     df$grouping = apply(df[grouping_cols_non_numeric, drop=FALSE], 1, function(row) paste(row, collapse = "_"))
+    df$grouping = gsub("-", "_", df$grouping) # avoid issues with Seurat AggregateExpression
+    df$grouping = gsub(" ", "_", df$grouping)
+    df$grouping = gsub("\\(", "_", df$grouping)
+    df$grouping = gsub("\\)", "_", df$grouping)
+    df$grouping = gsub("\\/", "_", df$grouping)
+    df$grouping = gsub("\\,", "", df$grouping)
+    df$grouping = gsub("\\!", "", df$grouping)
+    df$grouping = gsub("\\?", "", df$grouping)
     sobj$grouping = df$grouping
     grouping_cols = c(grouping_cols, "grouping")
 
