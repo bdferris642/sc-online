@@ -33,21 +33,21 @@ suppressMessages(suppressWarnings(source("../getData.R")))
 
 print("**************** PARSING ARGUMENTS ****************")
 spec <- matrix(c(
-    'path', 'p', 1, "character",
-    'output-type', 'o', 1, 'character',
-    'contrast-col', 'cc', 1, 'character',
-    'cluster-col', 'cl', 1, 'character',
-    'sample-col', 'sc', 1, 'character',
-    'grouping-cols', 'g', 1, 'character',
-    'cols-to-mean', 'c', 1, 'character',
-    'cols-to-weighted-avg', 'w', 1, 'character',
-    'cols-to-median', 'cm', 1, 'character',
-    'only-clusters', 'oc', 1, 'character',
-    'filter-samples', 'fs', 1, 'character',
-    'assay', 'a', 1, 'character',
-    'min-n-cells', 'mnc', 1, 'numeric',
-    'min-counts-gene', 'mcg', 1, 'numeric',
-    'min-frac-gene', 'mfg', 1, 'numeric',
+    'path', 'p', 1, "character", # seurat qs 
+    'output-type', 'o', 1, 'character', # sce or seurat (default sce)
+    'contrast-col', 'cc', 1, 'character', # optional
+    'cluster-col', 'cl', 1, 'character', # optional, if provided, will pseudobulk within each cluster and output a list of pseudobulks
+    'sample-col', 'sc', 1, 'character', # required, column in metadata that indicates sample identity
+    'grouping-cols', 'g', 1, 'character', # required, comma-separated list of columns in metadata to group by when pseudobulking
+    'cols-to-mean', 'c', 1, 'character', # optional, comma-separated list of columns in metadata to average when pseudobulking
+    'cols-to-weighted-avg', 'w', 1, 'character', # optional, comma-separated list of columns in metadata to average weighted by number of UMIs when pseudobulking
+    'cols-to-median', 'cm', 1, 'character', # optional, comma-separated list of columns in metadata to take median when pseudobulking
+    'only-clusters', 'oc', 1, 'character', # optional, comma-separated list of clusters to pseudobulk, if not provided will pseudobulk all clusters
+    'filter-samples', 'fs', 1, 'character', # optional, comma-separated list of samples to filter out before pseudobulking
+    'assay', 'a', 1, 'character', # optional, default RNA
+    'min-n-cells', 'mnc', 1, 'numeric', # optional, default 10 (minimum number of cells per pseudobulk)
+    'min-counts-gene', 'mcg', 1, 'numeric', # optional, (minimum number of counts in a gene for it to be included in a pseudobulk)
+    'min-frac-gene', 'mfg', 1, 'numeric', # optional, (minimum fraction of pseudobulks that must have a count for a gene to be included)
     'suffix', 's', 1, 'character',
     'sva-cols', 'sva', 1, 'character',
     'sva-ctr-cols', 'svac', 1, 'character',
@@ -135,12 +135,12 @@ if(is.null(opt[['min-n-cells']])){
     MIN_N_CELLS = opt[['min-n-cells']]
 }
 if(is.null(opt[['min-counts-gene']])){
-    MIN_COUNTS_GENE = 10
+    MIN_COUNTS_GENE = 0
 } else {
     MIN_COUNTS_GENE = opt[['min-counts-gene']]
 }
 if(is.null(opt[['min-frac-gene']])){
-    MIN_FRAC_GENE = 0.01
+    MIN_FRAC_GENE = 0
 } else {
     MIN_FRAC_GENE = opt[['min-frac-gene']]
 }
