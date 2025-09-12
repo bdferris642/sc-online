@@ -687,8 +687,8 @@ pseudobulk_seurat = function(
             .names = "{.col}"),
         .groups = "drop"
     ) %>%
-    dplyr::mutate(log10_sum_nUMI) = log10(sum_nUMI) %>% 
-    dplyr::mutate(log10_nUMI) = log10(sum_nUMI / n_cells)
+    dplyr::mutate(log10_sum_nUMI = log10(sum_nUMI)) %>% 
+    dplyr::mutate(log10_nUMI = log10(sum_nUMI / n_cells))
 
     # filter on min cells
     df_bulk = df_bulk[df_bulk$n_cells >= min_n_cells, ]
