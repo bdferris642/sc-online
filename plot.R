@@ -1,6 +1,7 @@
 suppressWarnings(suppressMessages(library(caret)))
 suppressWarnings(suppressMessages(library(dplyr)))
 suppressWarnings(suppressMessages(library(ggplot2)))
+suppressWarnings(suppressMessages(library(ggforce)))
 suppressWarnings(suppressMessages(library(ggrepel)))
 suppressWarnings(suppressMessages(library(ggvenn)))
 suppressWarnings(suppressMessages(library(grid)))
@@ -115,6 +116,63 @@ getKneePlotData=function(
         return(padded)
     })
     return( list(x, y_list) )
+}
+
+heatmap_with_circles = function(
+    df, x_col, y_col, size_col, fill_col, stroke_col,
+    x_lab = NULL, y_lab = NULL, title = NULL, fill_lab = NULL, size_lab = NULL, stroke_lab = NULL,
+    fig_filename = NULL, width = 10, height = 8, dpi = 300
+){
+    if (is.null(xlab)) {
+        x_lab = x_col
+    }
+    if (is.null(ylab)) {
+        y_lab = y_col
+    }
+    if (is.null(title)) {
+        title = paste("Heatmap of", fill_col, "by", x_col, "and", y_col)
+    }
+    if (is.null(fill_lab)) {
+        fill_lab = fill_col
+    }
+    if (is.null(size_lab)) {
+        size_lab = size_col
+    }
+    if (is.null(stroke_lab)) {
+        stroke_lab = stroke_col
+    }
+
+    p = (
+        ggplot(df, aes_string(x = x_col, y = y_col))
+        + geom_point(
+            aes_string(fill = fill_col, size = size_col, shape = stroke_col),
+            color = "black",
+            stroke = ifelse(df[[stroke_col]], 1, 0),
+            shape = 21) 
+        +  scale_fill_gradient2(
+            low = "blue", mid = "white", high = "red", midpoint = 0, name = fill_col) 
+        +  scale_size_continuous(range = c(2, 10), name = size_col) 
+        + theme_minimal() 
+        + labs(
+            x = x_lab, 
+            y = y_lab, 
+            title = title,
+            fill = fill_lab,
+            size = size_lab)
+        + theme(
+            axis.text.x = element_text(angle = 45, hjust = 1, size=14, margin=margin(b=10)),
+            axis.text.y = element_text(size=14, margin=margin(l=30)),
+            axis.title.x = element_text(size=16, margin=margin(t=10)),
+            axis.title.y = element_text(size=16, margin=margin(r=10)),
+            legend.position = "right"
+        )
+    )
+
+  print(p)
+
+  if( !is.null(fig_filename)) {
+      ggsave(fig_filename, plot = p, width = width, height = height, dpi = dpi)
+  }
 }
 
 
@@ -867,7 +925,7 @@ plotOverlappingProbabilityHistograms = function(
     scale_fill_manual(values = colorlist) +
     xlim(xlim) +
     ylim(ylim) +
-    labs(title = title, x = "Value", y = "Probability") + 
+    labs(title = title, x = "Value", y = "Probability", fill=group_col) + 
     theme(
         plot.title = element_text(size=16),
         axis.text = element_text(size = 14),  # Increase tick label font size
