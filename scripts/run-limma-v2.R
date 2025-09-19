@@ -295,6 +295,7 @@ for (x_name in names(pseudocells_list)){
 
         print(paste("Number of Background genes", length(tmp_bkg_genes)))
         tryCatch({
+            print("Running limma...")
             res=.sconline.fitLimmaFn(
                 inputExpData=x,
                 DEmethod=DE_METHOD,
@@ -310,8 +311,8 @@ for (x_name in names(pseudocells_list)){
             write_path = file.path(de_dir, paste0(tolower(DE_METHOD), '__', x_name, SUFFIX, '.qs'))
 
             if (! is.null(CONTRAST_COL)){
+                print("Calculating contrast DE...")
                 contr = makeContrasts(contrasts=contrast_str, levels=res$model)
-
                 fit2=contrasts.fit(res$fit,contrasts=contr)
             
                 # TODO: Explore setting robust=F
