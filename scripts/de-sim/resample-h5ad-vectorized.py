@@ -352,6 +352,7 @@ def _sanitize_df(df: pd.DataFrame, where: str) -> None:
     # AnnData reserves the column name "_index" in obs/var/raw.var
     if "_index" in df.columns:
         df.rename(columns={"_index": f"{where}_index_orig"}, inplace=True)
+        df.set_index(f"{where}_index_orig", inplace=True, drop=False)
 
 def write_sanitized_h5ad(
     adata: ad.AnnData,
