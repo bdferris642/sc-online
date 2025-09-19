@@ -69,5 +69,5 @@ if (all(rownames(u_scores) == rownames(sobj@meta.data))){
     }
 }
 
-print("Saving Seurat object")
+print(paste0("Saving Seurat object to ", SOBJ_PATH))
 save_obj(sobj, SOBJ_PATH)
