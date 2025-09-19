@@ -34,7 +34,11 @@ def parse_args():
 def main():
     args = parse_args()
 
+    print("Loading data from:", args.h5ad, " ...")
     adata = ZD.read_h5ad(args.h5ad)
+    print("adata n_cells, n_genes:", adata.n_obs, adata.n_vars)
+    
+    print("Building X, y, groups...")
     X, y_labels, groups, genes_used = ZD.build_X_y_groups(
         adata,
         label_col=args.label_col,
@@ -44,9 +48,14 @@ def main():
         log1p=args.log1p,
     )
 
+    print("X shape:", X.shape)
+    print("Number of classes:", len(np.unique(y_labels)))
+    
     # Subject split
     train_subjects, test_subjects = ZD.split_subjects(groups, test_frac=args.test_frac, seed=args.seed)
+    print(f"Train subjects: {len(set(train_subjects))}, Test subjects: {len(set(test_subjects))}")
 
+    print("Running training...")
     # Train + CV + Test
     cv_summary, cv_per_fold, test_metrics, le, state = ZM.train_eval_single_split(
         X_cxg=X,
@@ -61,6 +70,7 @@ def main():
         seed=args.seed,
     )
 
+    print("Training Complete. Saving artifacts...")
     # Persist artifacts
     if args.out_dir is None:
         out_dir = Path(args.h5ad).with_suffix("/mlp_results")
@@ -104,7 +114,7 @@ def main():
         f.write("- metrics_cv.json : cross-validation summary and per-fold\n")
         f.write("- metrics_test.json : held-out test metrics on remaining subjects\n")
 
-    print("Training complete. Artifacts written to:", out_dir)
+    print("Done. Artifacts written to:", out_dir)
 
 
 if __name__ == "__main__":
