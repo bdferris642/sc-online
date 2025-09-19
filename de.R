@@ -667,7 +667,12 @@ pseudobulk_seurat = function(
 
     cat(paste("Grouping By Columns: ", paste(grouping_cols, collapse=", "), "\n"))
 
-    # summarise per group
+    # summarise per group. Ensure that n_cells and sum_nUMI are not in any of the summary lists
+    cols_to_mean <- setdiff(cols_to_mean, c("n_cells","sum_nUMI"))
+    cols_to_median <- setdiff(cols_to_median, c("n_cells","sum_nUMI"))
+    cols_to_weighted_avg <- setdiff(cols_to_weighted_avg, c("n_cells","sum_nUMI"))
+
+
     df_bulk = df %>%
     dplyr::group_by(dplyr::across(dplyr::all_of(grouping_cols))) %>%
     dplyr::summarise(
