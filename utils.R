@@ -593,6 +593,52 @@ get_df_with_svs = function(edata, df, cols, ctr_cols=NULL, n=10){
     return(df_with_svs)
 }
 
+combine_sobjs = function(s1, s2, s1_prefix=NULL, s2_prefix=NULL, use_shared_features=FALSE) {
+    
+
+    #if use_shared_features is TRUE, only the genes shared between the two Seurat objects are retained
+    # otherwise, throw an error
+    if (use_shared_features){
+        shared_genes = intersect(rownames(s1), rownames(s2))
+    }
+    else { 
+        if (any (rownames(s1) != rownames(s2))) {
+            stop("Gene names do not match between the two Seurat objects.")
+        }
+    }
+
+    if (length(intersect(colnames(s1), colnames(s2))) != 0) {
+        stop("Cell names overlap between the two Seurat objects. Consider adding prefixes.")
+    }
+
+    if (! is.null(s1_prefix)){
+        s1 = RenameCells(s1, add.cell.id = s1_prefix)
+    }
+
+    if (! is.null(s2_prefix)){
+        s2 = RenameCells(s2, add.cell.id = s2_prefix)
+    }
+
+    counts1 = GetAssayData(s1, assay = "RNA", slot = "counts")
+    counts2 = GetAssayData(s2, assay = "RNA", slot = "counts")
+    if (use_shared_features){
+        counts1 = counts1[shared_genes, ]
+        counts2 = counts2[shared_genes, ]
+    }
+    combined_counts = cbind(counts1, counts2)
+    
+    md1 = s1@meta.data 
+    md2 = s2@meta.data
+    md1$rownames = rownames(md1)
+    md2$rownames = rownames(md2)
+    combined_md = rbind(md1, md2)
+    rownames(combined_md) = combined_md$rownames
+    combined_md$rownames = NULL
+
+    combined_obj = CreateSeuratObject(counts = combined_counts, meta.data = combined_md)
+    return(combined_obj)
+}
+
 join_df_to_sobj_metadata = function(sobj, df, metadata_join_cols, df_join_cols=NULL){
 
     if (is.null(df_join_cols)){
