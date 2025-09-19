@@ -26,12 +26,12 @@ def normalize_within_cells(
     """Library-size normalize each cell (row) to `target_sum` counts.
     Returns a CSR matrix (cells×genes) of float32.
     """
-    X = X_cxg.tocsr()
+    X = X_cxg.tocsr() if sp.issparse(X_cxg) else sp.csr_matrix(X_cxg)
     cell_sums = np.asarray(X.sum(axis=1)).ravel()
     cell_sums[cell_sums == 0] = 1.0
     scale = (target_sum / cell_sums).astype(np.float32)
     X = X.multiply(scale[:, None]).astype(np.float32)
-    return X
+    return X.tocsr() 
 
 
 def apply_gene_mask(
@@ -78,17 +78,14 @@ def build_X_y_groups(
         raise KeyError(f"subject_col '{subject_col}' not found in adata.obs")
 
     X_cxg = ensure_csr(adata.X)
-    # Normalize within cells
     X_cxg = normalize_within_cells(X_cxg, target_sum=target_sum)
-
-    # Optional log1p in-place on sparse data
     if log1p:
         X_cxg = X_cxg.copy()
         X_cxg.data = np.log1p(X_cxg.data)
 
-    # Apply gene mask (select columns)
-    mask, genes_used = apply_gene_mask(adata, gene_mask_path)
-    X_cxg = X_cxg[:, mask]
+    # ensure sliceable before masking columns
+    X_cxg = X_cxg.tocsc()
+    X_cxg = X_cxg[:, mask].tocsr()
 
     y_labels = adata.obs[label_col].astype(str).values
     groups = adata.obs[subject_col].astype(str).values

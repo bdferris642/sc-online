@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 from __future__ import annotations
 import argparse
@@ -13,13 +12,13 @@ from admlp import io_utils as ZIO
 def parse_args():
     ap = argparse.ArgumentParser(description="Train a dropout MLP on an AnnData .h5ad")
     ap.add_argument("--h5ad", required=True, type=str)
-    ap.add_argument("--out-dir", required=True, type=str)
+    ap.add_argument("--out-dir", required=False, type=str)
     ap.add_argument("--label-col", required=True, type=str, help="Column in adata.obs with labels (e.g., Final_Zone_Assignments)")
     ap.add_argument("--subject-col", required=True, type=str, help="Column in adata.obs with subject IDs (e.g., donor_id)")
     ap.add_argument("--test-frac", type=float, default=0.25, help="Fraction of unique subjects for held-out test")
     ap.add_argument("--cval-k", type=int, default=5, help="K for GroupKFold within training subjects")
     ap.add_argument("--seed", type=int, default=42)
-    ap.add_argument("--target-sum", type=float, default=10000.0, help="Per-cell normalization target sum")
+    ap.add_argument("--target-sum", type=float, default=1000.0, help="Per-cell normalization target sum")
     ap.add_argument("--gene-mask", type=str, default=None, help="Path to line-separated gene list to use")
     ap.add_argument("--log1p", action="store_true", help="Apply log1p after normalization")
 
@@ -63,7 +62,10 @@ def main():
     )
 
     # Persist artifacts
-    out_dir = Path(args.out_dir)
+    if args.out_dir is None:
+        out_dir = Path(args.h5ad).with_suffix("/mlp_results")
+    else:
+        out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     ZIO.save_artifacts(
