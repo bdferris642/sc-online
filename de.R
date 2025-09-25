@@ -654,18 +654,11 @@ pseudobulk_seurat = function(
     grouping_is_numeric = sapply(grouping_cols, function(col) {is.numeric(df[[col]])})
     grouping_cols_non_numeric = grouping_cols[!grouping_is_numeric]
     df$grouping = apply(df[grouping_cols_non_numeric, drop=FALSE], 1, function(row) paste(row, collapse = "_"))
-    df$grouping = gsub("-", "_", df$grouping) # avoid issues with Seurat AggregateExpression
-    df$grouping = gsub(" ", "_", df$grouping)
-    df$grouping = gsub("\\(", "_", df$grouping)
-    df$grouping = gsub("\\)", "_", df$grouping)
-    df$grouping = gsub("\\/", "_", df$grouping)
-    df$grouping = gsub("\\,", "", df$grouping)
-    df$grouping = gsub("\\!", "", df$grouping)
-    df$grouping = gsub("\\?", "", df$grouping)
+    df = sanitize_col_values(df, "grouping")
     sobj$grouping = df$grouping
-    grouping_cols = c(grouping_cols, "grouping")
 
     cat(paste("Grouping By Columns: ", paste(grouping_cols, collapse=", "), "\n"))
+    grouping_cols = c(grouping_cols, "grouping")
 
     # summarise per group. Ensure that n_cells and sum_nUMI are not in any of the summary lists
     cols_to_mean <- setdiff(cols_to_mean, c("n_cells","sum_nUMI"))

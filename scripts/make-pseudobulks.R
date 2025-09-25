@@ -188,6 +188,7 @@ if (! is.null(opt[['n-svs']])){
     N_SVS = opt[['n-svs']]
 } else {
     N_SVS = 0
+    RUN_SVA = FALSE
     SVA_COLS=NULL
     SVA_CTR_COLS = NULL
 
@@ -249,29 +250,6 @@ if (DROP_NA){
         sobj = sobj[, rownames(md_complete)]
     }
 
-}
-
-
-sanitize_col_values = function(md, col){
-    if (is.numeric(md[[col]])){
-        return(md)
-    }
-
-    if (! col %in% colnames(md)){
-        return(md)
-    }
-
-    md[[col]] = gsub(" ", "_", md[[col]])
-    md[[col]] = gsub("/", "_", md[[col]])
-    md[[col]] = gsub("-", "_", md[[col]])
-    md[[col]] = gsub("\\.", "_", md[[col]])
-    md[[col]] = gsub("\\(", "_", md[[col]])
-    md[[col]] = gsub("\\)", "_", md[[col]])
-    md[[col]] = gsub(",", "_", md[[col]])
-    md[[col]] = gsub(";", "_", md[[col]])
-    md[[col]] = gsub(":", "_", md[[col]])
-    md[[col]] = gsub("\\|", "_", md[[col]]) 
-    return(md)
 }
 
 print("**************** RUNNING PSEUDOBULK CODE ****************")
@@ -353,9 +331,13 @@ if (OUTPUT_TYPE == "seurat"){
         # remove pre-existing cols starting with SV
         cd = merged_obj@meta.data
         cd = cd[, !grepl("^SV", toupper(colnames(cd)))]
+
+        counts = GetAssayData(merged_obj, slot="counts", assay="RNA") # always want to run SVA on raw counts
+        counts_low_expr_removed = counts[rowMeans(counts) > 1e-6, ] # remove genes with low expression
+        counts_low_expr_removed = as.matrix(counts_low_expr_removed)
         # run SVA
         cd = get_df_with_svs(
-            edata=as.matrix(GetAssayData(merged_obj, slot="counts", assay="RNA")), # always want to run SVA on raw counts
+            edata=counts_low_expr_removed,
             df=cd,
             cols=SVA_COLS,
             ctr_cols=SVA_CTR_COLS,
@@ -392,9 +374,14 @@ if (OUTPUT_TYPE == "seurat"){
             print(dim(sce))
             print(dim(counts(sce)))
             print(dim(cd))
+            
+            counts = as.matrix(counts(sce)) # always want to run SVA on raw counts
+            counts_low_expr_removed = counts[rowMeans(counts) > 1e-6, ] # remove genes with low expression, otherwise SVA fails
+            counts_low_expr_removed
+            
             # run SVA
             cd = get_df_with_svs(
-                edata=as.matrix(counts(sce)),
+                edata=counts_low_expr_removed,
                 df=cd,
                 cols=SVA_COLS,
                 ctr_cols=SVA_CTR_COLS,
@@ -405,15 +392,20 @@ if (OUTPUT_TYPE == "seurat"){
             cd$sva_ctr_cols = paste0(SVA_CTR_COLS, collapse=",")
             colData(sce) = DataFrame(cd)
             obj_list[[cluster]] = sce
-
-            cat("Saving SingleCellExperiment object for Cluster: ", cluster, "\n")
-            if (suffix == ""){
-                output_basename = paste0(slogan, "__", cluster, "__pb_sce.qs")
-            } else {
-                output_basename = paste0(slogan, "__", cluster, "__pb_sce__", suffix, ".qs")
-            }
-            qsave(sce, file.path(output_dir, output_basename))
         }
     }
 
+    for (cluster in names(obj_list)){
+        sce = obj_list[[cluster]]
+        print(dim(sce))
+
+        if (suffix == ""){
+            output_basename = paste0(slogan, "__", cluster, "__pb_sce.qs")
+        } else {
+            output_basename = paste0(slogan, "__", cluster, "__pb_sce__", suffix, ".qs")
+        }
+        cat("Saving SingleCellExperiment object for Cluster: ", cluster, "\nto path: ", 
+            file.path(output_dir, output_basename), "\n")
+        qsave(sce, file.path(output_dir, output_basename))
+    }
 }

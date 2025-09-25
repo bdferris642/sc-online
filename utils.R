@@ -557,6 +557,17 @@ get_df_with_svs = function(edata, df, cols, ctr_cols=NULL, n=10){
     # n: number of svs to calculate
 
     # returns a dataframe with the svs added as new columns
+    print(dim(edata))
+    print(dim(df))
+
+    for (cname in sort(unique(c(cols, ctr_cols)))){
+      if (! cname %in% colnames(df)){
+        stop(paste("Error in get_df_with_svs: column", cname, "not found in df"))
+      }
+      cat(paste("\nColumn:", cname, "Unique values:", length(unique(df[[cname]])), "\n"))
+      print(sum(is.na(df[[cname]])))
+    }
+     
 
     model_formula = as.formula(paste0("~", paste(cols, collapse = " + ")))
 
@@ -923,4 +934,30 @@ save_obj = function(obj, path){
   } else {
     stop("Path must end with .rds or .qs")
   }
+}
+
+sanitize_col_values = function(md, col){
+  # md: dataframe
+  # col: str, column name in md to sanitize
+
+  # outputs a dataframe with the values in column `col` sanitized
+    if (is.numeric(md[[col]])){
+        return(md)
+    }
+
+    if (! col %in% colnames(md)){
+        return(md)
+    }
+
+    md[[col]] = gsub(" ", "_", md[[col]])
+    md[[col]] = gsub("/", "_", md[[col]])
+    md[[col]] = gsub("-", "_", md[[col]])
+    md[[col]] = gsub("\\.", "_", md[[col]])
+    md[[col]] = gsub("\\(", "_", md[[col]])
+    md[[col]] = gsub("\\)", "_", md[[col]])
+    md[[col]] = gsub(",", "_", md[[col]])
+    md[[col]] = gsub(";", "_", md[[col]])
+    md[[col]] = gsub(":", "_", md[[col]])
+    md[[col]] = gsub("\\|", "_", md[[col]]) 
+    return(md)
 }
