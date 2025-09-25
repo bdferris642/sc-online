@@ -795,30 +795,46 @@ def main():
         theta_subject = None
         if getattr(args, "subject_theta", False):
             print(f"[geneset {g:03d}] Estimating subject-level dispersion with shrinkage...")
+            
+            # Initialize an array of shape (n_subj, n_genes) to hold subject-specific θ
             theta_subject = np.empty_like(mu_subject)
+
+            # Global precision (φ = 1/θ) used as shrinkage target
             phi_global = 1.0 / np.maximum(theta_global, 1e-8)
+
             K = float(getattr(args, "theta_shrinkage_k", 50.0)) 
             for s_idx in range(n_subj):
-                rows = np.where(subj_codes == s_idx)[0]
+                rows = np.where(subj_codes == s_idx)[0]  # cells belonging to subject s
                 if rows.size:
+                    # Compute per-gene mean and variance for this subject
                     Xs = X_case_csc[rows, :]
                     mu_s = np.asarray(Xs.mean(axis=0)).ravel()
                     Xs_sq = Xs.copy()
                     Xs_sq.data = Xs_sq.data ** 2
                     ex2_s = np.asarray(Xs_sq.mean(axis=0)).ravel()
                     var_s = ex2_s - mu_s**2
+
+                    # Estimate NB dispersion θ_s = μ^2 / (var - μ), with guards
                     with np.errstate(divide="ignore", invalid="ignore"):
                         denom = (var_s - mu_s)
                         theta_s = np.where(denom > 0, (mu_s**2) / denom, np.inf)
                     theta_s = np.where(np.isfinite(theta_s), theta_s, 1e12)
                     theta_s = np.maximum(theta_s, 1e-8)
                 else:
+                    # If no cells for this subject, assign very large θ (≈Poisson)
                     theta_s = np.full(ad_case_base.n_vars, 1e12, dtype=float)
 
+                # Compute shrinkage weight w based on sample size
                 n_s = max(1, rows.size)
-                w = n_s / (n_s + K)  # shrink weight
+                w = n_s / (n_s + K)  # fraction of weight given to subject estimate
+
+                # Work on precision scale (φ = 1/θ), since precisions combine linearly
                 phi_s = 1.0 / np.maximum(theta_s, 1e-8)
+
+                # Shrink subject-specific precision toward the global precision
                 phi_shrunk = w * phi_s + (1.0 - w) * phi_global
+
+                # Convert back to dispersion θ = 1/φ
                 theta_subject[s_idx, :] = 1.0 / np.maximum(phi_shrunk, 1e-8)
 
         # CODE FOR SUBJECT-SPECIFIC LFCs (currently disabled)        
