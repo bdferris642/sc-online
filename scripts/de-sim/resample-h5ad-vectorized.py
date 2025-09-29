@@ -86,7 +86,7 @@ def parse_args():
     p.add_argument("--subject-theta", action="store_true",
                    help="Estimate per-subject dispersion (θ) with shrinkage toward global; "
                         "otherwise use global θ for all subjects.")
-    p.add_argument("--theta-shrinkage-k", type=float, default=50.0,
+    p.add_argument("--theta-shrinkage-k", type=float, default=0,
                    help="Shrinkage strength toward global dispersion when --subject-theta is set "
                         "(larger K => more shrinkage).")
     
@@ -232,10 +232,10 @@ def add_case_control_flag(adata: ad.AnnData, label: str):
 
 def build_delta_vector(num_genes: int = 400) -> np.ndarray:
     """
-    Build evenly spaced Δ in [-2, 2] excluding 0, then shuffle.
+    Build evenly spaced Δ in [-2, -0.1], [0.1, 2]
     """
-    grid_neg = np.linspace(-2, -1e-12, num_genes // 2)
-    grid_pos = np.linspace(1e-12, 2, num_genes - len(grid_neg))
+    grid_neg = np.linspace(-2, -.1, num_genes // 2)
+    grid_pos = np.linspace(0.1, 2, num_genes - len(grid_neg))
     vec = np.concatenate([grid_neg, grid_pos])
     rng = np.random.default_rng(0)
     rng.shuffle(vec)
@@ -574,37 +574,90 @@ def _case_worker(
         # Set the perturbed columns new counts and compute delta already done
         # We'll write perturbed columns after balancing.
 
-        # Balance per-row total change over non-pert eligible genes via multinomial
         T = int(delta_row[i])
         if T != 0 and idx_nonpert_eligible.size > 0:
-            tot = c.sum()
+            tot = int(c.sum())
             if T > 0:
                 # Need to REMOVE T from non-pert eligible
-                # If tot == 0, nothing to remove; else allocate removals with capping
                 if tot > 0:
-                    remaining = T
-                    # Cap-aware removal: do a few passes to respect c_i bounds
-                    # (Typically 1–2 passes suffice unless T is huge relative to tot)
-                    for _ in range(4):
+                    need = min(T, tot)        # <-- clamp to capacity
+                    remaining = need
+                    for _ in range(8):        # a few passes; 8 is plenty
                         if remaining <= 0 or c.sum() == 0:
                             break
                         p = c / c.sum()
                         draw = rng.multinomial(remaining, p)
-                        # Clip by available counts
                         remove = np.minimum(draw, c)
                         c -= remove
                         remaining -= int(remove.sum())
+
+                    # If numerical residue remains, zero it against the largest bin
+                    if remaining > 0:
+                        j = int(np.argmax(c))
+                        take = min(remaining, int(c[j]))
+                        c[j] -= take
+                        remaining -= take
+                    # After this, 'need - remaining' was removed; totals balanced up to capacity.
+
+                # else: tot == 0 → nothing to remove (no-op; imbalance unavoidable)
+
             else:
-                # Need to ADD -T over non-pert eligible; allocate by proportions (include +1 to avoid dead-ends)
+                # Need to ADD -T over non-pert eligible
                 add_T = -T
-                w = c
-                if w.sum() == 0:
-                    # uniform if all zero
-                    p = np.ones_like(w, dtype=float) / float(w.size)
-                else:
-                    p = w / w.sum()
-                add = rng.multinomial(add_T, p)
-                c += add
+                if add_T > 0:
+                    w = c
+                    if w.sum() == 0: # all zero → uniform
+                        p = np.ones_like(w, dtype=float) / float(w.size)
+                    else:
+                        p = w / w.sum()
+                    add = rng.multinomial(add_T, p)
+                    c += add
+        
+        # --- Safety invariant: preserve row total exactly ---
+        # original total is simply the sum of the old sparse row
+        orig_total = int(sum(data_i))
+
+        # parts of the new row we’re going to write:
+        pert_total_new = int(new_cols[i, :].sum())
+
+        # counts we kept unchanged (ineligible + perturbed handled separately):
+        unchanged_total = int(sum(
+            v0 for c0, v0 in zip(cols_i, data_i)
+            if (c0 not in gene_indices) and (not nonpert_eligible_mask[c0])
+        ))
+        bal_total = int(c.sum())
+
+        new_total = pert_total_new + bal_total + unchanged_total
+        diff = new_total - orig_total  # >0 => need to remove; <0 => need to add
+
+        if diff != 0 and idx_nonpert_eligible.size > 0:
+            # Adjust ONLY the balancing pool 'c' so we don’t undo the perturbation
+            if diff > 0:
+                # need to REMOVE 'diff' counts from c
+                need = min(diff, int(c.sum()))
+                if need > 0:
+                    if c.sum() > 0:
+                        p = c / c.sum()
+                        take = rng.multinomial(need, p) 
+                        take = np.minimum(take, c)   # cap by availability
+                        c -= take
+                        leftover = need - int(take.sum())
+                        if leftover > 0 and c.sum() > 0:
+                            # shave any residue from the largest bin
+                            j = int(np.argmax(c))
+                            shave = min(leftover, int(c[j]))
+                            c[j] -= shave
+
+            else:
+                # need to ADD '-diff' counts to c
+                add_T = -diff
+                if add_T > 0:
+                    if c.sum() == 0:
+                        p = np.full_like(c, 1.0 / c.size, dtype=float)
+                    else:
+                        p = c / c.sum()
+                    c += rng.multinomial(add_T, p)
+
 
         # Now write row back into LIL:
         # 1) start with perturbed columns
