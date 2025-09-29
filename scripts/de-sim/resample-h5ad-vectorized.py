@@ -89,6 +89,8 @@ def parse_args():
     p.add_argument("--theta-shrinkage-k", type=float, default=0,
                    help="Shrinkage strength toward global dispersion when --subject-theta is set "
                         "(larger K => more shrinkage).")
+    p.add_argument("--rebalance", action="store_true",
+                   help="Use iterative multinomial rebalancing to adjust library sizes per cell.")
     
     # p.add_argument("--subject-lfc-sd", type=float, default=0,
     #                help="Std dev of subject-level log2FC around the global Δ for each perturbed gene. Default 0 (no variation).")
@@ -122,7 +124,10 @@ def compute_eligible_gene_mask(adata: ad.AnnData, min_total: int, min_pct: float
     Return a boolean mask (length n_vars) of genes that pass the thresholds,
     computed on raw counts in X across all cells. Does NOT modify adata.
     """
-    X = to_csc(adata.raw.X)
+    if adata.raw is None:
+        X = to_csc(adata.X)
+    else:
+        X = to_csc(adata.raw.X)
     n_cells = adata.n_obs
 
     totals = np.array(X.sum(axis=0)).ravel()
@@ -131,6 +136,89 @@ def compute_eligible_gene_mask(adata: ad.AnnData, min_total: int, min_pct: float
 
     keep = (totals > min_total) & (pct > min_pct)
     return keep
+
+def rebalance_counts_multinomial(
+    c: np.ndarray,      # counts in the balancing pool (1D, nonnegative ints)
+    delta: int,         # +T means remove T; -T means add -T
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """
+    Rebalance a per-cell balancing pool 'c' by a net amount 'delta':
+      - If delta > 0: remove up to min(delta, c.sum()) proportional to current counts.
+      - If delta < 0: add -delta proportional to current counts (uniform if all zero).
+    Returns the updated c (same array object is fine to return).
+    """
+    if delta == 0 or c.size == 0:
+        return c
+
+    tot = int(c.sum())
+    if delta > 0:
+        # REMOVE
+        if tot <= 0:
+            return c  # no capacity to remove
+        need = min(delta, tot)
+        remaining = need
+        # few passes to respect caps
+        for _ in range(8):
+            if remaining <= 0 or c.sum() == 0:
+                break
+            p = c / c.sum()
+            draw = rng.multinomial(remaining, p)
+            take = np.minimum(draw, c)
+            c -= take
+            remaining -= int(take.sum())
+        if remaining > 0 and c.sum() > 0:
+            # shave any residue from the largest bin
+            j = int(np.argmax(c))
+            shave = min(remaining, int(c[j]))
+            c[j] -= shave
+    else:
+        # ADD
+        add_T = -delta
+        if add_T > 0:
+            if tot == 0:
+                p = np.full_like(c, 1.0 / c.size, dtype=float)
+            else:
+                p = c / tot
+            add = rng.multinomial(add_T, p)
+            c += add
+    return c
+
+
+def enforce_balanced_total(
+    c: np.ndarray,
+    diff: int,     # new_total - orig_total (>0 remove, <0 add)
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """
+    Final safety invariant: adjust only 'c' so that row total is preserved exactly.
+    """
+    if diff == 0 or c.size == 0:
+        return c
+
+    if diff > 0:
+        # Need to REMOVE 'diff' from c
+        need = min(diff, int(c.sum()))
+        if need > 0 and c.sum() > 0:
+            p = c / c.sum()
+            take = rng.multinomial(need, p)
+            take = np.minimum(take, c)
+            c -= take
+            leftover = need - int(take.sum())
+            if leftover > 0 and c.sum() > 0:
+                j = int(np.argmax(c))
+                shave = min(leftover, int(c[j]))
+                c[j] -= shave
+    else:
+        # Need to ADD '-diff' to c
+        add_T = -diff
+        if add_T > 0:
+            if c.sum() == 0:
+                p = np.full_like(c, 1.0 / c.size, dtype=float)
+            else:
+                p = c / c.sum()
+            c += rng.multinomial(add_T, p)
+    return c
 
 
 def split_subjects(subject_ids: pd.Series, seed: int) -> Tuple[np.ndarray, np.ndarray]:
@@ -405,6 +493,7 @@ def _case_worker(
         str,            # cell_type_col
         str,            # c_value
         float,          # keep_frac
+        bool,           # rebalance
         int,            # rep
         int             # seed_base
     ]
@@ -483,9 +572,12 @@ def _case_worker(
         cell_type_col,              # str
         c_value,                    # str
         keep_frac,                  # float
+        rebalance,                  # bool
         rep,                        # int
         seed_base                   # int
     ) = args
+
+    print(f"Simulating case: geneset {geneset_idx}, cell type '{c_value}', keep_frac {keep_frac}, rep {rep}")
 
     rng = derive_rng(seed_base, geneset_idx, c_value, keep_frac, rep)
 
@@ -494,6 +586,9 @@ def _case_worker(
     Xcsc = ad_case_base.X.tocsc()   # fast column access for original columns
     n_cells, n_genes = Xcsr.shape
     Gp = len(gene_indices)
+
+    # store original library sizes for reference
+    original_lib_sizes = np.array(Xcsr.sum(axis=1)).ravel()
 
     # 1) Build NEW perturbed columns (dense) in a vectorized way
     #    new_cols shape: (n_cells, Gp)
@@ -505,6 +600,7 @@ def _case_worker(
     # Precompute which cells belong to each subject once
     cells_by_subj = [np.where(subj_codes == s)[0] for s in range(n_subj)]
 
+    print(f"Computing gene- and subject-specific means for geneset {geneset_idx}, cell type '{c_value}', keep_frac {keep_frac}, rep {rep}")
     for j_local, gidx in enumerate(gene_indices):
         # Global Δ for this gene
         d = float(delta_vec[j_local])
@@ -555,6 +651,10 @@ def _case_worker(
 
     # Also, create a fast lookup for each row's current non-pert-eligible counts as dense
     # We'll get row nonzeros from LIL internals and slice.
+    if rebalance:
+        print("Rebalancing library sizes per cell across non-perturbed eligible genes\nfor geneset {geneset_idx}, cell type '{c_value}', keep_frac {keep_frac}, rep {rep}")
+
+    print(f"Generating perturbed gene columns for geneset {geneset_idx}, cell type '{c_value}', keep_frac {keep_frac}, rep {rep}")
     for i in range(n_cells):
         # === Build dense row only for columns we need to touch ===
         # Start with all zeros
@@ -571,94 +671,27 @@ def _case_worker(
         # Current counts for non-pert eligible columns as dense vector
         c = np.array([row_map.get(col, 0) for col in idx_nonpert_eligible], dtype=np.int64)
 
-        # Set the perturbed columns new counts and compute delta already done
-        # We'll write perturbed columns after balancing.
+        if rebalance:
+            # Net delta from perturbed genes for this row
+            T = int(delta_row[i])
 
-        T = int(delta_row[i])
-        if T != 0 and idx_nonpert_eligible.size > 0:
-            tot = int(c.sum())
-            if T > 0:
-                # Need to REMOVE T from non-pert eligible
-                if tot > 0:
-                    need = min(T, tot)        # <-- clamp to capacity
-                    remaining = need
-                    for _ in range(8):        # a few passes; 8 is plenty
-                        if remaining <= 0 or c.sum() == 0:
-                            break
-                        p = c / c.sum()
-                        draw = rng.multinomial(remaining, p)
-                        remove = np.minimum(draw, c)
-                        c -= remove
-                        remaining -= int(remove.sum())
+            # 1) Rebalance via multinomial (cap-aware; proportional to current counts)
+            c = rebalance_counts_multinomial(c, T, rng)
 
-                    # If numerical residue remains, zero it against the largest bin
-                    if remaining > 0:
-                        j = int(np.argmax(c))
-                        take = min(remaining, int(c[j]))
-                        c[j] -= take
-                        remaining -= take
-                    # After this, 'need - remaining' was removed; totals balanced up to capacity.
+            # 2) Safety invariant: preserve row total exactly
+            orig_total = int(sum(data_i))                # original row total
+            pert_total_new = int(new_cols[i, :].sum())   # total of perturbed genes after resampling
+            unchanged_total = int(sum(                   # ineligible + non-eligible non-perturbed
+                v0 for c0, v0 in zip(cols_i, data_i)
+                if (c0 not in gene_indices) and (not nonpert_eligible_mask[c0])
+            ))
+            new_total = pert_total_new + int(c.sum()) + unchanged_total
+            diff = new_total - orig_total  # >0 => need to remove; <0 => need to add
 
-                # else: tot == 0 → nothing to remove (no-op; imbalance unavoidable)
+            if diff != 0 and idx_nonpert_eligible.size > 0:
+                c = enforce_balanced_total(c, diff, rng)
 
-            else:
-                # Need to ADD -T over non-pert eligible
-                add_T = -T
-                if add_T > 0:
-                    w = c
-                    if w.sum() == 0: # all zero → uniform
-                        p = np.ones_like(w, dtype=float) / float(w.size)
-                    else:
-                        p = w / w.sum()
-                    add = rng.multinomial(add_T, p)
-                    c += add
         
-        # --- Safety invariant: preserve row total exactly ---
-        # original total is simply the sum of the old sparse row
-        orig_total = int(sum(data_i))
-
-        # parts of the new row we’re going to write:
-        pert_total_new = int(new_cols[i, :].sum())
-
-        # counts we kept unchanged (ineligible + perturbed handled separately):
-        unchanged_total = int(sum(
-            v0 for c0, v0 in zip(cols_i, data_i)
-            if (c0 not in gene_indices) and (not nonpert_eligible_mask[c0])
-        ))
-        bal_total = int(c.sum())
-
-        new_total = pert_total_new + bal_total + unchanged_total
-        diff = new_total - orig_total  # >0 => need to remove; <0 => need to add
-
-        if diff != 0 and idx_nonpert_eligible.size > 0:
-            # Adjust ONLY the balancing pool 'c' so we don’t undo the perturbation
-            if diff > 0:
-                # need to REMOVE 'diff' counts from c
-                need = min(diff, int(c.sum()))
-                if need > 0:
-                    if c.sum() > 0:
-                        p = c / c.sum()
-                        take = rng.multinomial(need, p) 
-                        take = np.minimum(take, c)   # cap by availability
-                        c -= take
-                        leftover = need - int(take.sum())
-                        if leftover > 0 and c.sum() > 0:
-                            # shave any residue from the largest bin
-                            j = int(np.argmax(c))
-                            shave = min(leftover, int(c[j]))
-                            c[j] -= shave
-
-            else:
-                # need to ADD '-diff' counts to c
-                add_T = -diff
-                if add_T > 0:
-                    if c.sum() == 0:
-                        p = np.full_like(c, 1.0 / c.size, dtype=float)
-                    else:
-                        p = c / c.sum()
-                    c += rng.multinomial(add_T, p)
-
-
         # Now write row back into LIL:
         # 1) start with perturbed columns
         nz_cols = []
@@ -707,6 +740,7 @@ def _case_worker(
         )
     if keep_frac < 1.0:
         n_keep = int(round(keep_frac * n_c))
+        print(f"Downsampling cells of type '{c_value}' by keep_frac {keep_frac} from {n_c} to {n_keep} for geneset {geneset_idx}, rep {rep}")
         idx_c = np.flatnonzero(mask_c)
         keep_idx_c = set(rng.choice(idx_c, size=n_keep, replace=False).tolist()) if n_keep > 0 else set()
         final_mask = np.ones(ad_case.n_obs, dtype=bool)
@@ -720,6 +754,7 @@ def _case_worker(
     pert_genes = ad_case.var_names[gene_indices]
     gene_map = {g: {"log2fc": float(delta_vec[i]), "factor": float(2.0 ** delta_vec[i])}
                 for i, g in enumerate(pert_genes)}
+    final_lib_sizes = np.array(ad_case.X.sum(axis=1)).ravel()
     ad_case.uns["simulation"] = {
         "split": geneset_idx,
         "case_control": "case",
@@ -727,11 +762,15 @@ def _case_worker(
         "keep_frac": float(keep_frac),
         "replicate": int(rep),
         "perturbed_genes": gene_map,
+        "original_lib_sizes": original_lib_sizes,   
+        "final_lib_sizes": final_lib_sizes
     }
 
     # Save
     case_h5ad = split_dir / f"{slogan}_split_{geneset_idx:03d}__case__downsample_{c_value}_{keep_frac}__rep_{rep}.h5ad"
     case_h5ad = case_h5ad.with_name(case_h5ad.name.replace(" ", "_"))
+    
+    print(f"Writing CASE file: {case_h5ad}")
     # sanitize before write if needed
     write_sanitized_h5ad(ad_case, case_h5ad, clobber=True, keep_raw=False)
     ad_case.write(case_h5ad, compression=None)
@@ -844,7 +883,7 @@ def main():
             if rows.size:
                 mu_subject[s_idx, :] = np.asarray(X_case_csc[rows, :].mean(axis=0)).ravel()
 
-        # Optional: per-subject dispersion with shrinkage toward global
+        # Optional: per-subject dispersion, with optional shrinkage toward global
         theta_subject = None
         if getattr(args, "subject_theta", False):
             print(f"[geneset {g:03d}] Estimating subject-level dispersion with shrinkage...")
@@ -942,6 +981,7 @@ def main():
                         cell_type_col, 
                         c, 
                         float(d), 
+                        args.rebalance, 
                         rep, 
                         args.seed
                     ))
