@@ -50,10 +50,9 @@ import pandas as pd
 from scipy import sparse
 
 
-
-
 # --- Global handle for the CASE CSR used by workers (Linux/fork-friendly) ---
 _GLOBAL_X_CASE_CSR: Optional[sparse.csr_matrix] = None
+
 
 class SubjectJob(NamedTuple):
     subject_index: int
@@ -70,8 +69,12 @@ class SubjectJob(NamedTuple):
 # Utilities
 # --------------------------
 
+
 def add_case_control_flag(adata: ad.AnnData, label: str):
-    adata.obs["case_control"] = pd.Categorical([label] * adata.n_obs, categories=["control", "case"])
+    adata.obs["case_control"] = pd.Categorical(
+        [label] * adata.n_obs, categories=["control", "case"]
+    )
+
 
 def basename_noext(path: str) -> str:
     b = os.path.basename(path)
@@ -79,18 +82,22 @@ def basename_noext(path: str) -> str:
         b = b[:-5]
     return b
 
+
 def build_delta_vector(num_genes: int = 400) -> np.ndarray:
     """
     Build evenly spaced Δ in [-2, -0.1], [0.1, 2]
     """
-    grid_neg = np.linspace(-2, -.1, num_genes // 2)
+    grid_neg = np.linspace(-2, -0.1, num_genes // 2)
     grid_pos = np.linspace(0.1, 2, num_genes - len(grid_neg))
     vec = np.concatenate([grid_neg, grid_pos])
     rng = np.random.default_rng(0)
     rng.shuffle(vec)
     return vec
 
-def compute_eligible_gene_mask(adata: ad.AnnData, min_total: int, min_frac: float) -> np.ndarray:
+
+def compute_eligible_gene_mask(
+    adata: ad.AnnData, min_total: int, min_frac: float
+) -> np.ndarray:
     """
     Return a boolean mask (length n_vars) of genes that pass the thresholds,
     for fraction of cells expressing the gene and total counts.
@@ -102,12 +109,13 @@ def compute_eligible_gene_mask(adata: ad.AnnData, min_total: int, min_frac: floa
     if sparse.issparse(X):
         Xc = X.tocsc()
         totals = np.asarray(Xc.sum(axis=0)).ravel()
-        n_nonzero = np.asarray((Xc>0).sum(axis=0)).ravel() 
+        n_nonzero = np.asarray((Xc > 0).sum(axis=0)).ravel()
     else:
         totals = X.sum(axis=0).astype(np.float64, copy=False)
         n_nonzero = (X > 0).sum(axis=0)
     frac = n_nonzero / float(n)
     return (totals > min_total) & (frac > min_frac)
+
 
 def downsample_case_and_save(
     X_resampled_csr: sparse.csr_matrix,
@@ -118,7 +126,7 @@ def downsample_case_and_save(
     out_path: Path,
     simulation_meta: Dict[str, Any],
     clobber: bool = False,
-    seed: int = 12345
+    seed: int = 12345,
 ) -> None:
     """
     From a resampled CASE matrix, downsample cells of the given type
@@ -128,20 +136,28 @@ def downsample_case_and_save(
     - Drops `.raw` to avoid I/O issues with reserved columns (can be rebuilt if needed).
     """
     assert 0.0 <= keep_fraction <= 1.0
-    ad_case = ad.AnnData(X=X_resampled_csr.copy(),
-                         obs=ad_case_base.obs.copy(),
-                         var=ad_case_base.var.copy(),
-                         uns=ad_case_base.uns.copy())
-    mask_type = (ad_case.obs[cell_type_col].astype(str).values == str(target_cell_type))
+    ad_case = ad.AnnData(
+        X=X_resampled_csr.copy(),
+        obs=ad_case_base.obs.copy(),
+        var=ad_case_base.var.copy(),
+        uns=ad_case_base.uns.copy(),
+    )
+    mask_type = ad_case.obs[cell_type_col].astype(str).values == str(target_cell_type)
     n_type = int(mask_type.sum())
     if n_type == 0:
-        raise RuntimeError(f"No cells with {cell_type_col} == '{target_cell_type}' in CASE cohort before downsampling.")
+        raise RuntimeError(
+            f"No cells with {cell_type_col} == '{target_cell_type}' in CASE cohort before downsampling."
+        )
 
     if keep_fraction < 1.0:
-        rng = np.random.default_rng(seed)  
+        rng = np.random.default_rng(seed)
         n_keep = int(round(keep_fraction * n_type))
         idx_type = np.flatnonzero(mask_type)
-        keep_idx = set(rng.choice(idx_type, size=n_keep, replace=False).tolist()) if n_keep > 0 else set()
+        keep_idx = (
+            set(rng.choice(idx_type, size=n_keep, replace=False).tolist())
+            if n_keep > 0
+            else set()
+        )
         final_mask = np.ones(ad_case.n_obs, dtype=bool)
         for idx in idx_type:
             if idx not in keep_idx:
@@ -154,7 +170,10 @@ def downsample_case_and_save(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     write_sanitized_h5ad(adata=ad_case, path=out_path, clobber=clobber, keep_raw=False)
 
-def estimate_nb_dispersion_gene(X_csc: sparse.csc_matrix) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+
+def estimate_nb_dispersion_gene(
+    X_csc: sparse.csc_matrix,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Estimate per-gene mean (μ), variance (σ²), and dispersion θ for a negative binomial model.
 
@@ -184,7 +203,7 @@ def estimate_nb_dispersion_gene(X_csc: sparse.csc_matrix) -> Tuple[np.ndarray, n
 
     # --- Compute second moment E[X²]
     X_sq = X_csc.copy()
-    X_sq.data = X_sq.data ** 2
+    X_sq.data = X_sq.data**2
     ex2 = np.array(X_sq.mean(axis=0)).ravel()
 
     # --- Variance = E[X²] - (E[X])²
@@ -194,7 +213,7 @@ def estimate_nb_dispersion_gene(X_csc: sparse.csc_matrix) -> Tuple[np.ndarray, n
     # From NB variance formula: Var = μ + μ²/θ
     # Rearranging: θ = μ² / (Var - μ)
     with np.errstate(divide="ignore", invalid="ignore"):
-        denom = (var - mu)
+        denom = var - mu
         theta_calc = np.where(denom > 0, (mu**2) / denom, np.inf)
 
     # --- Replace invalid/infinite values
@@ -205,6 +224,7 @@ def estimate_nb_dispersion_gene(X_csc: sparse.csc_matrix) -> Tuple[np.ndarray, n
     theta = np.maximum(theta, 1e-8)  # guard against zero/negative
 
     return mu, var, theta
+
 
 def generate_control_h5ad(
     adata_full: ad.AnnData,
@@ -226,7 +246,7 @@ def generate_control_h5ad(
         "replicate": None,
         "perturbed_genes": {},
         "library_sizes": library_sizes,
-        "perturbation": None
+        "perturbation": None,
     }
     # if there is an adata.raw, replace adata.X with adata.raw.X
     if ad_ctrl.raw is not None:
@@ -235,8 +255,8 @@ def generate_control_h5ad(
             X = X.astype(np.float64)
         else:
             X = X.astype(np.float64, copy=False)
-        ad_ctrl.X = X          # replace main matrix
-        ad_ctrl.var = ad_ctrl.raw.var.copy()   # make sure genes match raw
+        ad_ctrl.X = X  # replace main matrix
+        ad_ctrl.var = ad_ctrl.raw.var.copy()  # make sure genes match raw
     else:
         print("Warning: adata.raw is None; using adata.X as-is for control.")
 
@@ -262,51 +282,109 @@ def generate_control_h5ad(
         write_sanitized_h5ad(ad_ctrl, path=out, clobber=clobber, keep_raw=False)
     return out
 
+
 def parse_args():
     p = argparse.ArgumentParser(
         description="Simulate subject-level case/control H5ADs with gene perturbations and downsampling."
     )
-    p.add_argument("--path", required=True, help="Path to input anndata .h5ad (raw counts in X).")
-    p.add_argument("--n-perturbed-genes", type=int, default=200, 
-                    help="Number of genes to perturb per gene set.")
-    p.add_argument("--cell-type-col", required=True, default="cell_type",
-                help="obs column name containing cell types.")
-    p.add_argument("--subject-id-col", required=True, default="donor",
-                   help="obs column name containing subject IDs (e.g. 'subject.subjectGuid', 'donor', etc.).")
-    p.add_argument("--num-splits", type=int, default=1, help="Number of case/control splits.")
-    p.add_argument("--num-gene-sets", type=int, default=1, help="Number of perturbed gene sets (one split per gene set).")
-    p.add_argument("--num-reps", type=int, default=1, help="Number of replicates per gene set.")
-    p.add_argument("--cell-types", nargs="+", required=True, help="List of target cell types C.")
-    p.add_argument("--keep-fracs", type=float, nargs="+", required=True,
-                   help="List of keep fractions D (0..1). Example: 1.0 0.5 0.25 0.0")
-    p.add_argument("--min-total-counts-gene-thresh", type=int, default=200,
-                   help="Minimum total counts across all cells to consider a gene ELIGIBLE (no matrix filtering).")
-    p.add_argument("--min-pct-expressed-gene-thresh", type=float, default=0.01,
-                   help="Minimum fraction of cells with count>0 to consider a gene ELIGIBLE (no matrix filtering).")
+    p.add_argument(
+        "--path", required=True, help="Path to input anndata .h5ad (raw counts in X)."
+    )
+    p.add_argument(
+        "--n-perturbed-genes",
+        type=int,
+        default=200,
+        help="Number of genes to perturb per gene set.",
+    )
+    p.add_argument(
+        "--cell-type-col",
+        required=True,
+        default="cell_type",
+        help="obs column name containing cell types.",
+    )
+    p.add_argument(
+        "--subject-id-col",
+        required=True,
+        default="donor",
+        help="obs column name containing subject IDs (e.g. 'subject.subjectGuid', 'donor', etc.).",
+    )
+    p.add_argument(
+        "--num-splits", type=int, default=1, help="Number of case/control splits."
+    )
+    p.add_argument(
+        "--num-gene-sets",
+        type=int,
+        default=1,
+        help="Number of perturbed gene sets (one split per gene set).",
+    )
+    p.add_argument(
+        "--num-reps", type=int, default=1, help="Number of replicates per gene set."
+    )
+    p.add_argument(
+        "--cell-types", nargs="+", required=True, help="List of target cell types C."
+    )
+    p.add_argument(
+        "--keep-fracs",
+        type=float,
+        nargs="+",
+        required=True,
+        help="List of keep fractions D (0..1). Example: 1.0 0.5 0.25 0.0",
+    )
+    p.add_argument(
+        "--min-total-counts-gene-thresh",
+        type=int,
+        default=200,
+        help="Minimum total counts across all cells to consider a gene ELIGIBLE (no matrix filtering).",
+    )
+    p.add_argument(
+        "--min-pct-expressed-gene-thresh",
+        type=float,
+        default=0.01,
+        help="Minimum fraction of cells with count>0 to consider a gene ELIGIBLE (no matrix filtering).",
+    )
     p.add_argument("--seed", type=int, default=12345, help="Base RNG seed.")
-    p.add_argument("--processes", type=int, default=None,
-                   help="Number of parallel worker processes for case generation (default: min(available, 40)).")
-    p.add_argument("--clobber", action="store_true",
-                   help="Overwrite existing input h5ad if subject ID must be created or outputs already exist.")
-    p.add_argument("--subject-theta", action="store_true",
-                   help="Estimate per-subject dispersion (θ) with shrinkage toward global; "
-                        "otherwise use global θ for all subjects.")
-    p.add_argument("--theta-shrinkage-k", type=float, default=0,
-                   help="Shrinkage strength toward global dispersion when --subject-theta is set "
-                        "(larger K => more shrinkage).")
-    p.add_argument("--rebalance", action="store_true",
-                   help="Use iterative multinomial rebalancing to adjust library sizes per cell.")
-    
+    p.add_argument(
+        "--processes",
+        type=int,
+        default=None,
+        help="Number of parallel worker processes for case generation (default: min(available, 40)).",
+    )
+    p.add_argument(
+        "--clobber",
+        action="store_true",
+        help="Overwrite existing input h5ad if subject ID must be created or outputs already exist.",
+    )
+    p.add_argument(
+        "--subject-theta",
+        action="store_true",
+        help="Estimate per-subject dispersion (θ) with shrinkage toward global; "
+        "otherwise use global θ for all subjects.",
+    )
+    p.add_argument(
+        "--theta-shrinkage-k",
+        type=float,
+        default=0,
+        help="Shrinkage strength toward global dispersion when --subject-theta is set "
+        "(larger K => more shrinkage).",
+    )
+    p.add_argument(
+        "--rebalance",
+        action="store_true",
+        help="Use iterative multinomial rebalancing to adjust library sizes per cell.",
+    )
+
     # p.add_argument("--subject-lfc-sd", type=float, default=0,
     #                help="Std dev of subject-level log2FC around the global Δ for each perturbed gene. Default 0 (no variation).")
 
     return p.parse_args()
 
-def rebalance_counts() -> None: 
+
+def rebalance_counts() -> None:
     pass
     """
     To-Do: In-place rebalancing of a cell's library size.
     """
+
 
 def resample_case_once_subject_parallel(
     ad_case_base: ad.AnnData,
@@ -346,7 +424,9 @@ def resample_case_once_subject_parallel(
     n_subjects = len(subj_uniqs)
 
     # Build jobs: one per subject
-    rows_by_subject: List[np.ndarray] = [np.where(subj_codes == s)[0] for s in range(n_subjects)]
+    rows_by_subject: List[np.ndarray] = [
+        np.where(subj_codes == s)[0] for s in range(n_subjects)
+    ]
     jobs = [
         SubjectJob(
             subject_index=s,
@@ -367,7 +447,11 @@ def resample_case_once_subject_parallel(
         _init_subject_worker(X_case_csr)
         results = [_subject_resample_worker(job) for job in jobs]
     else:
-        with Pool(processes=worker_procs, initializer=_init_subject_worker, initargs=(X_case_csr,)) as pool:
+        with Pool(
+            processes=worker_procs,
+            initializer=_init_subject_worker,
+            initargs=(X_case_csr,),
+        ) as pool:
             results = pool.map(_subject_resample_worker, jobs)
 
     # Assemble dense block for perturbed genes: (n_cells x n_perturb)
@@ -408,6 +492,7 @@ def resample_case_once_subject_parallel(
 
     return X_lil.tocsr()
 
+
 def split_subjects(subject_ids: pd.Series, seed: int) -> Tuple[np.ndarray, np.ndarray]:
     """
     50/50 split at the subject level, deterministic via `seed`.
@@ -423,17 +508,20 @@ def split_subjects(subject_ids: pd.Series, seed: int) -> Tuple[np.ndarray, np.nd
     case = uniq[n_ctrl:]
     return ctrl, case
 
+
 def to_csr(X):
     if sparse.issparse(X):
         return X.tocsr()
     else:
         return sparse.csr_matrix(X)
 
+
 def to_csc(X):
     if sparse.issparse(X):
         return X.tocsc()
     else:
         return sparse.csc_matrix(X)
+
 
 def write_sanitized_h5ad(
     adata: ad.AnnData,
@@ -448,7 +536,9 @@ def write_sanitized_h5ad(
     """
     path = Path(path)
     if path.exists() and not clobber:
-        raise FileExistsError(f"File already exists: {path}. Use --clobber to overwrite.")
+        raise FileExistsError(
+            f"File already exists: {path}. Use --clobber to overwrite."
+        )
 
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -469,6 +559,7 @@ def write_sanitized_h5ad(
 
     adata.write(path, compression=None)
 
+
 def _init_subject_worker(X_case_csr: sparse.csr_matrix) -> None:
     """
     Pool initializer. Attaches the CASE cohort CSR matrix to a module-global
@@ -477,6 +568,7 @@ def _init_subject_worker(X_case_csr: sparse.csr_matrix) -> None:
     """
     global _GLOBAL_X_CASE_CSR
     _GLOBAL_X_CASE_CSR = X_case_csr
+
 
 def _sanitize_df(df: pd.DataFrame, where: str) -> None:
     # AnnData reserves the column name "_index" in obs/var/raw.var
@@ -532,14 +624,14 @@ def _subject_resample_worker(job: SubjectJob) -> Tuple[int, np.ndarray, np.ndarr
     rng = np.random.default_rng(seed)
 
     # Slice this subject’s rows once
-    Xs_csr = _GLOBAL_X_CASE_CSR[rows_for_subject, :]     # (cells_s x genes)
+    Xs_csr = _GLOBAL_X_CASE_CSR[rows_for_subject, :]  # (cells_s x genes)
     n_cells_s, n_genes = Xs_csr.shape
     n_perturb = int(gene_indices_perturbed.size)
 
     # ---- per-subject means μ_s(g) ----
     # μ = mean over cells (use CSR → CSC squared trick for moments if needed)
     # Mean:
-    mu_s = np.asarray(Xs_csr.mean(axis=0)).ravel()       # (n_genes,)
+    mu_s = np.asarray(Xs_csr.mean(axis=0)).ravel()  # (n_genes,)
 
     # ---- per-subject dispersion θ_s(g) (optional) ----
     if use_subject_theta:
@@ -548,7 +640,7 @@ def _subject_resample_worker(job: SubjectJob) -> Tuple[int, np.ndarray, np.ndarr
         Xs2.data **= 2
         ex2_s = np.asarray(Xs2.mean(axis=0)).ravel()
         var_s = ex2_s - mu_s**2
-        denom = (var_s - mu_s)
+        denom = var_s - mu_s
         with np.errstate(divide="ignore", invalid="ignore"):
             theta_s = np.where(denom > 0, (mu_s**2) / denom, np.inf)
         theta_s = np.where(np.isfinite(theta_s), theta_s, 1e12)
@@ -581,7 +673,9 @@ def _subject_resample_worker(job: SubjectJob) -> Tuple[int, np.ndarray, np.ndarr
 
     return (subject_index, rows_for_subject, sampled_block)
 
+
 # --------------------------
+
 
 def main():
     args = parse_args()
@@ -599,13 +693,15 @@ def main():
         raise ValueError(f"--subject-id-col '{args.subject_id_col}' not found in obs.")
     if args.keep_fracs is None or len(args.keep_fracs) == 0:
         raise ValueError("At least one --keep-fracs value required.")
-    if any ((d < 0.0) or (d > 1.0) for d in args.keep_fracs):
+    if any((d < 0.0) or (d > 1.0) for d in args.keep_fracs):
         raise ValueError("all --keep-fracs values must be in [0, 1].")
 
     # Fail fast if any requested cell type is missing
     missing = set(args.cell_types) - set(adata.obs[args.cell_type_col].unique())
     if missing:
-        raise ValueError(f"Cell types not found in obs['{args.cell_type_col}']: {missing}")
+        raise ValueError(
+            f"Cell types not found in obs['{args.cell_type_col}']: {missing}"
+        )
 
     # Eligibility mask over all genes (boolean mask of length n-genes)
     eligible_mask_global = compute_eligible_gene_mask(
@@ -615,7 +711,9 @@ def main():
     )
     n_eligible = int(eligible_mask_global.sum())
     if n_eligible < args.n_perturbed_genes:
-        raise ValueError(f"Eligible genes ({n_eligible}) < {args.n_perturbed_genes}. Increase data or relax thresholds.")
+        raise ValueError(
+            f"Eligible genes ({n_eligible}) < {args.n_perturbed_genes}. Increase data or relax thresholds."
+        )
 
     # Coerce key obs cols to str
     adata.obs[args.cell_type_col] = adata.obs[args.cell_type_col].astype(str)
@@ -625,27 +723,31 @@ def main():
     procs = min(cpu_count(), 40) if args.processes is None else max(1, args.processes)
 
     # Δ template for perturbed genes (vector of floats of length n_perturbed_genes)
-    delta_vec_template = build_delta_vector(args.n_perturbed_genes) 
+    delta_vec_template = build_delta_vector(args.n_perturbed_genes)
 
     for split_idx in range(1, args.num_splits + 1):
         dirname = os.path.dirname(base_path)
         slogan = basename_noext(base_path)
-        split_dir = Path(dirname) / "simulations" / f"{slogan}" / f"split_{split_idx:03d}"
+        split_dir = (
+            Path(dirname) / "simulations" / f"{slogan}" / f"split_{split_idx:03d}"
+        )
         split_dir.mkdir(parents=True, exist_ok=True)
 
         # Subject split for this geneset (seeded)
-        ctrl_subjects, case_subjects = split_subjects(adata.obs[args.subject_id_col], seed=args.seed + split_idx)
+        ctrl_subjects, case_subjects = split_subjects(
+            adata.obs[args.subject_id_col], seed=args.seed + split_idx
+        )
 
         # Save control once per split (your helper can verify same subjects unless --clobber)
         ctrl_h5 = generate_control_h5ad(
             adata_full=adata,
             subject_ctrl=ctrl_subjects,
             split_dir=split_dir,
-            subject_id_col = args.subject_id_col,
-            slogan = slogan,
-            clobber = args.clobber)
+            subject_id_col=args.subject_id_col,
+            slogan=slogan,
+            clobber=args.clobber,
+        )
         print(f"[split {split_idx:03d}] control saved: {ctrl_h5}")
-
 
         # CASE base slice (before perturbation)
         print(f"[split {split_idx:03d}] Estimating NB dispersion parameters...")
@@ -659,11 +761,12 @@ def main():
         mu_global, var_global, theta_global = estimate_nb_dispersion_gene(X_case_csc)
 
         for geneset_idx in range(1, args.num_gene_sets + 1):
-        
             # Pick args.n_perturbed_genes perturbed genes ONLY from eligible set (global indexing)
             rng_gene = np.random.default_rng(args.seed + 1000 * geneset_idx)
             eligible_indices = np.flatnonzero(eligible_mask_global)
-            gene_indices = rng_gene.choice(eligible_indices, size=args.n_perturbed_genes, replace=False)
+            gene_indices = rng_gene.choice(
+                eligible_indices, size=args.n_perturbed_genes, replace=False
+            )
 
             # Global Δ for this geneset (shuffled copy of template)
             delta_vec = delta_vec_template.copy()
@@ -673,11 +776,13 @@ def main():
             geneset_dir = split_dir / f"geneset_{geneset_idx:03d}"
             genes_csv_path = geneset_dir / "genes.csv"
             if (not genes_csv_path.exists()) or args.clobber:
-                df_csv = pd.DataFrame({
-                    "gene_id": ad_case_base.var_names[gene_indices].values,
-                    "log2fc": [float(x) for x in delta_vec],
-                    "factor": [float(2.0 ** x) for x in delta_vec],
-                })
+                df_csv = pd.DataFrame(
+                    {
+                        "gene_id": ad_case_base.var_names[gene_indices].values,
+                        "log2fc": [float(x) for x in delta_vec],
+                        "factor": [float(2.0**x) for x in delta_vec],
+                    }
+                )
                 df_csv.to_csv(genes_csv_path, index=False)
 
             # Validate that each requested cell type exists in CASE base before downsampling
@@ -692,26 +797,33 @@ def main():
 
             # === Replicates mean: RESAMPLE ONCE, then fan out over (c, d) ===
             for rep in range(1, args.num_reps + 1):
-                print(f"[geneset {geneset_idx:03d}] Subject-parallel resampling (rep {rep:03d})...")
+                print(
+                    f"[geneset {geneset_idx:03d}] Subject-parallel resampling (rep {rep:03d})..."
+                )
 
                 # get the resampled case matrix
                 case_resampled_csr = resample_case_once_subject_parallel(
                     ad_case_base=ad_case_base,
                     gene_indices_perturbed=gene_indices,
                     log2fc_perturbed=delta_vec,
-                    eligible_mask_global=eligible_mask_global,   # currently unused (rebalance is a no-op)
+                    eligible_mask_global=eligible_mask_global,  # currently unused (rebalance is a no-op)
                     subject_id_col=args.subject_id_col,
                     theta_global=theta_global,
                     use_subject_theta=bool(args.subject_theta),
                     theta_shrinkage_k=float(args.theta_shrinkage_k),
-                    seed_base=args.seed + 37*geneset_idx + 7919*rep,       # any deterministic mix
-                    procs=procs
+                    seed_base=args.seed
+                    + 37 * geneset_idx
+                    + 7919 * rep,  # any deterministic mix
+                    procs=procs,
                 )
 
                 # Fan out over cell types / keep fracs (cheap; can parallelize if desired)
                 for c in args.cell_types:
                     for k in args.keep_fracs:
-                        out_path = geneset_dir / f"{slogan}__case__rep_{rep:03d}__{c}_keep_{k}.h5ad"
+                        out_path = (
+                            geneset_dir
+                            / f"{slogan}__case__rep_{rep:03d}__{c}_keep_{k}.h5ad"
+                        )
                         if out_path.exists() and not args.clobber:
                             print(f"Skipping existing case file: {out_path}")
                             continue
@@ -724,8 +836,15 @@ def main():
                             "keep_frac": float(k),
                             "replicate": int(rep),
                             "perturbed_genes": {
-                                gname: {"log2fc": float(delta), "factor": float(2.0**delta)}
-                                for gname, delta in zip(ad_case_base.var_names[gene_indices].values, delta_vec)}
+                                gname: {
+                                    "log2fc": float(delta),
+                                    "factor": float(2.0**delta),
+                                }
+                                for gname, delta in zip(
+                                    ad_case_base.var_names[gene_indices].values,
+                                    delta_vec,
+                                )
+                            },
                         }
 
                         downsample_case_and_save(
@@ -737,7 +856,12 @@ def main():
                             out_path=out_path,
                             simulation_meta=sim_meta,
                             clobber=args.clobber,
-                            seed= args.seed + (split_idx+1) + (2*geneset_idx+1) + (3*rep+1) + 4*(hash(c)) + 5*(k+1)
+                            seed=args.seed
+                            + (split_idx + 1)
+                            + (2 * geneset_idx + 1)
+                            + (3 * rep + 1)
+                            + 4 * (hash(c))
+                            + 5 * (k + 1),
                         )
     print("Done.")
 
