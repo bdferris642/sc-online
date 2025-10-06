@@ -207,6 +207,10 @@ if (N_SVS > 0){
     } else {
         SVA_CTR_COLS = NULL
     }
+} else {
+    RUN_SVA = FALSE
+    SVA_COLS=NULL
+    SVA_CTR_COLS = NULL
 }
 all_cols = sort(unique(c(GROUPING_COLS,CONTRAST_COL,CLUSTER_COL,SAMPLE_COL,SVA_COLS,SVA_CTR_COLS)))
 if (! all(all_cols %in% colnames(md))){
