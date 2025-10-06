@@ -11,6 +11,7 @@ Hierarchy:
         ├── save CSV of {gene_id, log2fc, factor}
         └── For (rep in 1..N) × each (c in C) × (keep_frac in D)  
             ├── perturb n-perturb genes with fixed Δ (evenly spaced in [-2, -.1], [.1, 2]), NB resample
+                perturbing a random fraction of the case subjects, leaving others unchanged 
             ├── TODO: library balancing of non-perturbed (eligible) genes per cell (∝ counts)
             ├── downsample target cell type c by keep_frac (others unchanged)
             └── save case h5ad
