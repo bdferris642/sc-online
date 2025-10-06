@@ -334,13 +334,13 @@ def parse_args():
         "--min-total-counts-gene-thresh",
         type=int,
         default=200,
-        help="Minimum total counts across all cells to consider a gene ELIGIBLE (no matrix filtering).",
+        help="Minimum total counts across all cells to consider a gene ELIGIBLE for perturbation (no matrix filtering).",
     )
     p.add_argument(
-        "--min-pct-expressed-gene-thresh",
+        "--min-frac-expressed-gene-thresh",
         type=float,
         default=0.01,
-        help="Minimum fraction of cells with count>0 to consider a gene ELIGIBLE (no matrix filtering).",
+        help="Minimum fraction of cells with count>0 to consider a gene ELIGIBLE for perturbation (no matrix filtering).",
     )
     p.add_argument("--seed", type=int, default=12345, help="Base RNG seed.")
     p.add_argument(
@@ -370,7 +370,7 @@ def parse_args():
     p.add_argument(
         "--rebalance",
         action="store_true",
-        help="Use iterative multinomial rebalancing to adjust library sizes per cell.",
+        help="CURRENTLY A NO-OP. TODO: Use iterative multinomial rebalancing to adjust library sizes per cell. ",
     )
 
     # p.add_argument("--subject-lfc-sd", type=float, default=0,
@@ -762,7 +762,7 @@ def main():
 
         for geneset_idx in range(1, args.num_gene_sets + 1):
             # Pick args.n_perturbed_genes perturbed genes ONLY from eligible set (global indexing)
-            rng_gene = np.random.default_rng(args.seed + 1000 * geneset_idx)
+            rng_gene = np.random.default_rng(args.seed + 100 * geneset_idx)
             eligible_indices = np.flatnonzero(eligible_mask_global)
             gene_indices = rng_gene.choice(
                 eligible_indices, size=args.n_perturbed_genes, replace=False
@@ -774,6 +774,7 @@ def main():
 
             # Write genes.csv once per geneset (global Δ/factors)
             geneset_dir = split_dir / f"geneset_{geneset_idx:03d}"
+            geneset_dir.mkdir(parents=True, exist_ok=True)
             genes_csv_path = geneset_dir / "genes.csv"
             if (not genes_csv_path.exists()) or args.clobber:
                 df_csv = pd.DataFrame(
@@ -818,8 +819,8 @@ def main():
                 )
 
                 # Fan out over cell types / keep fracs (cheap; can parallelize if desired)
-                for c in args.cell_types:
-                    for k in args.keep_fracs:
+                for ic, c in enumerate(args.cell_types):
+                    for ik, k in enumerate(args.keep_fracs):
                         out_path = (
                             geneset_dir
                             / f"{slogan}__case__rep_{rep:03d}__{c}_keep_{k}.h5ad"
@@ -860,8 +861,8 @@ def main():
                             + (split_idx + 1)
                             + (2 * geneset_idx + 1)
                             + (3 * rep + 1)
-                            + 4 * (hash(c))
-                            + 5 * (k + 1),
+                            + 4 * (ic + 1)
+                            + 5 * (ik + 1),
                         )
     print("Done.")
 
