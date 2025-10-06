@@ -76,6 +76,54 @@ def add_case_control_flag(adata: ad.AnnData, label: str):
     )
 
 
+def assign_gene_effects_to_subjects(
+    n_genes: int,
+    case_subject_ids: np.ndarray,  # shape (S,) strings
+    logfc_levels: np.ndarray,  # shape (L,), includes neg & pos sides together
+    frac_levels: np.ndarray,  # shape (F,)
+    seed: int,
+) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
+    """
+    Create a per-gene-by-subject Δ matrix and per-gene metadata.
+
+    Returns
+    -------
+    delta_mat : np.ndarray, shape (n_genes, S)
+        Entry [g, s] = Δ (0 if not applied to subject s).
+    meta_list : list of dicts, length n_genes
+        Each dict has: {'log2fc': float, 'frac_applied': float, 'n_subjects': int, 'subjects_applied': List[str]}
+    """
+    rng = np.random.default_rng(seed)
+    S = int(case_subject_ids.size)
+    combos = [
+        (float(d), float(f)) for d in logfc_levels for f in frac_levels
+    ]  # length K = L*F
+    rng.shuffle(combos)  # deterministic shuffle
+    K = len(combos)
+
+    # Fill exactly n_genes: cycle combos and take first n_genes of the cycled list
+    repeats = (n_genes + K - 1) // K
+    pool = (combos * repeats)[:n_genes]
+
+    delta_mat = np.zeros((n_genes, S), dtype=float)
+    meta_list: List[Dict[str, Any]] = []
+
+    for g_idx, (delta_val, frac_val) in enumerate(pool):
+        n_apply = int(np.clip(round(frac_val * S), 1, S))
+        apply_idx = rng.choice(S, size=n_apply, replace=False)
+        delta_mat[g_idx, apply_idx] = delta_val
+        subj_applied = [str(case_subject_ids[i]) for i in sorted(apply_idx.tolist())]
+        meta_list.append(
+            {
+                "log2fc": float(delta_val),
+                "frac_applied": float(frac_val),
+                "n_subjects": int(n_apply),
+                "subjects_applied": subj_applied,
+            }
+        )
+    return delta_mat, meta_list
+
+
 def basename_noext(path: str) -> str:
     b = os.path.basename(path)
     if b.endswith(".h5ad"):
@@ -93,6 +141,30 @@ def build_delta_vector(num_genes: int = 400) -> np.ndarray:
     rng = np.random.default_rng(0)
     rng.shuffle(vec)
     return vec
+
+
+def build_frac_grid(num_levels: int, fmin: float, fmax: float) -> np.ndarray:
+    """
+    Evenly spaced fractions in [fmin, fmax], shape (num_levels,).
+    """
+    return np.linspace(float(fmin), float(fmax), int(num_levels))
+
+
+def build_logfc_grid(
+    num_per_sign: int, min_abs: float, max_abs: float, *, include_endpoints: bool = True
+) -> np.ndarray:
+    """
+    Evenly spaced log2FC values, symmetric around 0:
+    [-max_abs .. -min_abs] and [min_abs .. max_abs], with `num_per_sign` per side.
+    Returns shape (2*num_per_sign,).
+    """
+    if include_endpoints:
+        neg = np.linspace(-max_abs, -min_abs, num_per_sign)
+        pos = np.linspace(min_abs, max_abs, num_per_sign)
+    else:
+        neg = np.linspace(-max_abs, -min_abs, num_per_sign, endpoint=False)
+        pos = np.linspace(min_abs, max_abs, num_per_sign, endpoint=False)
+    return np.concatenate([neg, pos])
 
 
 def compute_eligible_gene_mask(
@@ -372,6 +444,39 @@ def parse_args():
         action="store_true",
         help="CURRENTLY A NO-OP. TODO: Use iterative multinomial rebalancing to adjust library sizes per cell. ",
     )
+    p.add_argument(
+        "--num-logfc-per-sign",
+        type=int,
+        default=5,
+        help="Number of evenly spaced log2FC levels on each side (negative and positive).",
+    )
+    p.add_argument(
+        "--logfc-min-abs",
+        type=float,
+        default=0.1,
+        help="Minimum absolute log2FC (exclusive of 0).",
+    )
+    p.add_argument(
+        "--logfc-max-abs", type=float, default=0.2, help="Maximum absolute log2FC."
+    )
+    p.add_argument(
+        "--num-frac-levels",
+        type=int,
+        default=10,
+        help="Number of evenly spaced fractions in [0.1, 1.0] for fraction of case subjects perturbed.",
+    )
+    p.add_argument(
+        "--frac-min",
+        type=float,
+        default=0.1,
+        help="Minimum fraction of case subjects to perturb (inclusive).",
+    )
+    p.add_argument(
+        "--frac-max",
+        type=float,
+        default=1.0,
+        help="Maximum fraction of case subjects to perturb (inclusive).",
+    )
 
     # p.add_argument("--subject-lfc-sd", type=float, default=0,
     #                help="Std dev of subject-level log2FC around the global Δ for each perturbed gene. Default 0 (no variation).")
@@ -389,7 +494,7 @@ def rebalance_counts() -> None:
 def resample_case_once_subject_parallel(
     ad_case_base: ad.AnnData,
     gene_indices_perturbed: np.ndarray,
-    log2fc_perturbed: np.ndarray,
+    delta_mat: np.ndarray,
     eligible_mask_global: np.ndarray,
     subject_id_col: str,
     theta_global: np.ndarray,
@@ -432,11 +537,11 @@ def resample_case_once_subject_parallel(
             subject_index=s,
             rows_for_subject=rows_by_subject[s],
             gene_indices_perturbed=gene_indices_perturbed,
-            log2fc_perturbed=log2fc_perturbed,
+            log2fc_perturbed=delta_mat[:, s],
             theta_global=theta_global,
             use_subject_theta=bool(use_subject_theta),
             theta_shrinkage_k=float(theta_shrinkage_k),
-            seed=int(seed_base + 10007 * (s + 1)),
+            seed=int(seed_base + s),
         )
         for s in range(n_subjects)
     ]
@@ -658,12 +763,18 @@ def _subject_resample_worker(job: SubjectJob) -> Tuple[int, np.ndarray, np.ndarr
 
     # ---- sample perturbed genes for this subject ----
     # Prepare output block: (cells_s x n_perturb)
-    sampled_block = np.empty((n_cells_s, n_perturb), dtype=np.int32)
+    old_block = Xs_csr[:, gene_indices_perturbed].toarray().astype(np.int32, copy=False)
+    sampled_block = old_block.copy()
 
-    # Use CSC view for fast old-column reads if/when needed later (parent computes deltas).
-    # Here, we only need μ_s and θ to sample new counts.
-    for j_local, gidx in enumerate(gene_indices_perturbed):
-        mu_prime = (2.0 ** float(log2fc_perturbed[j_local])) * float(mu_s[gidx])
+    deltas_subject = np.asarray(log2fc_perturbed, dtype=float)
+    nonzero_cols = np.flatnonzero(deltas_subject != 0.0)
+    if nonzero_cols.size == 0:
+        return (subject_index, rows_for_subject, sampled_block)
+
+    # Sample only where Δ ≠ 0
+    for j_local in nonzero_cols:
+        gidx = int(gene_indices_perturbed[j_local])
+        mu_prime = (2.0 ** float(deltas_subject[j_local])) * float(mu_s[gidx])
         theta_j = float(theta_effective[gidx])
         if mu_prime <= 0.0 or n_cells_s == 0:
             sampled_block[:, j_local] = 0
@@ -722,9 +833,6 @@ def main():
     # Processes
     procs = min(cpu_count(), 40) if args.processes is None else max(1, args.processes)
 
-    # Δ template for perturbed genes (vector of floats of length n_perturbed_genes)
-    delta_vec_template = build_delta_vector(args.n_perturbed_genes)
-
     for split_idx in range(1, args.num_splits + 1):
         dirname = os.path.dirname(base_path)
         slogan = basename_noext(base_path)
@@ -762,29 +870,51 @@ def main():
 
         for geneset_idx in range(1, args.num_gene_sets + 1):
             # Pick args.n_perturbed_genes perturbed genes ONLY from eligible set (global indexing)
-            rng_gene = np.random.default_rng(args.seed + 100 * geneset_idx)
+            rng_gene = np.random.default_rng(args.seed + geneset_idx)
             eligible_indices = np.flatnonzero(eligible_mask_global)
             gene_indices = rng_gene.choice(
                 eligible_indices, size=args.n_perturbed_genes, replace=False
             )
 
-            # Global Δ for this geneset (shuffled copy of template)
-            delta_vec = delta_vec_template.copy()
-            rng_gene.shuffle(delta_vec)
+            # Case-subject IDs (stable order matches factorization used later)
+            case_subject_ids = (
+                ad_case_base.obs[args.subject_id_col].astype(str).unique()
+            )
+            case_subject_ids.sort()  # to match factorize(sort=True)
 
-            # Write genes.csv once per geneset (global Δ/factors)
+            # Build grids and per-gene, per-subject Δ matrix (deterministic)
+            logfc_levels = build_logfc_grid(
+                args.num_logfc_per_sign, args.logfc_min_abs, args.logfc_max_abs
+            )
+            frac_levels = build_frac_grid(
+                args.num_frac_levels, args.frac_min, args.frac_max
+            )
+
+            delta_mat, gene_meta_list = assign_gene_effects_to_subjects(
+                n_genes=args.n_perturbed_genes,
+                case_subject_ids=case_subject_ids,
+                logfc_levels=logfc_levels,
+                frac_levels=frac_levels,
+                seed=args.seed + (split_idx + 1) + 2 * (geneset_idx + 1),
+            )
+
+            # Write genes.csv (including per-gene metadata + subject IDs)
             geneset_dir = split_dir / f"geneset_{geneset_idx:03d}"
             geneset_dir.mkdir(parents=True, exist_ok=True)
             genes_csv_path = geneset_dir / "genes.csv"
             if (not genes_csv_path.exists()) or args.clobber:
-                df_csv = pd.DataFrame(
+                df_genes = pd.DataFrame(
                     {
                         "gene_id": ad_case_base.var_names[gene_indices].values,
-                        "log2fc": [float(x) for x in delta_vec],
-                        "factor": [float(2.0**x) for x in delta_vec],
+                        "log2fc": [m["log2fc"] for m in gene_meta_list],
+                        "frac_applied": [m["frac_applied"] for m in gene_meta_list],
+                        "n_subjects_applied": [m["n_subjects"] for m in gene_meta_list],
+                        "subjects_applied": [
+                            ",".join(m["subjects_applied"]) for m in gene_meta_list
+                        ],
                     }
                 )
-                df_csv.to_csv(genes_csv_path, index=False)
+                df_genes.to_csv(genes_csv_path, index=False)
 
             # Validate that each requested cell type exists in CASE base before downsampling
             cell_type_col = args.cell_type_col
@@ -806,15 +936,13 @@ def main():
                 case_resampled_csr = resample_case_once_subject_parallel(
                     ad_case_base=ad_case_base,
                     gene_indices_perturbed=gene_indices,
-                    log2fc_perturbed=delta_vec,
+                    delta_mat=delta_mat,
                     eligible_mask_global=eligible_mask_global,  # currently unused (rebalance is a no-op)
                     subject_id_col=args.subject_id_col,
                     theta_global=theta_global,
                     use_subject_theta=bool(args.subject_theta),
                     theta_shrinkage_k=float(args.theta_shrinkage_k),
-                    seed_base=args.seed
-                    + 37 * geneset_idx
-                    + 7919 * rep,  # any deterministic mix
+                    seed_base=args.seed + (2 * (geneset_idx + 1)) + (3 * (rep + 1)),
                     procs=procs,
                 )
 
@@ -838,13 +966,32 @@ def main():
                             "replicate": int(rep),
                             "perturbed_genes": {
                                 gname: {
-                                    "log2fc": float(delta),
-                                    "factor": float(2.0**delta),
+                                    "log2fc": float(
+                                        df_genes.log2fc[df_genes.gene_id == gname]
+                                    ),
+                                    "factor": float(
+                                        2.0
+                                        ** df_genes.log2fc[df_genes.gene_id == gname]
+                                    ),
+                                    "frac_applied": float(
+                                        df_genes.frac_applied[df_genes.gene_id == gname]
+                                    ),
+                                    "n_subjects_applied": int(
+                                        df_genes.n_subjects_applied[
+                                            df_genes.gene_id == gname
+                                        ]
+                                    ),
+                                    "subjects_applied": df_genes.subjects_applied[
+                                        df_genes.gene_id == gname
+                                    ].split(",")
+                                    if pd.notna(
+                                        df_genes.subjects_applied[
+                                            df_genes.gene_id == gname
+                                        ]
+                                    )
+                                    else [],
                                 }
-                                for gname, delta in zip(
-                                    ad_case_base.var_names[gene_indices].values,
-                                    delta_vec,
-                                )
+                                for gname in ad_case_base.var_names[gene_indices].values
                             },
                         }
 
@@ -859,10 +1006,10 @@ def main():
                             clobber=args.clobber,
                             seed=args.seed
                             + (split_idx + 1)
-                            + (2 * geneset_idx + 1)
-                            + (3 * rep + 1)
-                            + 4 * (ic + 1)
-                            + 5 * (ik + 1),
+                            + (2 * (geneset_idx + 1))
+                            + (3 * (rep + 1))
+                            + (4 * (ic + 1))
+                            + (5 * (ik + 1)),
                         )
     print("Done.")
 
