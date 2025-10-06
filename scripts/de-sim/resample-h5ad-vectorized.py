@@ -5,23 +5,23 @@
 Simulate subject-level case/control data with gene-set perturbations and cell-type downsampling.
 
 Hierarchy:
-  Subject split s (= g): 50/50 (by some subject_id) with fixed RNG 
+  Subject split s (= g): 50/50 (by some subject_id) with fixed RNG
     ├── control.h5ad  (unperturbed controls for that split)
     └── GeneSet g = 1..G
         ├── save CSV of {gene_id, log2fc, factor}
-        └── For (rep in 1..N) × each (c in C) × (keep_frac in D)  
+        └── For (rep in 1..N) × each (c in C) × (keep_frac in D)
             ├── perturb n-perturb genes with fixed Δ (evenly spaced in [-2, -.1], [.1, 2]), NB resample
-                perturbing a random fraction of the case subjects, leaving others unchanged 
+                perturbing a random fraction of the case subjects, leaving others unchanged
             ├── TODO: library balancing of non-perturbed (eligible) genes per cell (∝ counts)
             ├── downsample target cell type c by keep_frac (others unchanged)
             └── save case h5ad
-            
+
 Filenames & layout (dirname and slogan extracted from --path):
-    {dirname}/simulations/{slogan}/split_{split_idx:03d}/
-        {slogan}__control.h5ad
-        geneset_{geneset_idx:03d}/
-            genes.csv
-            {slogan}__case__rep_{rep:03d}__{c}_keep_{k}.h5ad
+    {dirname}/simulations/variable_subject_perturbation/{slogan}/split_{split_idx:03d}/
+        ├── {slogan}__control.h5ad
+        └── geneset_{geneset_idx:03d}/
+            ├── genes.csv
+            └── {slogan}__case__rep_{rep:03d}__{c}_keep_{k}.h5ad
 
 Notes:
 - Eligible genes are computed on the full dataset BEFORE splitting:
@@ -41,6 +41,8 @@ os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 
 import argparse
+from datetime import datetime
+import json
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
 from typing import Any, Dict, List, Optional, NamedTuple, Tuple
@@ -130,18 +132,6 @@ def basename_noext(path: str) -> str:
     if b.endswith(".h5ad"):
         b = b[:-5]
     return b
-
-
-def build_delta_vector(num_genes: int = 400) -> np.ndarray:
-    """
-    Build evenly spaced Δ in [-2, -0.1], [0.1, 2]
-    """
-    grid_neg = np.linspace(-2, -0.1, num_genes // 2)
-    grid_pos = np.linspace(0.1, 2, num_genes - len(grid_neg))
-    vec = np.concatenate([grid_neg, grid_pos])
-    rng = np.random.default_rng(0)
-    rng.shuffle(vec)
-    return vec
 
 
 def build_frac_grid(num_levels: int, fmin: float, fmax: float) -> np.ndarray:
@@ -366,7 +356,7 @@ def parse_args():
     p.add_argument(
         "--n-perturbed-genes",
         type=int,
-        default=200,
+        default=400,
         help="Number of genes to perturb per gene set.",
     )
     p.add_argument(
@@ -406,7 +396,7 @@ def parse_args():
     p.add_argument(
         "--min-total-counts-gene-thresh",
         type=int,
-        default=200,
+        default=100,
         help="Minimum total counts across all cells to consider a gene ELIGIBLE for perturbation (no matrix filtering).",
     )
     p.add_argument(
@@ -448,7 +438,7 @@ def parse_args():
     p.add_argument(
         "--num-logfc-per-sign",
         type=int,
-        default=5,
+        default=10,
         help="Number of evenly spaced log2FC levels on each side (negative and positive).",
     )
     p.add_argument(
@@ -458,7 +448,7 @@ def parse_args():
         help="Minimum absolute log2FC (exclusive of 0).",
     )
     p.add_argument(
-        "--logfc-max-abs", type=float, default=0.2, help="Maximum absolute log2FC."
+        "--logfc-max-abs", type=float, default=2, help="Maximum absolute log2FC."
     )
     p.add_argument(
         "--num-frac-levels",
@@ -795,6 +785,19 @@ def main():
     base_path = args.path
     slogan = basename_noext(base_path)
 
+    # write argument parsing to json in the same directory as the input h5ad, including date stamp in filename
+    date_str = datetime.now().strftime("%y%m%d-%H%M%S")
+    args_out = (
+        Path(os.path.dirname(base_path))
+        / "input_args"
+        / f"{slogan}__simulation-args-{date_str}.json"
+    )
+
+    args_out.parent.mkdir(parents=True, exist_ok=True)
+    with open(args_out, "w") as f:
+        json.dump(vars(args), f, indent=2)
+    print(f"Input args written to: {args_out}")
+
     print("Loading data...")
     adata = ad.read_h5ad(base_path, backed=None)  # in-memory
 
@@ -838,7 +841,10 @@ def main():
         dirname = os.path.dirname(base_path)
         slogan = basename_noext(base_path)
         split_dir = (
-            Path(dirname) / "simulations" / f"{slogan}" / f"split_{split_idx:03d}"
+            Path(dirname)
+            / "simulations/variable_subject_perturbation"
+            / f"{slogan}"
+            / f"split_{split_idx:03d}"
         )
         split_dir.mkdir(parents=True, exist_ok=True)
 
@@ -959,6 +965,7 @@ def main():
                             continue
 
                         sim_meta = {
+                            "run_date": date_str,
                             "split": split_idx,
                             "geneset": geneset_idx,
                             "case_control": "case",
@@ -984,13 +991,7 @@ def main():
                                     ),
                                     "subjects_applied": df_genes.subjects_applied[
                                         df_genes.gene_id == gname
-                                    ].split(",")
-                                    if pd.notna(
-                                        df_genes.subjects_applied[
-                                            df_genes.gene_id == gname
-                                        ]
-                                    )
-                                    else [],
+                                    ].split(","),
                                 }
                                 for gname in ad_case_base.var_names[gene_indices].values
                             },
