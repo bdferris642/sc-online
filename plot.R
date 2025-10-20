@@ -26,6 +26,16 @@ col2hex <- function(x, alpha = FALSE) {
   do.call(rgb, args)
 }
 
+str2title = function(s){
+    # replace _ with space
+    s = gsub("_", " ", s)
+    
+    # and then convert first character of each word to uppercase
+    s = gsub("(^|[[:space:]])([[:alpha:]])", "\\1\\U\\2", s, perl = TRUE)
+
+    return(s)     
+}
+
 display_plot_grid = function(plot_list, nrow, ncol, row_labels=NULL, col_labels=NULL, label_font_size=12) {
   num_plots <- length(plot_list)
   chunk_size <- nrow * ncol
