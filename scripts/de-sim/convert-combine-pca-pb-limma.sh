@@ -31,9 +31,9 @@ if (( ${#pos[@]} >= 3 )); then geneset="${pos[2]}"; fi
 
 # ----------------- paths -----------------
 slogan="zonated_objs_combined_with_md"
-GS_LOC="gs://macosko_data/ferris/bican/simulations/spn_type/split_001"
+GS_LOC="gs://macosko_data/ferris/bican/simulations/variable_subject_perturbation/spn_type/split_001"
 
-split_dir="/mnt/accessory/seq_data/bican_str/zonated_objs/simulations/${slogan}/split_001"
+split_dir="/mnt/accessory/seq_data/bican_str/zonated_objs/simulations/variable_subject_perturbation/${slogan}/split_001"
 geneset_dir="${split_dir}/${geneset}"
 ctr_qs="${split_dir}/${slogan}__control.qs"
 
@@ -88,7 +88,7 @@ if (( START_AT_STEP <= 4 )); then
   echo "Step 4: Combine control with each case qs …"
   find "$geneset_dir" -maxdepth 1 -type f -name '*__case__*.qs' -print0 \
     | xargs -0 -I @ echo Rscript "$HOME/sc-online/scripts/combine-sobj-qs.R" \
-      --p1="${ctr_qs}" --p2=@ --out-dir="${geneset_dir}" | parallel -j 2
+      --p1="${ctr_qs}" --p2=@ --out-dir="${geneset_dir}" | bash
 
   if (( STOP_AFTER_STEP == 4 )); then
     echo "Stopping after step 4 as requested."
@@ -104,9 +104,9 @@ if (( START_AT_STEP <= 5 )); then
   find "$geneset_dir" -maxdepth 1 -type f -name '*__combined__*.qs' -print0 \
     | xargs -0 -I @ echo Rscript "$HOME/sc-online/scripts/make-pseudobulks.R" \
         --path=@ --contrast-col=case_control --sample-col=donor_id \
-        --grouping-cols=donor_id,library,case_control,Biobank,Age.at.Death,Sex,Race,Ethnicity,PMI \
+        --grouping-cols=donor_id,library,case_control,Biobank,Age.at.Death,Sex,PMI \
         --cols-to-weighted-avg=pct_mt,pct_intronic,PC_1,PC_2,PC_3,PC_4,PC_5,PC_6,PC_7,PC_8,PC_9,PC_10,PC_11,PC_12,PC_13,PC_14,PC_15,PC_16,PC_17,PC_18,PC_19,PC_20 \
-        --n-svs=0 | parallel -j 3
+        --n-svs=0 | parallel -j 6
 
   # Consolidate .qs into the pseudobulk dir (if the R script wrote elsewhere)
   find "${geneset_dir}/pseudobulk" -type f -name '*.qs' -print0 \
@@ -125,25 +125,61 @@ if (( START_AT_STEP <= 6 )); then
   mkdir -p "${split_dir}/de_results/${geneset}"
 
   # 6a) vanilla
-  find "$pb_dir" -maxdepth 1 -type f -name '*.qs' -print0 \
-    | xargs -0 -I @ echo Rscript "$HOME/sc-online/scripts/run-limma-v2.R" \
-        --path=@ --contrast-col=case_control --rand-var=donor_id --num-threads=1 \
+  find "$pb_dir" -maxdepth 1 -type f -name '*.qs' -print0 | \
+    xargs -0 -I @ bash -c '
+      abs=$(realpath "@")
+      b=$(basename "@")
+      IFS="__" read -r _ _ f3 f4 _ <<< "$b"
+      concat_suffix=$(awk -F"__" '"'"'{print $3"_"$4}'"'"' <<< "$b")
+      echo Rscript "$HOME/sc-online/scripts/run-limma-v2.R" \
+        --path=$abs \
+        --contrast-col=case_control \
+        --rand-var=donor_id \
+        --num-threads=1 \
         --cov-list=case_control,Age.at.Death,Sex,PMI,pct_mt,pct_intronic,log10_nUMI \
-        --suffix=vanilla --calc-purity=F | parallel -j 3
+        --suffix="vanilla__${concat_suffix}" \
+        --calc-purity=T
+    ' | parallel -j 6
 
   # 6b) + 4 PCs
-  find "$pb_dir" -maxdepth 1 -type f -name '*.qs' -print0 \
-    | xargs -0 -I @ echo Rscript "$HOME/sc-online/scripts/run-limma-v2.R" \
-        --path=@ --contrast-col=case_control --rand-var=donor_id --num-threads=1 \
+  find "$pb_dir" -maxdepth 1 -type f -name '*.qs' -print0 | \
+    xargs -0 -I @ bash -c '
+      abs=$(realpath "@")
+      b=$(basename "@")
+      IFS="__" read -r _ _ f3 f4 _ <<< "$b"
+      concat_suffix=$(awk -F"__" '"'"'{print $3"_"$4}'"'"' <<< "$b")
+      echo Rscript "$HOME/sc-online/scripts/run-limma-v2.R" \
+        --path=$abs \
+        --contrast-col=case_control \
+        --rand-var=donor_id \
+        --num-threads=1 \
         --cov-list=case_control,Age.at.Death,Sex,PMI,pct_mt,pct_intronic,log10_nUMI,PC_1,PC_2,PC_3,PC_4 \
-        --suffix=4pcs --calc-purity=F | parallel -j 3
+        --suffix="4pcs__${concat_suffix}" \
+        --calc-purity=T
+    ' | parallel -j 6
 
   # 6c) + 20 PCs
-  find "$pb_dir" -maxdepth 1 -type f -name '*.qs' -print0 \
-    | xargs -0 -I @ echo Rscript "$HOME/sc-online/scripts/run-limma-v2.R" \
-        --path=@ --contrast-col=case_control --rand-var=donor_id --num-threads=1 \
+  find "$pb_dir" -maxdepth 1 -type f -name '*.qs' -print0 | \
+    xargs -0 -I @ bash -c '
+      abs=$(realpath "@")
+      b=$(basename "@")
+      IFS="__" read -r _ _ f3 f4 _ <<< "$b"
+      concat_suffix=$(awk -F"__" '"'"'{print $3"_"$4}'"'"' <<< "$b")
+      echo Rscript "$HOME/sc-online/scripts/run-limma-v2.R" \
+        --path=$abs \
+        --contrast-col=case_control \
+        --rand-var=donor_id \
+        --num-threads=1 \
         --cov-list=case_control,Age.at.Death,Sex,PMI,pct_mt,pct_intronic,log10_nUMI,PC_1,PC_2,PC_3,PC_4,PC_5,PC_6,PC_7,PC_8,PC_9,PC_10,PC_11,PC_12,PC_13,PC_14,PC_15,PC_16,PC_17,PC_18,PC_19,PC_20 \
-        --suffix=20pcs --calc-purity=F | parallel -j 3
+        --suffix="20pcs__${concat_suffix}" \
+        --calc-purity=T
+    ' | parallel -j 6
+
+
+  # Copy all results to the de_results dir
+  mkdir -p "${split_dir}/de_results/${geneset}"
+  find "$pb_dir" -type f -name '*case_control.csv' -print0 | \
+    xargs -0 -I @ cp @ "${split_dir}/de_results/${geneset}"
 
   # Ship to GCS
   gcloud storage mv "${geneset_dir}" "${GS_LOC}/"
