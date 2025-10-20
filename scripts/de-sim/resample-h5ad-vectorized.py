@@ -8,7 +8,7 @@ Hierarchy:
   Subject split s (= g): 50/50 (by some subject_id) with fixed RNG
     ├── control.h5ad  (unperturbed controls for that split)
     └── GeneSet g = 1..G
-        ├── save CSV of {gene_id, log2fc, factor}
+        ├── save CSV of {gene, logFC_perturbed...}
         └── For (rep in 1..N) × each (c in C) × (keep_frac in D)
             ├── perturb n-perturb genes with fixed Δ (evenly spaced in [-2, -.1], [.1, 2]), NB resample
                 perturbing a random fraction of the case subjects, leaving others unchanged
@@ -84,6 +84,7 @@ def assign_gene_effects_to_subjects(
     case_subject_ids: np.ndarray,  # shape (S,) strings
     logfc_levels: np.ndarray,  # shape (L,), includes neg & pos sides together
     frac_levels: np.ndarray,  # shape (F,)
+    sd_vals: np.ndarray,  # shape (M,), std devs for Gaussian noise around Δ
     seed: int,
 ) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
     """
@@ -98,32 +99,40 @@ def assign_gene_effects_to_subjects(
     """
     rng = np.random.default_rng(seed)
     S = int(case_subject_ids.size)
-    combos = [
-        (float(d), float(f)) for d in logfc_levels for f in frac_levels
-    ]  # length K = L*F
-    rng.shuffle(combos)  # deterministic shuffle
-    K = len(combos)
+    if not all([f == 1 for f in frac_levels]):
+        combos = [
+            (float(d), float(f)) for d in logfc_levels for f in frac_levels
+        ]  # length K = L*F
+        rng.shuffle(combos)  # deterministic shuffle
+        K = len(combos)
 
-    # Fill exactly n_genes: cycle combos and take first n_genes of the cycled list
-    repeats = (n_genes + K - 1) // K
-    pool = (combos * repeats)[:n_genes]
+        # Fill exactly n_genes: cycle combos and take first n_genes of the cycled list
+        repeats = (n_genes + K - 1) // K
+        pool = (combos * repeats)[:n_genes]
 
-    delta_mat = np.zeros((n_genes, S), dtype=float)
-    meta_list: List[Dict[str, Any]] = []
+        delta_mat = np.zeros((n_genes, S), dtype=float)
+        meta_list: List[Dict[str, Any]] = []
 
-    for g_idx, (delta_val, frac_val) in enumerate(pool):
-        n_apply = int(np.clip(round(frac_val * S), 1, S))
-        apply_idx = rng.choice(S, size=n_apply, replace=False)
-        delta_mat[g_idx, apply_idx] = delta_val
-        subj_applied = [str(case_subject_ids[i]) for i in sorted(apply_idx.tolist())]
-        meta_list.append(
-            {
-                "log2fc": float(delta_val),
-                "frac_applied": float(frac_val),
-                "n_subjects": int(n_apply),
-                "subjects_applied": subj_applied,
-            }
-        )
+        for g_idx, (delta_val, frac_val) in enumerate(pool):
+            n_apply = int(np.clip(round(frac_val * S), 1, S))
+            apply_idx = rng.choice(S, size=n_apply, replace=False)
+            delta_mat[g_idx, apply_idx] = delta_val
+            subj_applied = [str(case_subject_ids[i]) for i in sorted(apply_idx.tolist())]
+            meta_list.append(
+                {
+                    "log2fc": float(delta_val),
+                    "frac_applied": float(frac_val),
+                    "n_subjects": int(n_apply),
+                    "subjects_applied": subj_applied,
+                }
+            )
+    elif not all([sd == 0 for sd in sd_vals]):
+        # Perturb all case subjects with Gaussian noise around Δ
+        combos = [(float(d), float(sd)) for d in logfc_levels for sd in sd_vals]
+        rng.shuffle(combos)
+        K = len(combos)
+        repeats = (n_genes + K - 1) // K
+
     return delta_mat, meta_list
 
 
@@ -468,6 +477,23 @@ def parse_args():
         default=1.0,
         help="Maximum fraction of case subjects to perturb (inclusive).",
     )
+    p.add_argument(
+        "--perturb-random-fraction",
+        action="store_true",
+        help="For each gene set, randomly perturb a fraction of the case subjects (otherwise perturb all case subjects).",
+    )
+    p.add_argument(
+        "--add-subject-noise",
+        action="store_true",
+        help="For each gene, add subject-specific gaussian noise to the log2FC around a perturbation ∆ (otherwise apply same ∆ to each participant)."
+    )
+    p.add_argument(
+        "--sd-vals",
+        type=float,
+        nargs="+",
+        default=[0.0],
+        help="List of standard deviation values for Gaussian noise added to each gene's log2FC (default: 0.0 for no noise).",
+    )
 
     # p.add_argument("--subject-lfc-sd", type=float, default=0,
     #                help="Std dev of subject-level log2FC around the global Δ for each perturbed gene. Default 0 (no variation).")
@@ -782,6 +808,16 @@ def _subject_resample_worker(job: SubjectJob) -> Tuple[int, np.ndarray, np.ndarr
 def main():
     args = parse_args()
 
+    # TODO: make these arguments not mutually exclusive
+    if args.perturb_random_fraction and args.add_subject_noise:
+        raise ValueError("Cannot use both --perturb-random-fraction and --vary-subject-perturbation together.")
+
+    if args.add_subject_noise and len(args.sd_vals) == 0 or all(s == 0.0 for s in args.sd_vals):
+        raise ValueError("When using --vary-subject-perturbation, at least one non-zero --sd-vals value is required.")
+    
+    if args.perturb_random_fraction and args.frac_min == 1.0 and args.frac_max == 1.0:
+        raise ValueError("When using --perturb-random-fraction, --frac-min and --frac-max cannot both be 1.0.")
+
     base_path = args.path
     slogan = basename_noext(base_path)
 
@@ -840,9 +876,17 @@ def main():
     for split_idx in range(1, args.num_splits + 1):
         dirname = os.path.dirname(base_path)
         slogan = basename_noext(base_path)
+        if args.perturb_random_fraction:
+            subdir = "perturb_random_fraction"
+        elif args.add_subject_noise:
+            subdir = "add_subject_noise"
+        else:
+            subdir = "all_cases_perturbed_same"
+
         split_dir = (
             Path(dirname)
-            / "simulations/variable_subject_perturbation"
+            / "simulations" 
+            / f"{subdir}"
             / f"{slogan}"
             / f"split_{split_idx:03d}"
         )
@@ -893,15 +937,19 @@ def main():
             logfc_levels = build_logfc_grid(
                 args.num_logfc_per_sign, args.logfc_min_abs, args.logfc_max_abs
             )
-            frac_levels = build_frac_grid(
-                args.num_frac_levels, args.frac_min, args.frac_max
-            )
+            if args.perturb_random_fraction:
+                frac_levels = build_frac_grid(
+                    args.num_frac_levels, args.frac_min, args.frac_max
+                )
+            else:
+                frac_levels = np.array([1.0])
 
-            delta_mat, gene_meta_list = assign_gene_effects_to_subjects(
+            delta_mat, gene_meta_list, df_genes = assign_gene_effects_to_subjects(
                 n_genes=args.n_perturbed_genes,
                 case_subject_ids=case_subject_ids,
                 logfc_levels=logfc_levels,
                 frac_levels=frac_levels,
+                sd_vals = args.sd_vals if args.add_subject_noise else [0.0],
                 seed=args.seed + (split_idx + 1) + 2 * (geneset_idx + 1),
             )
 
@@ -909,18 +957,21 @@ def main():
             geneset_dir = split_dir / f"geneset_{geneset_idx:03d}"
             geneset_dir.mkdir(parents=True, exist_ok=True)
             genes_csv_path = geneset_dir / "genes.csv"
-            if (not genes_csv_path.exists()) or args.clobber:
-                df_genes = pd.DataFrame(
+            df_genes = pd.DataFrame(
                     {
-                        "gene_id": ad_case_base.var_names[gene_indices].values,
-                        "log2fc": [m["log2fc"] for m in gene_meta_list],
+                        "gene": ad_case_base.var_names[gene_indices].values,
+                        "logfc_perturbed": [m["log2fc"] for m in gene_meta_list],
                         "frac_applied": [m["frac_applied"] for m in gene_meta_list],
+                        "effective_logfc_perturbed": [m["log2fc"] * m["frac_applied"] for m in gene_meta_list],
                         "n_subjects_applied": [m["n_subjects"] for m in gene_meta_list],
                         "subjects_applied": [
                             ",".join(m["subjects_applied"]) for m in gene_meta_list
                         ],
                     }
                 )
+            
+        
+            if (not genes_csv_path.exists()) or args.clobber:
                 df_genes.to_csv(genes_csv_path, index=False)
 
             # Validate that each requested cell type exists in CASE base before downsampling
@@ -956,6 +1007,9 @@ def main():
                 # Fan out over cell types / keep fracs (cheap; can parallelize if desired)
                 for ic, c in enumerate(args.cell_types):
                     for ik, k in enumerate(args.keep_fracs):
+                        if k == 1 and ic != 0:
+                            # already done full data for first cell type
+                            continue
                         out_path = (
                             geneset_dir
                             / f"{slogan}__case__rep_{rep:03d}__{c}_keep_{k}.h5ad"
@@ -975,23 +1029,23 @@ def main():
                             "perturbed_genes": {
                                 gname: {
                                     "log2fc": float(
-                                        df_genes.log2fc[df_genes.gene_id == gname]
+                                        df_genes.log2fc[df_genes.gene == gname]
                                     ),
                                     "factor": float(
                                         2.0
-                                        ** df_genes.log2fc[df_genes.gene_id == gname]
+                                        ** df_genes.log2fc[df_genes.gene == gname]
                                     ),
                                     "frac_applied": float(
-                                        df_genes.frac_applied[df_genes.gene_id == gname]
+                                        df_genes.frac_applied[df_genes.gene == gname]
                                     ),
                                     "n_subjects_applied": int(
                                         df_genes.n_subjects_applied[
-                                            df_genes.gene_id == gname
+                                            df_genes.gene == gname
                                         ]
                                     ),
                                     "subjects_applied": df_genes.subjects_applied[
-                                        df_genes.gene_id == gname
-                                    ].split(","),
+                                        df_genes.gene == gname
+                                    ].iloc[0].split(","),
                                 }
                                 for gname in ad_case_base.var_names[gene_indices].values
                             },
@@ -1010,8 +1064,8 @@ def main():
                             + (split_idx + 1)
                             + (2 * (geneset_idx + 1))
                             + (3 * (rep + 1))
-                            + (4 * (ic + 1))
-                            + (5 * (ik + 1)),
+                            + (5 * (ic + 1))
+                            + (7 * (ik + 1)),
                         )
     print("Done.")
 
