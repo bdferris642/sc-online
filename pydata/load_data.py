@@ -131,12 +131,12 @@ def load_single_library(basepath: str, bcl: str, rna_index: str) -> None:
     mol_df = mol_df[mol_df["barcode"].isin(adata.obs.barcode)]
 
     # Summarize per barcode
-    # nUMI_mol_info = number of distinct molecule rows for that barcode
-    # nRead_mol_info = sum of 'count'
+    # mol_info_nUMI = number of distinct molecule rows for that barcode
+    # mol_info_nRead = sum of 'count'
     # frac_intronic = fraction with umi_type == 0
     mol_grouped = mol_df.groupby("barcode").agg(
-        nUMI_mol_info=("umi", "size"),
-        nRead_mol_info=("count", "sum"),
+        mol_info_nUMI=("umi", "size"),
+        mol_info_nRead=("count", "sum"),
         frac_intronic=("umi_type", lambda x: (x == 0).mean()),
     )
     df_decode_bytes_inplace(mol_grouped)
@@ -146,17 +146,31 @@ def load_single_library(basepath: str, bcl: str, rna_index: str) -> None:
         adata.obs, mol_grouped, left_on="barcode", right_index=True, how="left"
     )
 
-    adata.obs[["nUMI_mol_info", "nRead_mol_info", "frac_intronic"]] = adata.obs[
-        ["nUMI_mol_info", "nRead_mol_info", "frac_intronic"]
-    ].fillna({"nUMI_mol_info": 0, "nRead_mol_info": 0, "frac_intronic": 0.0})
+    adata.obs[["mol_info_nUMI", "mol_info_nRead", "frac_intronic"]] = adata.obs[
+        ["mol_info_nUMI", "mol_info_nRead", "frac_intronic"]
+    ].fillna({"mol_info_nUMI": 0, "mol_info_nRead": 0, "frac_intronic": 0.0})
 
-    adata.obs["nUMI_mol_info"] = adata.obs["nUMI_mol_info"].astype(int)
-    adata.obs["nRead_mol_info"] = adata.obs["nRead_mol_info"].astype(int)
+    adata.obs["mol_info_nUMI"] = adata.obs["mol_info_nUMI"].astype(int)
+    adata.obs["mol_info_nRead"] = adata.obs["mol_info_nRead"].astype(int)
 
     # Read vireo output
     # left join vireo df to obs on barcode / obs_names
     vireo_df = pd.read_csv(vireo_path, sep="\t")
     df_decode_bytes_inplace(vireo_df)
+
+    # Force prefix on everything except 'cell' and 'donor_id'
+    vireo_keep = {"cell", "donor_id"}
+    vireo_old_cols = list(vireo_df.columns)
+    vireo_df = vireo_df.set_axis(
+        [c if c in vireo_keep else f"vireo_{c}" for c in vireo_old_cols],
+        axis=1,
+        copy=False,
+    )
+
+    # Verify the change actually happened on this object
+    assert any(
+        o != n for o, n in zip(vireo_old_cols, vireo_df.columns)
+    ), "Rename did not apply to vireo_df!"
 
     adata.obs = pd.merge(
         adata.obs, vireo_df, left_on="barcode", right_on="cell", how="left"
@@ -173,6 +187,17 @@ def load_single_library(basepath: str, bcl: str, rna_index: str) -> None:
         "Test"
     ).astype("str")
 
+    dropsift_keep = {"cell_barcode"}
+    dropsift_old_cols = list(dropsift_df.columns)
+    dropsift_df = dropsift_df.set_axis(
+        [c if c in dropsift_keep else f"dropsift_{c}" for c in dropsift_old_cols],
+        axis=1,
+        copy=False,
+    )
+    assert any(
+        o != n for o, n in zip(dropsift_old_cols, dropsift_df.columns)
+    ), "Rename did not apply to dropsift_df!"
+
     adata.obs = pd.merge(
         adata.obs,
         dropsift_df,
@@ -182,6 +207,20 @@ def load_single_library(basepath: str, bcl: str, rna_index: str) -> None:
         suffixes=(None, "_dropsift"),
     )
 
+    # drop duplicative columns.
+    adata.obs.drop(
+        columns=[
+            "cell",
+            "cell_barcode",
+            "dropsift_pct_intronic",
+            "dropsift_pct_mt",
+            "dropsift_num_retained_transcripts",
+            "dropsift_num_transcripts",
+        ],
+        inplace=True,
+    )
+
+    adata.obs.nUMI = adata.X.sum(axis=1).A1
     # now remove cells from adata that have a NA in donor_id (i.e. not assigned by vireo)
     adata = adata[~adata.obs["donor_id"].isna(), :]
 
