@@ -49,10 +49,15 @@ def load_single_library(basepath: str, bcl: str, rna_index: str) -> None:
     We only gave vireo assignments to cells that passed CellRanger filtering
     We will therefore only consider cells that passed both CellBender and CellRanger filtering
 
-    While ownstream we will only consider cells that were unambiguously assigned to a single donor by vireo
+    While downstream we will only consider cells that were unambiguously assigned to a single donor by vireo
     For this step, heterotypic doublets are retained to aid in helping identify homotypic doublets
 
     Similarly, no hard filtering on nUMI, pct_intronic, pct_mito, or dropsift is_cell etc. are applied at this stage
+
+    Returns
+    -------
+    None
+        This function does not return a value; it saves the anndata object to disk
     """
 
     h5_filt_path = f"{basepath}/{bcl}/{rna_index}/{CB_OUT_FILTERED_BASENAME_TEMPLATE.substitute(index = rna_index)}"
@@ -84,7 +89,7 @@ def load_single_library(basepath: str, bcl: str, rna_index: str) -> None:
     adata.obs["barcode"] = barcodes
     adata.obs["library__barcode"] = adata.obs["library"] + "__" + adata.obs["barcode"]
 
-    # cell barcodes can collide across libraries, so we use library__barcode as globally uniqe obs_names
+    # cell barcodes can collide across libraries, so we use library__barcode as globally unique obs_names
     adata.obs_names = adata.obs["library__barcode"]
     adata.var["gene_name"] = gene_names
     adata.var["gene_id"] = gene_ids
@@ -224,6 +229,7 @@ def load_single_library(basepath: str, bcl: str, rna_index: str) -> None:
     # now remove cells from adata that have a NA in donor_id (i.e. not assigned by vireo)
     adata = adata[~adata.obs["donor_id"].isna(), :]
 
+    # Suppress only during write_h5ad, as these are known to be harmless (e.g., dtype conversion warnings).
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         adata.write_h5ad(adata_out_path)
