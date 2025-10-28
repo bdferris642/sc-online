@@ -190,34 +190,59 @@ def load_single_library(basepath: str, bcl: str, rna_index: str) -> None:
         adata.write_h5ad(adata_out_path)
 
 
-def load_libraries_from_path(basepath: str) -> None:
+def load_libraries_from_path(
+    basepath: str,
+    bcl_index_file: str = None,
+) -> None:
     """
     Example usage:
     load_multiple_libraries("/path/to/gene-expression")
+
+    By default, loads all bcls found under basepath and all rna_indices under each bcl
+    Optionally specify a bcl_index_file with lines of the form `<BCL>/<RNA_INDEX>` to only load specific libraries
     """
 
-    bcls = [d for d in os.listdir(basepath) if os.path.isdir(os.path.join(basepath, d))]
-
-    for bcl in bcls:
-        rna_indices = [
-            d
-            for d in os.listdir(os.path.join(basepath, bcl))
-            if os.path.isdir(os.path.join(basepath, bcl, d))
-        ]
-        for rna_index in rna_indices:
-            print(f"\nLoading library: {bcl} / {rna_index}\n")
+    if bcl_index_file is not None:
+        # read lines of file
+        with open(bcl_index_file, "r") as f:
+            lines = f.readlines()
+        for line in lines:
+            bcl = line.strip().split("/")[0]
+            rna_index = line.strip().split("/")[1]
             load_single_library(basepath, bcl, rna_index)
-            print(f"\nFinished library: {bcl} / {rna_index}\n")
+    else:
+        bcls = [
+            d for d in os.listdir(basepath) if os.path.isdir(os.path.join(basepath, d))
+        ]
+        for bcl in bcls:
+            rna_indices = [
+                d
+                for d in os.listdir(os.path.join(basepath, bcl))
+                if os.path.isdir(os.path.join(basepath, bcl, d))
+            ]
+            for rna_index in rna_indices:
+                print(f"\nLoading library: {bcl} / {rna_index}\n")
+                load_single_library(basepath, bcl, rna_index)
+                print(f"\nFinished library: {bcl} / {rna_index}\n")
 
 
 def parse_args():
     ap = argparse.ArgumentParser(
         description="Load libraries from basepath to anndata.h5ad files"
     )
-    ap.add_argument("--basepath", required=True, type=str)
+    ap.add_argument(
+        "--basepath", required=True, type=str, help="Path to gene-expression directory"
+    )
+    ap.add_argument(
+        "--bcl-index-file",
+        required=False,
+        type=str,
+        default=None,
+        help="Optional path to file listing BCLs and RNA indices to process",
+    )
     return ap.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    load_libraries_from_path(args.basepath)
+    load_libraries_from_path(basepath=args.basepath, bcl_index_file=args.bcl_index_file)
