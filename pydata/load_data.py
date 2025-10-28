@@ -34,17 +34,17 @@ def load_single_library(basepath: str, bcl: str, rna_index: str) -> None:
     Saves that anndata to disk in path/to/<bcl>/<rna_index>/adata.h5ad
 
     Assumes directory structure
-    └── gene-expression
-    └── A22C7WYLT3
-        └── pCalico_GTExsHSrSNE9iDAPId231120
-            ├── cellbender
-            │   └── pCalico_GTExsHSrSNE9iDAPId231120_out_filtered.h5
-            ├── dropsift_outputs
-            │   └── dropsift_output.csv
-            ├── outs
-            │   └── molecule_info.h5
-            └── vireo
-                └── donor_ids.tsv
+    ─── gene-expression
+        └── A22C7WYLT3 <-- a BCL
+            └── pCalico_GTExsHSrSNE9iDAPId231120 <-- an RNA index
+                ├── cellbender
+                │   └── pCalico_GTExsHSrSNE9iDAPId231120_out_filtered.h5 <-- CellBender output h5 assumed to have RNA index embedded in name
+                ├── dropsift_outputs
+                │   └── dropsift_output.csv
+                ├── outs
+                │   └── molecule_info.h5
+                └── vireo
+                    └── donor_ids.tsv
 
     We only gave vireo assignments to cells that passed CellRanger filtering
     We will therefore only consider cells that passed both CellBender and CellRanger filtering
