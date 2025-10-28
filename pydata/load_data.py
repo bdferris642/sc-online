@@ -248,7 +248,9 @@ def load_libraries_from_path(
         for line in lines:
             bcl = line.strip().split("/")[0]
             rna_index = line.strip().split("/")[1]
+            print(f"\nLoading library: {bcl} / {rna_index}\n")
             load_single_library(basepath, bcl, rna_index)
+            print(f"\nFinished library: {bcl} / {rna_index}\n")
     else:
         bcls = [
             d for d in os.listdir(basepath) if os.path.isdir(os.path.join(basepath, d))
