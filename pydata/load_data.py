@@ -245,6 +245,11 @@ def load_libraries_from_path(
 
     By default, loads all bcls found under basepath and all rna_indices under each bcl
     Optionally specify a bcl_index_file with lines of the form `<BCL>/<RNA_INDEX>` to only load specific libraries
+
+    Returns
+    -------
+    None
+        This function does not return a value; one or more anndata objects are saved to disk
     """
 
     if bcl_index_file is not None:
