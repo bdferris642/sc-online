@@ -7,7 +7,7 @@ import h5py
 import numpy as np
 import pandas as pd
 
-from scipy.sparse import csc_matrix
+from cellbender.remove_background.downstream import anndata_from_h5
 
 from pydata.constants import (
     ADATA_OUT_BASENAME,
@@ -66,41 +66,27 @@ def load_single_library(basepath: str, bcl: str, rna_index: str) -> None:
     vireo_path = f"{basepath}/{bcl}/{rna_index}/{VIREO_OUT_BASENAME}"
     adata_out_path = f"{basepath}/{bcl}/{rna_index}/{ADATA_OUT_BASENAME}"
 
-    # Open HDF5 file of CellBender Outs
-    # use asstr to convert by strings --> str type
-    with h5py.File(h5_filt_path, "r") as f:
-        data = f["matrix/data"][:]
-        indices = f["matrix/indices"][:]
-        indptr = f["matrix/indptr"][:]
-        barcodes = f["matrix/barcodes"].asstr()[:]
-        gene_names = f["matrix/features/name"].asstr()[:]
-        gene_ids = f["matrix/features/id"].asstr()[:]
+    adata = anndata_from_h5(h5_filt_path)
 
-    num_genes = len(gene_names)
-    num_cells = len(barcodes)
+    # make var names unique
+    adata.var["gene_name"] = adata.var_names.values
+    adata.var_names = adata.var.gene_id.values
 
-    # Build sparse matrix (CSC format like 10x)
-    counts_matrix = csc_matrix((data, indices, indptr), shape=(num_genes, num_cells))
-
-    adata = ad.AnnData(X=counts_matrix.T)  # Transpose to cells × genes
+    # cell barcodes can collide across libraries, so we use library__barcode as globally unique obs_names
+    adata.obs["barcode"] = adata.obs_names.values
     adata.obs["bcl"] = bcl
     adata.obs["rna_index"] = rna_index
     adata.obs["library"] = f"{bcl}__{rna_index}"
-    adata.obs["barcode"] = barcodes
     adata.obs["library__barcode"] = adata.obs["library"] + "__" + adata.obs["barcode"]
-
-    # cell barcodes can collide across libraries, so we use library__barcode as globally unique obs_names
     adata.obs_names = adata.obs["library__barcode"]
-    adata.var["gene_name"] = gene_names
-    adata.var["gene_id"] = gene_ids
-    adata.var_names = gene_ids
 
     # frac mito is fraction of counts coming from mitochondrial genes (all of whose names start with "MT-")
+    # cell x gene, so sum within cells across genes is axis = 1
     adata.obs["frac_mito"] = (
         np.array(
-            counts_matrix[[g.startswith("MT-") for g in gene_names], :].sum(axis=0)
+            adata.X[:, [g.startswith("MT-") for g in adata.var.gene_name]].sum(axis=1)
         ).flatten()
-        / np.array(counts_matrix.sum(axis=0)).flatten()
+        / np.array(adata.X.sum(axis=1)).flatten()
     )
 
     df_decode_bytes_inplace(adata.obs)
