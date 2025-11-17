@@ -66,6 +66,10 @@ cat(paste("Reading Seurat object from: ", PATH, "\n"))
 sobj = load_obj(PATH)
 DefaultAssay(sobj) = "RNA"
 
+# OJO: fixing a naming issue in a simulation run
+sobj@meta.data$Row.names = NULL
+sobj@meta.data$Row.names = colnames(sobj)
+
 if (is.null(opt[['filter-samples']])){
     FILTER_SAMPLES = NULL
 } else {
@@ -191,7 +195,6 @@ if (! is.null(opt[['n-svs']])){
     RUN_SVA = FALSE
     SVA_COLS=NULL
     SVA_CTR_COLS = NULL
-
 }
 
 if (N_SVS > 0){
