@@ -178,11 +178,11 @@ heatmap_with_circles = function(
         )
     )
 
-  print(p)
 
   if( !is.null(fig_filename)) {
       ggsave(fig_filename, plot = p, width = width, height = height, dpi = dpi)
   }
+  return(p)
 }
 
 
