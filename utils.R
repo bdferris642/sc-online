@@ -961,3 +961,15 @@ sanitize_col_values = function(md, col){
     md[[col]] = gsub("\\|", "_", md[[col]]) 
     return(md)
 }
+
+# write a named list to a file in append mode
+# in format <name>\t<value>\n for each element
+write_list = function(x, fil){ 
+    z = deparse(substitute(x))
+    cat(z, "\n", file=fil)
+    nams=names(x) 
+    for (i in seq_along(x) ){ 
+        cat(nams[i], "\t",  x[[i]], "\n", file=fil, append=TRUE)
+    }
+}
+
