@@ -1,5 +1,90 @@
+library(glue)
+g = glue::glue
 source("~/sc-online/utils.R")
 source("~/sc-online/extraGenes.R")
+
+pr_from_df <- function(df, score_col, higher_score_is_positive = TRUE, title=NULL) {
+  # df: data frame with columns is_tp, is_fp, is_tn, is_fn, and score_col
+  
+
+  if (!is.character(score_col)) score_col <- rlang::as_name(rlang::ensym(score_col))
+  stopifnot(all(c("is_tp","is_fp","is_tn","is_fn", score_col) %in% names(df)))
+  stopifnot(is.numeric(df[[score_col]]))
+
+  # ground truth independent of threshold
+  truth <- (df$is_tp | df$is_fn)
+  scores <- df[[score_col]]
+  keep <- !(is.na(truth) | is.na(scores))
+  truth  <- truth[keep]
+  scores <- scores[keep]
+
+  if (!higher_score_is_positive) scores <- -scores
+
+  pos_scores <- scores[truth]
+  neg_scores <- scores[!truth]
+
+  # PR curve and AUPRC
+  pr <- PRROC::pr.curve(scores.class0 = pos_scores,
+                         scores.class1 = neg_scores,
+                         curve = TRUE)
+
+  # curve columns: recall (x), precision (y), threshold
+  pr_df <- data.frame(Recall = pr$curve[,1],
+                      Precision = pr$curve[,2],
+                      Threshold = pr$curve[,3])
+
+  prevalence <- mean(truth)
+
+  p <- ggplot(pr_df, aes(Recall, Precision)) +
+    geom_path(size = 1) +
+    geom_hline(yintercept = prevalence, linetype = "dashed") +
+    coord_cartesian(xlim = c(0,1), ylim = c(0,1)) +
+    theme_minimal() +
+    labs(
+      title = g("{ifelse(is.null(title), '', title) }\nPrecision-Recall AUPRC = {round(pr$auc.integral, 3)}"),
+      subtitle = g("Score: {score_col}  |  Prevalence = {round(prevalence, 3)}"),
+      x = "Recall", y = "Precision"
+    )+ 
+    coord_cartesian(clip = 'off') +
+
+    theme(
+        plot.title = element_text(size=16),
+        plot.subtitle = element_text(size=12),
+        axis.text = element_text(size=14),
+        axis.title = element_text(size=16),
+        axis.title.y = element_text(margin=margin(r=15)),
+        plot.title.position = "plot"
+    )
+
+  roc = PRROC::roc.curve(scores.class0 = pos_scores,
+                        scores.class1 = neg_scores,
+                        curve = TRUE)
+  
+  roc_df = data.frame(FPR = roc$curve[,1],
+                      TPR = roc$curve[,2],
+                      Threshold = roc$curve[,3])
+  p_roc <- ggplot(roc_df, aes(x=FPR, y=TPR)) +
+    geom_path(size = 1) +
+    geom_abline(slope=1, intercept=0, linetype = "dashed") +
+    coord_cartesian(xlim = c(0,1), ylim = c(0,1)) +
+    theme_minimal() +
+    labs(
+      title = g("{ifelse(is.null(title), '', title) }\nROC-AUC = {round(roc$auc, 3)}"),
+      subtitle = g("Score: {score_col}  |  Baseline (random) = 0.5"),
+      x = "False Positive Rate", y = "True Positive Rate"
+    ) + 
+    theme(
+        plot.title = element_text( size=16),
+        plot.subtitle = element_text(size=12),
+        axis.text = element_text(size=14),
+        axis.title = element_text(size=16),
+        axis.title.y = element_text(margin=margin(r=15)),
+        plot.title.position = "plot"
+    )
+
+  list(auprc = unname(pr$auc.integral), pr_curve = pr_df, pr_plot = p, auroc = unname(roc$auc), roc_curve = roc_df, roc_plot = p_roc)
+}
+
 
 .extra_sconline.duplicateCorrelation=function(
     object, 
@@ -1026,4 +1111,197 @@ get_residual_corrected_purity_score = function(
     coef_df$rank_purity = abs(coef_df$rank_purity)
 
     return(coef_df)
+}
+
+run_deseq = function(counts, md, design_formula, min_frac_gene=0, min_counts_gene=0){
+    # counts: a matrix of raw counts (genes x samples)
+    # md: a dataframe of metadata (samples x covariates)
+    # design_formula: a formula object specifying the design for DESeq2
+    # min_frac_gene : minimum fraction of samples that must have non-zero counts for a gene to be kept
+    # min_counts_gene : minimum total counts across all samples for a gene to be kept
+
+    # returns a list of dataframes, one per coefficient in the design formula (excluding intercept)
+
+    gene_sums = rowSums(counts)
+    gene_nonzero_frac = rowMeans(counts > 0)
+    keep_genes = (gene_sums >= min_counts_gene) & (gene_nonzero_frac >= min_frac_gene)
+    if (sum(keep_genes) == 0){
+        stop("No genes passed the filtering criteria!")
+    }
+    drop_genes = which(!keep_genes)
+    if (length(drop_genes) > 0){
+        cat(paste("Dropping", length(drop_genes), "genes that did not pass filtering criteria.\n"))
+        counts = counts[keep_genes, ]
+    }
+
+    cov_list = all.vars(design_formula)
+
+    # check if all columns in cov_list are in md
+    missing_cols = setdiff(cov_list, colnames(md))
+    if (length(missing_cols) > 0){
+        stop(g("The following columns are missing from the metadata: {paste(missing_cols, collapse=', ')}"))
+    }
+
+    # for any categorical variables in cov_list, ensure they are factors
+    for (col in cov_list){
+        if (is.character(md[[col]]) || is.logical(md[[col]])){
+            md[[col]] = as.factor(md[[col]])
+        }
+    }
+
+    # check that all md columns have more than one unique value
+    for (col in cov_list){
+        if (length(unique(md[[col]])) < 2){
+            stop(g("The column {col} has less than two unique values. DESeq2 requires at least two groups to compare."))
+        }
+    }
+    
+    cat(paste("Running DESeq2 with design formula: ", as.character(design_formula), "\n"))
+    dds = DESeqDataSetFromMatrix(
+        countData = counts,
+        colData = md,
+        design = design_formula
+    )
+    dds = DESeq(dds)
+    cat("DESeq Complete. Coefficient Names:\n")
+    cat(resultsNames(dds))
+
+    result_list = list()
+    cat("\nShrinking log fold changes using apeglm...\n")
+    for (coef in resultsNames(dds)){
+        if (tolower(coef) == "intercept"){
+            next
+        }
+        cat("\n")
+        cat(paste("Running lfcShrink for coef: ", coef, "\n"))
+        res_shrunk = suppressMessages(suppressWarnings(lfcShrink(dds, coef=coef, type="apeglm")))
+        res_shrunk = res_shrunk[!is.na(res_shrunk$padj),]
+        res_shrunk = res_shrunk[order(-res_shrunk$log2FoldChange),]
+
+        res_shrunk$gene = rownames(res_shrunk)
+        res_shrunk$logFC = res_shrunk$log2FoldChange
+        
+        res_shrunk$log2FoldChange = NULL
+        rownames(res_shrunk) = NULL
+
+        res_shrunk = res_shrunk[,c("gene", "logFC", "padj", "baseMean", "lfcSE", "pvalue")]
+
+        result_list[[coef]] = res_shrunk
+    }
+    return(result_list)
+}
+
+
+run_mast = function(counts, md, design_formula, min_frac_gene = 0.01, min_counts_gene = 0L, nUMI_col = NULL) {
+    # counts: matrix-like (genes x cells), integer-like
+    # md: data.frame with rownames matching columns of counts (cells)
+    # design_formula: e.g., ~ case_control + sex + age
+    # returns: named list of data.frames, one per non-intercept coefficient
+
+    # Filter genes
+    gene_sums = Matrix::rowSums(counts)
+    gene_nonzero_frac = Matrix::rowMeans(counts > 0)
+    keep_genes = (gene_sums >= min_counts_gene) & (gene_nonzero_frac >= min_frac_gene)
+    if (sum(keep_genes) == 0) stop("No genes passed the filtering criteria!")
+    if (!all(keep_genes)) {
+        message(paste("Dropping", sum(!keep_genes), "genes that did not pass filtering criteria."))
+        counts = counts[keep_genes, , drop = FALSE]
+    }
+
+    # Covariate checks and coercions
+    cov_list = all.vars(design_formula)
+    missing_cols = setdiff(cov_list, colnames(md))
+    if (length(missing_cols) > 0) {
+        stop(g("The following columns are missing from the metadata: {paste(missing_cols, collapse=', ')}"))
+    }
+    for (col in cov_list) {
+        if (is.character(md[[col]]) || is.logical(md[[col]])) {
+            md[[col]] = as.factor(md[[col]])
+        }
+        if (length(unique(md[[col]])) < 2) {
+            stop(g("The column {col} has less than two unique values; MAST needs variability to estimate effects."))
+        }
+    }
+
+    # Compute log2(CPM+1) for MAST
+    if (!is.null(nUMI_col)) {
+        if (!nUMI_col %in% colnames(md)) {
+            stop(g("nUMI_col '{nUMI_col}' not found in metadata."))
+        }
+        libsize = md[[nUMI_col]]
+    } else {
+        # compute library size from counts
+      libsize = Matrix::colSums(counts)
+    }
+    # guard against zeros
+    libsize[libsize == 0] = 1
+    cpm = t(t(counts) / libsize) * 1e6
+    exprs = log2(cpm + 1)
+
+    # Build SingleCellAssay
+    fdata = data.frame(primerid = rownames(exprs), stringsAsFactors = FALSE, row.names = rownames(exprs))
+    cdata = md
+    if (is.null(rownames(cdata))) {
+        stop("Metadata (md) must have rownames matching cell/sample IDs.")
+    }
+    # Commonly used QC covariate in MAST: detection rate (# genes expressed)
+    if (!"cngeneson" %in% colnames(cdata)) {
+        cdata$cngeneson = Matrix::colSums(exprs > 0)
+    }
+
+    sca = MAST::FromMatrix(
+        exprsArray = as.matrix(exprs),
+        cData = cdata,
+        fData = fdata
+    )
+
+    # Fit hurdle model
+    message(paste("Fitting MAST zlm with formula:", deparse(design_formula)))
+    fit = suppressWarnings(suppressMessages({
+      MAST::zlm(formula = design_formula, sca = sca, method = "glm", ebayes = TRUE)
+    }))
+
+    # Collect coefficient names (continuous part 'C')
+    coefC = coef(fit, "C")  # genes x coefficients
+    coef_names = colnames(coefC)
+    coef_names = coef_names[coef_names != "(Intercept)"]
+
+    result_list = list()
+
+    # For each coefficient, perform LR test (hurdle) and collect logFC from continuous part
+    for (coef_name in coef_names) {
+        message(paste("Computing lrTest for:", coef_name))
+        lrt = suppressWarnings(suppressMessages({
+          MAST::lrTest(fit, coef_name)
+        }))
+        # lrt is a data.frame; 'hurdle' column has combined p-value; rownames are genes
+        # Align to coefC rows
+        common_genes = intersect(rownames(coefC), rownames(lrt))
+        if (length(common_genes) == 0) next
+
+        pval = lrt[common_genes, "hurdle", "Pr(>Chisq)"]
+        padj = p.adjust(pval, method = "BH")
+        logFC = coefC[common_genes, coef_name]
+
+        res = data.frame(
+            gene = common_genes,
+            logFC = as.numeric(logFC),
+            pvalue = as.numeric(pval),
+            padj = as.numeric(padj),
+            stringsAsFactors = FALSE
+        )
+
+        # Optional extras: add baseMean-ish proxy = mean expr (log-scale mean is not a mean of counts; include for reference only)
+        res$meanExpr_log2CPM = Matrix::rowMeans(exprs[res$gene, , drop = FALSE])
+        res$neg_log10_padj = -log10(res$padj + 1e-30)
+        res$signed_neg_log10_padj = sign(res$logFC) * res$neg_log10_padj
+
+        res = res[order(res$signed_neg_log10_padj), ]
+        rownames(res) = NULL
+        res = res[, c("gene", "logFC", "padj", "pvalue", "meanExpr_log2CPM", "neg_log10_padj", "signed_neg_log10_padj")]
+
+        result_list[[coef_name]] = res
+    }
+
+    return(result_list)
 }
