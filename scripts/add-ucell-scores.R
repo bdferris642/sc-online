@@ -85,9 +85,9 @@ if(is.null(opt[['assay']])) {
 } else {
     ASSAY = opt[["assay"]]
 }
-if(! is.null(opt[['num-threads']])) {
-    blas_set_num_threads(opt[['num-threads']])
-}
+
+blas_set_num_threads(opt[['num-threads']])
+
 
 print( paste0("Reading gene scores from ", SCORE_PATH))
 score_list_df = read.table(SCORE_PATH, header=TRUE, sep="\t", stringsAsFactors=FALSE)
