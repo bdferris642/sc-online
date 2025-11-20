@@ -9,7 +9,7 @@ import pandas as pd
 
 from cellbender.remove_background.downstream import anndata_from_h5
 
-from pydata.constants import (
+from constants import (
     ADATA_OUT_BASENAME,
     CB_OUT_FILTERED_BASENAME_TEMPLATE,
     DROPSIFT_BASENAME,
@@ -224,6 +224,7 @@ def load_single_library(basepath: str, bcl: str, rna_index: str) -> None:
 def load_libraries_from_path(
     basepath: str,
     bcl_index_file: str = None,
+    bcl_index: str = None,
 ) -> None:
     """
     Example usage:
@@ -231,6 +232,7 @@ def load_libraries_from_path(
 
     By default, loads all bcls found under basepath and all rna_indices under each bcl
     Optionally specify a bcl_index_file with lines of the form `<BCL>/<RNA_INDEX>` to only load specific libraries
+    Or optionally specify a single bcl_index string of the form `<BCL>/<RNA_INDEX>` to only load that library
 
     Returns
     -------
@@ -238,6 +240,10 @@ def load_libraries_from_path(
         This function does not return a value; one or more anndata objects are saved to disk
     """
 
+    if not (bcl_index is None) and not (bcl_index_file is None):
+        raise ValueError(
+            "Cannot specify both bcl_index and bcl_index_file; please choose one."
+        )
     if bcl_index_file is not None:
         # read lines of file
         with open(bcl_index_file, "r") as f:
@@ -248,6 +254,12 @@ def load_libraries_from_path(
             print(f"\nLoading library: {bcl} / {rna_index}\n")
             load_single_library(basepath, bcl, rna_index)
             print(f"\nFinished library: {bcl} / {rna_index}\n")
+    elif bcl_index is not None:
+        bcl = bcl_index.split("/")[0]
+        rna_index = bcl_index.split("/")[1]
+        print(f"\nLoading library: {bcl} / {rna_index}\n")
+        load_single_library(basepath, bcl, rna_index)
+        print(f"\nFinished library: {bcl} / {rna_index}\n")
     else:
         bcls = [
             d for d in os.listdir(basepath) if os.path.isdir(os.path.join(basepath, d))
@@ -278,9 +290,20 @@ def parse_args():
         default=None,
         help="Optional path to file listing BCLs and RNA indices to process",
     )
+    ap.add_argument(
+        "--bcl-index",
+        required=False,
+        type=str,
+        default=None,
+        help="Optional single BCL/RNA index to process",
+    )
     return ap.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    load_libraries_from_path(basepath=args.basepath, bcl_index_file=args.bcl_index_file)
+    load_libraries_from_path(
+        basepath=args.basepath,
+        bcl_index_file=args.bcl_index_file,
+        bcl_index=args.bcl_index,
+    )
