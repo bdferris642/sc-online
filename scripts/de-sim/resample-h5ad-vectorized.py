@@ -498,6 +498,10 @@ def parse_args():
     # p.add_argument("--subject-lfc-sd", type=float, default=0,
     #                help="Std dev of subject-level log2FC around the global Δ for each perturbed gene. Default 0 (no variation).")
 
+    # print arguments 
+    for arg in vars(p.parse_args()):
+        print(f"{arg}: {getattr(p.parse_args(), arg)}")
+
     return p.parse_args()
 
 
@@ -810,9 +814,9 @@ def main():
 
     # TODO: make these arguments not mutually exclusive
     if args.perturb_random_fraction and args.add_subject_noise:
-        raise ValueError("Cannot use both --perturb-random-fraction and --vary-subject-perturbation together.")
+        raise ValueError("Cannot use both --perturb-random-fraction and --add-subject-noise together.")
 
-    if args.add_subject_noise and len(args.sd_vals) == 0 or all(s == 0.0 for s in args.sd_vals):
+    if args.add_subject_noise and (len(args.sd_vals) == 0 or all(s == 0.0 for s in args.sd_vals)):
         raise ValueError("When using --vary-subject-perturbation, at least one non-zero --sd-vals value is required.")
     
     if args.perturb_random_fraction and args.frac_min == 1.0 and args.frac_max == 1.0:
@@ -944,7 +948,7 @@ def main():
             else:
                 frac_levels = np.array([1.0])
 
-            delta_mat, gene_meta_list, df_genes = assign_gene_effects_to_subjects(
+            delta_mat, gene_meta_list = assign_gene_effects_to_subjects(
                 n_genes=args.n_perturbed_genes,
                 case_subject_ids=case_subject_ids,
                 logfc_levels=logfc_levels,
@@ -1029,11 +1033,11 @@ def main():
                             "perturbed_genes": {
                                 gname: {
                                     "log2fc": float(
-                                        df_genes.log2fc[df_genes.gene == gname]
+                                        df_genes.logfc_perturbed[df_genes.gene == gname]
                                     ),
                                     "factor": float(
                                         2.0
-                                        ** df_genes.log2fc[df_genes.gene == gname]
+                                        ** df_genes.logfc_perturbed[df_genes.gene == gname]
                                     ),
                                     "frac_applied": float(
                                         df_genes.frac_applied[df_genes.gene == gname]
