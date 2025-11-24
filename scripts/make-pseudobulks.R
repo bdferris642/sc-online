@@ -6,30 +6,31 @@
 
 print("**************** LOADING LIBRARIES ****************")
 # Detect script path when running via Rscript
-args <- commandArgs(trailingOnly = FALSE)
-script_path <- sub("^--file=", "", args[grep("^--file=", args)])
+args = commandArgs(trailingOnly = FALSE)
+script_path = sub("^--file=", "", args[grep("^--file=", args)])
 
 if (length(script_path) == 1) {
-  script_dir <- dirname(normalizePath(script_path))
-  setwd(script_dir)
-  message("Working directory set to: ", script_dir)
+  script_dir = dirname(normalizePath(script_path))
+  message("Script located in directory: ", script_dir)
 } else {
   stop("Cannot determine script path. Are you running via Rscript?")
 }
 
 
-suppressMessages(suppressWarnings(library(DESeq2)))
-suppressMessages(suppressWarnings(library(dplyr)))
-suppressMessages(suppressWarnings(library(getopt)))
-suppressMessages(suppressWarnings(library(ggplot2)))
-suppressMessages(suppressWarnings(library(Matrix)))
-suppressMessages(suppressWarnings(library(qs)))
-suppressMessages(suppressWarnings(library(Seurat)))
-suppressMessages(suppressWarnings(library(SingleCellExperiment)))
-
-suppressMessages(suppressWarnings(source("../de.R")))
-suppressMessages(suppressWarnings(source("../utils.R")))
-suppressMessages(suppressWarnings(source("../getData.R")))
+suppressMessages(suppressWarnings({
+    library(DESeq2)
+    library(dplyr)
+    library(getopt)
+    library(ggplot2)
+    library(Matrix)
+    library(qs)
+    library(Seurat)
+    library(SingleCellExperiment)
+    
+    source(file.path(script_dir, "../de.R"))
+    source(file.path(script_dir, "../utils.R"))
+    source(file.path(script_dir, "../getData.R"))
+}))
 
 print("**************** PARSING ARGUMENTS ****************")
 spec <- matrix(c(

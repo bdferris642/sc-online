@@ -1,9 +1,29 @@
-suppressMessages(suppressWarnings(library(biomaRt)))
-suppressMessages(suppressWarnings(library(SingleCellExperiment)))
-suppressMessages(suppressWarnings(library(Seurat)))
-suppressMessages(suppressWarnings(library(dplyr)))
-suppressMessages(suppressWarnings(library(Matrix)))
-suppressMessages(suppressWarnings(library(sva)))
+this_file = function() {
+  calls = sys.calls()
+  for (i in seq_along(calls)) {
+    if (identical(calls[[i]][[1]], base::source)) {
+      return(normalizePath(as.character(calls[[i]]$file)))
+    }
+  }
+  fr <- sys.frames()
+  for (i in rev(seq_along(fr))) {
+    if (!is.null(fr[[i]]$ofile)) {
+      return(normalizePath(fr[[i]]$ofile))
+    }
+  }
+  stop("Cannot determine script path for utils.R")
+}
+this_dir = dirname(this_file())
+
+
+suppressMessages(suppressWarnings({
+  library(biomaRt)
+  library(SingleCellExperiment)
+  library(Seurat)
+  library(dplyr)
+  library(Matrix)
+  library(sva)
+}))
 
 convert_ensembl_to_symbol <- function(ensembl_ids, dataset="hsapiens_gene_ensembl", version="108") {
   # Connect to GRCh38 Ensembl

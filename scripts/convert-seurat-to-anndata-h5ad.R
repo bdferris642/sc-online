@@ -1,10 +1,11 @@
-suppressWarnings(suppressMessages(library(Seurat)))
-suppressWarnings(suppressMessages(library(SeuratDisk)))
-suppressWarnings(suppressMessages(library(anndata)))
-suppressWarnings(suppressMessages(library(getopt)))
-suppressWarnings(suppressMessages(library(Matrix)))
-suppressWarnings(suppressMessages(library(qs)))
-
+suppressWarnings(suppressMessages({
+    library(Seurat)
+    library(SeuratDisk)
+    library(anndata)
+    library(getopt)
+    library(Matrix)
+    library(qs)
+}))
 
 # Parse command line arguments
 spec = matrix(c(

@@ -1,15 +1,30 @@
-################## LIBRARIES #################
-suppressWarnings(suppressMessages(library(dplyr)))
-suppressWarnings(suppressMessages(library(getopt)))
-suppressWarnings(suppressMessages(library(ggplot2)))
-suppressWarnings(suppressMessages(library(lme4)))
-suppressWarnings(suppressMessages(library(Matrix)))
-suppressWarnings(suppressMessages(library(qs)))
-suppressWarnings(suppressMessages(library(RColorBrewer)))
-suppressWarnings(suppressMessages(library(Seurat)))
-suppressWarnings(suppressMessages(library(tidyverse)))
+print("**************** LOADING LIBRARIES ****************")
+# Detect script path when running via Rscript
+args = commandArgs(trailingOnly = FALSE)
+script_path = sub("^--file=", "", args[grep("^--file=", args)])
 
-suppressWarnings(suppressMessages(source("~/sc-online/masc.R")))
+if (length(script_path) == 1) {
+  script_dir = dirname(normalizePath(script_path))
+  message("Script located in directory: ", script_dir)
+} else {
+  stop("Cannot determine script path. Are you running via Rscript?")
+}
+
+################## LIBRARIES #################
+suppressWarnings(suppressMessages({
+    library(dplyr)
+    library(getopt)
+    library(ggplot2)
+    library(lme4)
+    library(Matrix)
+    library(qs)
+    library(RColorBrewer)
+    library(RhpcBLASctl)
+    library(Seurat)
+    library(tidyverse)
+
+    source(file.path(script_dir, "../masc.R"))
+}))
 
 
 ################## ARGUMENTS #################
@@ -24,7 +39,8 @@ spec = matrix(c(
     'filter-cluster-n', 'fc', 1, 'numeric',
     'filter-rand-n', 'fr', 1, 'numeric',
     'jk-samples', 'js', 1, 'logical',
-    'leave-out', 'lo', 1, 'character'
+    'leave-out', 'lo', 1, 'character',
+    'num-threads', 'n', 1, 'integer'
 ), byrow = TRUE, ncol = 4)
 
 opt = getopt(spec)
@@ -45,6 +61,10 @@ suffix = if(!is.null(opt[['suffix']])){
 }
 if (! is.null(LEAVE_OUT)){
     suffix = paste0(suffix, "__leave_out_", LEAVE_OUT)
+}
+
+if (! is.null(opt[['num-threads']])){
+    blas_set_num_threads(opt[['num-threads']])
 }
 
 FILTER_CLUSTER_N = if(is.null(opt[['filter-cluster-n']])){ NULL }else{ opt[['filter-cluster-n']] }
@@ -114,14 +134,20 @@ MASC = function(dataset, cluster_col, contrast_col, random_effects = NULL, fixed
 
     # Run nested mixed-effects models for each cluster
     for (i in seq_along(attributes(designmat)$dimnames[[2]])) {
-        test_cluster = attributes(designmat)$dimnames[[2]][i]
-        if (verbose == TRUE) {
-            message(paste("Creating logistic mixed models for", test_cluster))
-        }
+        test_cluster <- attributes(designmat)$dimnames[[2]][i]
+        dataset$resp <- dataset[[test_cluster]]  # extract response once
+        
         null_fm = as.formula(paste0(c(paste0(test_cluster, " ~ 1 + "),
                                         model_rhs), collapse = ""))
         full_fm = as.formula(paste0(c(paste0(test_cluster, " ~ ", contrast, " + "),
                                         model_rhs), collapse = ""))
+
+        if (verbose == TRUE) {
+            message(paste("Creating logistic mixed models for", test_cluster))
+            message(paste("Null model formula:", null_fm))
+            message(paste("Full model formula:", full_fm))
+        }
+        
         # Run null and full mixed-effects models
         null_model = lme4::glmer(formula = null_fm, data = dataset,
                                     family = binomial, nAGQ = 1, verbose = 0,

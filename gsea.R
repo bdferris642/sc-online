@@ -1,23 +1,41 @@
-library(Seurat)
-library(dplyr)
-library(qs)
+this_file = function() {
+  calls = sys.calls()
+  for (i in seq_along(calls)) {
+    if (identical(calls[[i]][[1]], base::source)) {
+      return(normalizePath(as.character(calls[[i]]$file)))
+    }
+  }
+  fr <- sys.frames()
+  for (i in rev(seq_along(fr))) {
+    if (!is.null(fr[[i]]$ofile)) {
+      return(normalizePath(fr[[i]]$ofile))
+    }
+  }
+  stop("Cannot determine script path for gsea.R")
+}
+this_dir = dirname(this_file())
 
-library(Matrix)
-library(dplyr)
+suppressMessages(suppressWarnings({
+  library(Seurat)
+  library(dplyr)
+  library(qs)
+  library(Matrix)
+  library(dplyr)
+  library(fgsea)
+  library(qs)
+  library(glue)
+  g=glue::glue
 
-library(fgsea)
-library(qs)
-
-source("~/sc-online/plot.R")
-source("~/sc-online/utils.R")
-
+  source(file.path(this_dir, "plot.R"))
+  source(file.path(this_dir, "utils.R"))
+}))
 
 .extraHumanGeneAnnoAdderFn=function(inputGeneNames=NULL){
   #require(EnsDb.Hsapiens.v75)
   require(EnsDb.Hsapiens.v86)
   
-  if(!dir.exists("~/serverFiles")){
-    dir.create("~/serverFiles",recursive = T)
+  if(!dir.exists(file.path(this_dir, "serverFiles"))){
+    dir.create(file.path(this_dir, "serverFiles"),recursive = T)
   }
   
   gns <- as.data.frame(genes(EnsDb.Hsapiens.v86))
@@ -35,12 +53,15 @@ source("~/sc-online/utils.R")
       rwNames=unlist(lapply(rwNames,function(x)x[1]))
     }
     
-    # uncomment if these files are not present
-    #system(paste0("gsutil -m cp gs://fc-71ac3b81-2441-4171-8038-baf653634620/serverFiles/human_map_to_ensembl.rda ."))
-    #system(paste0("gsutil -m cp gs://fc-71ac3b81-2441-4171-8038-baf653634620/serverFiles/human_mapping_hg19.rda ."))
+    if (! file.exists(file.path(this_dir, "serverFiles/human_map_to_ensembl.rda"))) {
+      system(g('gcloud storage cp gs://fc-71ac3b81-2441-4171-8038-baf653634620/serverFiles/human_map_to_ensembl.rda {this_dir}/serverFiles/human_map_to_ensembl.rda'))
+    }
     
-    load("~/human_map_to_ensembl.rda")
-    load("~/human_mapping_hg19.rda")
+    if (! file.exists(file.path(this_dir, "serverFiles/human_mapping_hg19.rda"))) {
+      system(g('gcloud storage cp gs://fc-71ac3b81-2441-4171-8038-baf653634620/serverFiles/human_mapping_hg19.rda {this_dir}/serverFiles/human_mapping_hg19.rda'))
+    }
+    load(file.path(this_dir, "serverFiles/human_map_to_ensembl.rda"))
+    load(file.path(this_dir, "serverFiles/human_mapping_hg19.rda"))
     
     map_to_ensmbl$source=toupper(map_to_ensmbl$source)
     

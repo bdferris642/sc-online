@@ -1,7 +1,27 @@
-library(glue)
-g = glue::glue
-source("~/sc-online/utils.R")
-source("~/sc-online/extraGenes.R")
+this_file = function() {
+  calls = sys.calls()
+  for (i in seq_along(calls)) {
+    if (identical(calls[[i]][[1]], base::source)) {
+      return(normalizePath(as.character(calls[[i]]$file)))
+    }
+  }
+  fr <- sys.frames()
+  for (i in rev(seq_along(fr))) {
+    if (!is.null(fr[[i]]$ofile)) {
+      return(normalizePath(fr[[i]]$ofile))
+    }
+  }
+  stop("Cannot determine script path for de.R")
+}
+this_dir = dirname(this_file())
+
+
+suppressMessages(suppressWarnings({
+  library(glue)
+  g = glue::glue
+  source(file.path(this_dir, "utils.R"))
+  source(file.path(this_dir, "extraGenes.R"))
+}))
 
 pr_from_df <- function(df, score_col, higher_score_is_positive = TRUE, title=NULL) {
   # df: data frame with columns is_tp, is_fp, is_tn, is_fn, and score_col

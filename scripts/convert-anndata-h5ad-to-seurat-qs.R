@@ -1,13 +1,27 @@
 Sys.setenv(RETICULATE_PYTHON = "/home/ferris/anaconda3/envs/r-4.3.0/bin/python")
-suppressMessages(suppressWarnings(library(anndata)))
-suppressMessages(suppressWarnings(library(reticulate)))
 
-suppressMessages(suppressWarnings(library(Seurat)))
-suppressMessages(suppressWarnings(library(SeuratDisk)))
-suppressMessages(suppressWarnings(library(getopt)))
-suppressMessages(suppressWarnings(library(Matrix)))
-suppressMessages(suppressWarnings(library(qs)))
-suppressMessages(suppressWarnings(source("~/sc-online/utils.R")))
+print("**************** LOADING LIBRARIES ****************")
+# Detect script path when running via Rscript
+args = commandArgs(trailingOnly = FALSE)
+script_path = sub("^--file=", "", args[grep("^--file=", args)])
+
+if (length(script_path) == 1) {
+  script_dir = dirname(normalizePath(script_path))
+  message("Script located in directory: ", script_dir)
+} else {
+  stop("Cannot determine script path. Are you running via Rscript?")
+}
+
+suppressMessages(suppressWarnings({
+    library(anndata)
+    library(reticulate)
+    library(Seurat)
+    library(SeuratDisk)
+    library(getopt)
+    library(Matrix)
+    library(qs)
+    source(file.path(script_dir, "../utils.R"))
+}))
 
 #use_python("/home/ferris/anaconda3/envs/r-4.3.0/bin/python", required = TRUE) # OJO have to change this path to conda path
 

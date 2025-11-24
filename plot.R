@@ -1,24 +1,43 @@
-suppressWarnings(suppressMessages(library(caret)))
-suppressWarnings(suppressMessages(library(dplyr)))
-suppressWarnings(suppressMessages(library(ggplot2)))
-suppressWarnings(suppressMessages(library(ggforce)))
-suppressWarnings(suppressMessages(library(ggrepel)))
-suppressWarnings(suppressMessages(library(ggvenn)))
-suppressWarnings(suppressMessages(library(grid)))
-suppressWarnings(suppressMessages(library(gridExtra)))
-suppressWarnings(suppressMessages(library(patchwork)))
-suppressWarnings(suppressMessages(library(pheatmap)))
-suppressWarnings(suppressMessages(library(RColorBrewer)))
-suppressWarnings(suppressMessages(library(rhdf5)))
-suppressWarnings(suppressMessages(library(rlang)))
-suppressWarnings(suppressMessages(library(tidyr)))
-suppressWarnings(suppressMessages(library(VennDiagram)))
-suppressWarnings(suppressMessages(library(viridis)))
-suppressWarnings(suppressMessages(library(viridisLite)))
-suppressWarnings(suppressMessages(library(textplot)))
+this_file = function() {
+  calls = sys.calls()
+  for (i in seq_along(calls)) {
+    if (identical(calls[[i]][[1]], base::source)) {
+      return(normalizePath(as.character(calls[[i]]$file)))
+    }
+  }
+  fr <- sys.frames()
+  for (i in rev(seq_along(fr))) {
+    if (!is.null(fr[[i]]$ofile)) {
+      return(normalizePath(fr[[i]]$ofile))
+    }
+  }
+  stop("Cannot determine script path for plot.R")
+}
+this_dir = dirname(this_file())
 
-suppressWarnings(suppressMessages(source("~/sc-online/utils.R")))
 
+suppressWarnings(suppressMessages({
+    library(caret)
+    library(dplyr)
+    library(ggplot2)
+    library(ggforce)
+    library(ggrepel)
+    library(ggvenn)
+    library(grid)
+    library(gridExtra)
+    library(patchwork)
+    library(pheatmap)
+    library(RColorBrewer)
+    library(rhdf5)
+    library(rlang)
+    library(tidyr)
+    library(VennDiagram)
+    library(viridis)
+    library(viridisLite)
+    library(textplot)
+
+    source(file.path(this_dir, "utils.R"))
+}))
 
 col2hex <- function(x, alpha = FALSE) {
   args <- as.data.frame(t(col2rgb(x, alpha = alpha)))

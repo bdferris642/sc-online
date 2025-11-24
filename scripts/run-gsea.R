@@ -5,8 +5,7 @@ script_path = sub("^--file=", "", args[grep("^--file=", args)])
 
 if (length(script_path) == 1) {
   script_dir = dirname(normalizePath(script_path))
-  setwd(script_dir)
-  message("Working directory set to: ", script_dir)
+  message("Script located in directory: ", script_dir)
 } else {
   stop("Cannot determine script path. Are you running via Rscript?")
 }
@@ -24,12 +23,12 @@ if (length(script_path) == 1) {
 
 # add the paths to the gene sets you want to use here
 gene_sets = list(
-    kegg_2021_human = "../genesets/KEGG_2021_Human.txt",
-    go_process = "../genesets/GO_Biological_Process_2021.txt",
-    go_function = "../genesets/GO_Molecular_Function_2021.txt",
-    msigdb_hallmark = "../genesets/MSigDB_Hallmark_2020.txt",
-    syngo_ontologies = "../genesets/syngo_ontologies.txt",
-    cort_and_snap = "../genesets/cort_and_snap.txt"   
+    kegg_2021_human = file.path(script_dir, "../genesets/KEGG_2021_Human.txt"),
+    go_process = file.path(script_dir, "../genesets/GO_Biological_Process_2021.txt"),
+    go_function = file.path(script_dir, "../genesets/GO_Molecular_Function_2021.txt"),
+    msigdb_hallmark = file.path(script_dir, "../genesets/MSigDB_Hallmark_2020.txt"),
+    syngo_ontologies = file.path(script_dir, "../genesets/syngo_ontologies.txt"),
+    cort_and_snap = file.path(script_dir, "../genesets/cort_and_snap.txt")   
 )
 
 # latest_me_pd = "~/genesets/latest_me_pd_de.txt",
@@ -45,8 +44,8 @@ suppressWarnings(suppressMessages({
     library(Matrix)
     library(qs)
     library(Seurat)
-    source("../plot.R")
-    source("../gsea.R")
+    source(file.path(script_dir, "../plot.R"))
+    source(file.path(script_dir, "../gsea.R"))
 }))
 
 spec <- matrix(c(

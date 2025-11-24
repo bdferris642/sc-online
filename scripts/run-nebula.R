@@ -5,26 +5,26 @@ script_path = sub("^--file=", "", args[grep("^--file=", args)])
 
 if (length(script_path) == 1) {
   script_dir = dirname(normalizePath(script_path))
-  setwd(script_dir)
-  message("Working directory set to: ", script_dir)
+  message("Script located in directory: ", script_dir)
 } else {
   stop("Cannot determine script path. Are you running via Rscript?")
 }
 
 
-suppressMessages(suppressWarnings(library(glue)))
-suppressMessages(suppressWarnings(library(dplyr)))
-suppressMessages(suppressWarnings(library(getopt)))
-suppressMessages(suppressWarnings(library(Matrix)))
-suppressMessages(suppressWarnings(library(qs)))
-suppressMessages(suppressWarnings(library(Seurat)))
-suppressMessages(suppressWarnings(library(nebula)))
-suppressMessages(suppressWarnings(library(future)))
-#future::plan(multicore, workers = 4)  
+suppressMessages(suppressWarnings({
+    library(glue)
+    library(dplyr)
+    library(getopt)
+    library(Matrix)
+    library(qs)
+    library(Seurat)
+    library(nebula)
+    library(future)
+    #future::plan(multicore, workers = 4)  
 
-
-suppressMessages(suppressWarnings(source("../utils.R")))
-g = glue::glue
+    source(file.path(script_dir, "../utils.R"))
+    g = glue::glue
+}))
 
 spec = matrix(c(
     'path', 'p', 1, "character",

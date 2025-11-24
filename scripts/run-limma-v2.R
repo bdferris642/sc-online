@@ -1,13 +1,13 @@
 ########################################## IMPORTS ###########################################
 
 # Detect script path when running via Rscript
-args <- commandArgs(trailingOnly = FALSE)
-script_path <- sub("^--file=", "", args[grep("^--file=", args)])
+# Detect script path when running via Rscript
+args = commandArgs(trailingOnly = FALSE)
+script_path = sub("^--file=", "", args[grep("^--file=", args)])
 
 if (length(script_path) == 1) {
-  script_dir <- dirname(normalizePath(script_path))
-  setwd(script_dir)
-  message("Working directory set to: ", script_dir)
+  script_dir = dirname(normalizePath(script_path))
+  message("Script located in directory: ", script_dir)
 } else {
   stop("Cannot determine script path. Are you running via Rscript?")
 }
@@ -15,17 +15,18 @@ if (length(script_path) == 1) {
 
 print("Loading libraries...")
 
-suppressWarnings(suppressMessages(source("~/code/sconline_code.R")))
-suppressWarnings(suppressMessages(library(getopt)))
-suppressWarnings(suppressMessages(library(Matrix)))
-suppressWarnings(suppressMessages(library(Seurat)))
-suppressWarnings(suppressMessages(library(RhpcBLASctl)))
-suppressWarnings(suppressMessages(library(SingleCellExperiment)))
-suppressWarnings(suppressMessages(library(tidyr)))
-
-suppressWarnings(suppressMessages(source("/home/ferris/code/sconline_code.R"))) # <-- TODO inherit from de.R
-suppressWarnings(suppressMessages(source("../utils.R")))
-suppressWarnings(suppressMessages(source("../de.R")))
+suppressWarnings(suppressMessages({
+    library(getopt)
+    library(Matrix)
+    library(Seurat)
+    library(RhpcBLASctl)
+    library(SingleCellExperiment)
+    library(tidyr)
+    
+    source(file.path(script_dir, "../../code/sconline_code.R")) # <-- TODO inherit from de.R
+    source(file.path(script_dir, "../utils.R"))
+    source(file.path(script_dir, "../de.R"))
+}))
 ########################################### ARGUMENTS & CONSTANTS ###########################################
 
 spec <- matrix(c(

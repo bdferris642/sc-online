@@ -9,10 +9,12 @@
 ### OUTPUTS
 # creates a dataframe using Seurat's FindAllMarkers, saves that dataframe as a csv to `marker_path`
 
-library(future)
-library(qs)
-library(getopt)
-library(Seurat)
+suppressMessages(suppressWarnings({
+    library(future)
+    library(qs)
+    library(getopt)
+    library(Seurat)
+}))
 
 spec <- matrix(c(
   'path', 'p', 1, "character",
