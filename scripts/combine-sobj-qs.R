@@ -1,25 +1,28 @@
 print("**************** LOADING LIBRARIES ****************")
 # Detect script path when running via Rscript
-args <- commandArgs(trailingOnly = FALSE)
-script_path <- sub("^--file=", "", args[grep("^--file=", args)])
+args = commandArgs(trailingOnly = FALSE)
+script_path = sub("^--file=", "", args[grep("^--file=", args)])
 
 if (length(script_path) == 1) {
-  script_dir <- dirname(normalizePath(script_path))
-  setwd(script_dir)
-  message("Working directory set to: ", script_dir)
+  script_dir = dirname(normalizePath(script_path))
+  message("Script located in directory: ", script_dir)
 } else {
   stop("Cannot determine script path. Are you running via Rscript?")
 }
 
+suppressMessages(suppressWarnings({
+    library(glue)
+    library(dplyr)
+    library(getopt)
+    library(Matrix)
+    library(qs)
+    library(Seurat)
 
-suppressMessages(suppressWarnings(library(glue)))
-suppressMessages(suppressWarnings(library(dplyr)))
-suppressMessages(suppressWarnings(library(getopt)))
-suppressMessages(suppressWarnings(library(Matrix)))
-suppressMessages(suppressWarnings(library(qs)))
-suppressMessages(suppressWarnings(library(Seurat)))
-suppressMessages(suppressWarnings(source("../utils.R")))
-g = glue::glue
+    source(file.path(script_dir, "../utils.R"))
+
+    g = glue::glue
+}))
+
 
 spec <- matrix(c(
     'p1', 'p', 1, "character",
