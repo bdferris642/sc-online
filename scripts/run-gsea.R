@@ -60,10 +60,23 @@ spec <- matrix(c(
 opt = getopt(spec)
 PATH = opt[['path']]
 
+sanitize_column_name = function(colname){
+    colname = gsub("\\.", "_", colname)
+    colname = gsub("-", "_", colname)
+    colname = gsub(" ", "_", colname)
+    colname = gsub("\\.", "_", colname)
+    colname = gsub("\\+", "_and_", colname)
+    colname = gsub("\\&", "_and_", colname)
+    colname = gsub("\\:", "_x_", colname)
+    colname = gsub("\\?", "", colname)
+    colname = gsub("\\/", "", colname)
+    return(colname)
+}
+
 RANK_COL = ifelse(
     is.null(opt[['rank-col']]), 
     "t", 
-    opt[['rank-col']]
+    sanitize_column_name(opt[['rank-col']])
 )
 
 if (is.null(opt[['segment-by']])){
@@ -108,6 +121,8 @@ if(!dir.exists(figure_outdir)){
 }
 
 de_df = read.csv(PATH)
+colnames(de_df) = sapply(colnames(de_df), sanitize_column_name)
+
 if (is.null(SEGMENT_BY)){
     dataDE_list = list(all=prep_df_for_gsea(de_df))
 } else {
