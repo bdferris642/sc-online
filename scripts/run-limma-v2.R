@@ -116,8 +116,9 @@ if (is.null(opt[['suffix']])){
     SUFFIX = ""
 } else {
     SUFFIX = opt[['suffix']]
+    SUFFIX = paste0('__', SUFFIX)
 }
-SUFFIX = paste0('__', SUFFIX, format(Sys.Date(), "__%Y%m%d"))
+SUFFIX = paste0(SUFFIX, format(Sys.Date(), "__%Y%m%d"))
 
 CALC_PURITY = ifelse(
     is.null(opt[['calc-purity']]),
