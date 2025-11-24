@@ -1,3 +1,16 @@
+print("**************** LOADING LIBRARIES ****************")
+# Detect script path when running via Rscript
+args = commandArgs(trailingOnly = FALSE)
+script_path = sub("^--file=", "", args[grep("^--file=", args)])
+
+if (length(script_path) == 1) {
+  script_dir = dirname(normalizePath(script_path))
+  setwd(script_dir)
+  message("Working directory set to: ", script_dir)
+} else {
+  stop("Cannot determine script path. Are you running via Rscript?")
+}
+
 # a script that, given a .csv of DE outputs at --path with foldchanges in a column --rank-col  
 # runs GSEA on the gene sets in the --gene-sets variable, saving these csvs into a `gsea_outdir`
 # and plotting results to a `figure_outdir`.
@@ -11,27 +24,30 @@
 
 # add the paths to the gene sets you want to use here
 gene_sets = list(
-    # cell_class_markers_1 = "~/genesets/dapi_nurr_merged_seurat_clean_ctr_markers__cell_type__avg_log2FC_gt_0.5_expr_ratio_gt_1.33.txt",
-    # cell_type_markers_1 = "~/genesets/dapi_nurr_merged_seurat_clean_ctr_markers__cell_class__avg_log2FC_gt_0.5_expr_ratio_gt_1.33.txt"
-    kegg_2021_human = "~/genesets/KEGG_2021_Human.txt",
-    go_process = "~/genesets/GO_Biological_Process_2021.txt",
-    go_function = "~/genesets/GO_Molecular_Function_2021.txt",
-    msigdb_hallmark = "~/genesets/MSigDB_Hallmark_2020.txt",
-    syngo_ontologies = "~/genesets/syngo_ontologies.txt",
-    cort_and_snap = "~/genesets/cort_and_snap.txt",
-    handsaker_genes = "~/genesets/handsaker_genes.txt"
+    kegg_2021_human = "../genesets/KEGG_2021_Human.txt",
+    go_process = "../genesets/GO_Biological_Process_2021.txt",
+    go_function = "../genesets/GO_Molecular_Function_2021.txt",
+    msigdb_hallmark = "../genesets/MSigDB_Hallmark_2020.txt",
+    syngo_ontologies = "../genesets/syngo_ontologies.txt",
+    cort_and_snap = "../genesets/cort_and_snap.txt"   
 )
 
-suppressWarnings(suppressMessages(library(dplyr)))
-suppressWarnings(suppressMessages(library(ggplot2)))
-suppressWarnings(suppressMessages(library(glue)))
-suppressWarnings(suppressMessages(library(getopt)))
-suppressWarnings(suppressMessages(library(Matrix)))
-suppressWarnings(suppressMessages(library(qs)))
-suppressWarnings(suppressMessages(library(Seurat)))
+# latest_me_pd = "~/genesets/latest_me_pd_de.txt",
+# cell_class_markers_1 = "~/genesets/dapi_nurr_merged_seurat_clean_ctr_markers__cell_type__avg_log2FC_gt_0.5_expr_ratio_gt_1.33.txt",
+# cell_type_markers_1 = "~/genesets/dapi_nurr_merged_seurat_clean_ctr_markers__cell_class__avg_log2FC_gt_0.5_expr_ratio_gt_1.33.txt"
+# handsaker_genes = "~/genesets/handsaker_genes.txt"
 
-suppressWarnings(suppressMessages(source("~/sc-online/plot.R")))
-suppressWarnings(suppressMessages(source("~/sc-online/gsea.R")))
+suppressWarnings(suppressMessages({
+    library(dplyr)
+    library(ggplot2)
+    library(glue)
+    library(getopt)
+    library(Matrix)
+    library(qs)
+    library(Seurat)
+    source("../plot.R")
+    source("../gsea.R")
+}))
 
 spec <- matrix(c(
     'path', 'p', 1, "character",
@@ -116,8 +132,9 @@ for (segment in names(dataDE_list)){
     for (gene_set in names(gene_sets)){
         geneset_path = gene_sets[[gene_set]]
 
-        # ojo: specific carve-out for handsaker_genes, which has large gene set sizes that we nevertheless feel to be relevant
-        if (gene_set == "handsaker_genes"){
+        # ojo: specific carve-outs for gene sets which have large pathway sizes 
+        # that we nevertheless feel to be relevant
+        if (gene_set %in% c("handsaker_genes", "latest_me_pd")){
             this_max_size = 50000
         } else {
             this_max_size = MAX_SIZE
