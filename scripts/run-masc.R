@@ -16,18 +16,36 @@
 # leave-out (optional): a comma-separated list of clusters to leave out of the analysis
 # num-threads (optional): number of threads to use for the analysis
 
-################## LIBRARIES #################
-suppressWarnings(suppressMessages(library(dplyr)))
-suppressWarnings(suppressMessages(library(getopt)))
-suppressWarnings(suppressMessages(library(ggplot2)))
-suppressWarnings(suppressMessages(library(lme4)))
-suppressWarnings(suppressMessages(library(Matrix)))
-suppressWarnings(suppressMessages(library(qs)))
-suppressWarnings(suppressMessages(library(Seurat)))
-suppressWarnings(suppressMessages(library(RColorBrewer)))
-suppressWarnings(suppressMessages(library(RhpcBLASctl)))
+print("**************** LOADING LIBRARIES ****************")
+# Detect script path when running via Rscript
+args = commandArgs(trailingOnly = FALSE)
+script_path = sub("^--file=", "", args[grep("^--file=", args)])
 
-suppressWarnings(suppressMessages(source("~/sc-online/masc.R")))
+if (length(script_path) == 1) {
+  script_dir = dirname(normalizePath(script_path))
+  message("Script located in directory: ", script_dir)
+} else {
+  stop("Cannot determine script path. Are you running via Rscript?")
+}
+
+################## LIBRARIES #################
+suppressWarnings(suppressMessages({
+    library(dplyr)
+    library(getopt)
+    library(ggplot2)
+    library(lme4)
+    library(Matrix)
+    library(qs)
+    library(RColorBrewer)
+    library(RhpcBLASctl)
+    library(Seurat)
+    library(tidyverse)
+    library(glue)
+
+    source(file.path(script_dir, "../masc.R"))
+
+    g = glue::glue
+}))
 
 
 ################## ARGUMENTS #################
@@ -100,23 +118,47 @@ str_to_title = function(s){
 
 ################## MAIN #################
 
-model_cols = c(CONTRAST_COL, COVARIATES, CLUSTER_COL, RAND_COL)
 base_path_list = strsplit(PATH, "/")[[1]]
 base_path = paste(base_path_list[1:(length(base_path_list)-1)], collapse="/")
 basename = base_path_list[[length(base_path_list)]]
 slogan = gsub(".qs", "", basename)
 out_slogan = paste0(slogan, "__masc_", suffix)
-
-message(paste("Output Slogan:", out_slogan))
-
 if (!dir.exists(file.path(base_path, "masc"))) {
     dir.create(file.path(base_path, "masc"))
 }
 
+message(paste("Output Slogan:", out_slogan))
+
+
+message("Loading Seurat Object")
 sobj = qread(PATH)
 message("Seurat Object Dimensions")
 message(dim(sobj))
-pd = sobj@meta.data[,model_cols]
+
+
+# check if cols exist in metadata
+meta_cols = sort(unique(c(CONTRAST_COL, COVARIATES, CLUSTER_COL, RAND_COL)))
+# separately consider interactions containing : or * 
+meta_interaction_cols = grepl(":|\\*", meta_cols)
+meta_interaction_cols_parts = c()
+for (mk in meta_cols[meta_interaction_cols]) {
+    parts = unlist(strsplit(mk, ":|\\*"))
+    meta_interaction_cols_parts = c(meta_interaction_cols_parts, parts)
+}
+
+meta_cols = meta_cols[!meta_interaction_cols]
+meta_cols = unique(c(meta_cols, meta_interaction_cols_parts))
+missing_cols = c()
+for (cname in meta_cols){
+  if (! cname %in% colnames(sobj@meta.data)){
+    missing_cols = c(missing_cols, cname)
+  }
+}
+if (length(missing_cols) > 0){
+  stop(g("ERROR: The following columns are missing from metadata: {paste(missing_cols, collapse=', ')}"))
+}
+
+pd = sobj@meta.data[,meta_cols]
 pd[[CLUSTER_COL]] = factor(
     pd[[CLUSTER_COL]], 
     levels= sort(unique(as.character(pd[[CLUSTER_COL]]))))
@@ -147,22 +189,11 @@ if (!is.null(FILTER_RAND_N) & !is.null(RAND_COL)) {
 
 pd = pd[complete.cases(pd),]
 
-if ("source" %in% model_cols) {
-    pd$source = factor(pd$source, levels=c("Calico", "GTEx"))
-}
-if ("sex" %in% model_cols) {
-    if ("F" %in% unique(pd$sex)) {
-        pd$sex = factor(pd$sex, levels=c("M", "F"))
-    }
-    if ("Female" %in% unique(pd$sex)) {
-        pd$sex = factor(pd$sex, levels=c("Male", "Female"))
-    }
-}
-
 # replace dashes with underscores in actual column data
-for (col in model_cols) {
+for (col in meta_cols) {
     pd[[col]] = gsub("-", "_", pd[[col]])
     pd[[col]] = gsub(" ", "_", pd[[col]])
+    pd[[col]] = gsub(":", "_x_", pd[[col]])
     pd[[col]] = gsub("\\.", "", pd[[col]])
     pd[[col]] = gsub("\\,", "", pd[[col]])
     pd[[col]] = gsub("\\?", "", pd[[col]])
@@ -172,18 +203,6 @@ for (col in model_cols) {
     pd[[col]] = gsub("\\|", "", pd[[col]])
     pd[[col]] = gsub("\\/", "", pd[[col]])
 }
-
-# note the strange beahvior of the case_control column
-# by ordering asc, the column will be called case_controlPD or case_controlXDP 
-# but when we grab the case_name a second, we need to reverse the order for some reason.
-if ("case_control" %in% model_cols) {
-    pd$case_control = factor(pd$case_control, levels=sort(unique(as.character(pd$case_control)), decreasing=F))
-}
-case_name = sort(unique(as.character(pd[[CONTRAST_COL]])), decreasing=T)[[1]]
-ctr_name = sort(unique(as.character(pd[[CONTRAST_COL]])), decreasing=T)[[2]]
-
-message(paste("Case Name:", case_name))
-message(paste("Control Name:", ctr_name))
 
 or_colname = paste0(CONTRAST_COL, case_name, ".OR")
 ci_low_colname = paste0(CONTRAST_COL, case_name, ".OR.95pct.ci.lower")
