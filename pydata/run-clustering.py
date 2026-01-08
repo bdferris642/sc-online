@@ -57,9 +57,7 @@ def main():
         print(
             f"\nrun-clustering.py:\tNumber of cells after restoring counts: {adata.n_obs}, Number of genes: {adata.n_vars}"
         )
-
-    if adata.raw is None:
-        adata.raw = adata.copy()
+        del og_adata  # free memory
 
     print("\nrun-clustering.py:\tCalling Clustering Routine...")
     adata = normalize_scale_pca_cluster_umap(
