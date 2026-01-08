@@ -43,7 +43,7 @@ def load_single_library(basepath: str, bcl: str, rna_index: str) -> None:
                 │   └── dropsift_output.csv
                 ├── outs
                 │   └── molecule_info.h5
-                └── vireo
+                └── vireo <-- optional vireo directory
                     └── donor_ids.tsv
 
     We only gave vireo assignments to cells that passed CellRanger filtering
@@ -146,26 +146,29 @@ def load_single_library(basepath: str, bcl: str, rna_index: str) -> None:
 
     # Read vireo output
     # left join vireo df to obs on barcode / obs_names
-    vireo_df = pd.read_csv(vireo_path, sep="\t")
-    df_decode_bytes_inplace(vireo_df)
+    try: 
+        vireo_df = pd.read_csv(vireo_path, sep="\t")
+        df_decode_bytes_inplace(vireo_df)
 
-    # Force prefix on everything except 'cell' and 'donor_id'
-    vireo_keep = {"cell", "donor_id"}
-    vireo_old_cols = list(vireo_df.columns)
-    vireo_df = vireo_df.set_axis(
-        [c if c in vireo_keep else f"vireo_{c}" for c in vireo_old_cols],
-        axis=1,
-        copy=False,
-    )
+        # Force prefix on everything except 'cell' and 'donor_id'
+        vireo_keep = {"cell", "donor_id"}
+        vireo_old_cols = list(vireo_df.columns)
+        vireo_df = vireo_df.set_axis(
+            [c if c in vireo_keep else f"vireo_{c}" for c in vireo_old_cols],
+            axis=1,
+            copy=False,
+        )
 
-    # Verify the change actually happened on this object
-    assert any(
-        o != n for o, n in zip(vireo_old_cols, vireo_df.columns)
-    ), "Rename did not apply to vireo_df!"
+        # Verify the change actually happened on this object
+        assert any(
+            o != n for o, n in zip(vireo_old_cols, vireo_df.columns)
+        ), "Rename did not apply to vireo_df!"
 
-    adata.obs = pd.merge(
-        adata.obs, vireo_df, left_on="barcode", right_on="cell", how="left"
-    )
+        adata.obs = pd.merge(
+            adata.obs, vireo_df, left_on="barcode", right_on="cell", how="left"
+        )
+    except FileNotFoundError:
+        print(f"Vireo output not found at {vireo_path}, skipping vireo merge.")
 
     # Read dropsift output
     # left join dropsift df to obs on barcode
@@ -209,17 +212,20 @@ def load_single_library(basepath: str, bcl: str, rna_index: str) -> None:
             "dropsift_num_transcripts",
         ],
         inplace=True,
+        errors='ignore'
     )
 
     adata.obs.nUMI = adata.X.sum(axis=1).A1
+
     # now remove cells from adata that have a NA in donor_id (i.e. not assigned by vireo)
-    adata = adata[~adata.obs["donor_id"].isna(), :]
+    # only do this if vireo was run in the first place
+    if "donor_id" in adata.obs.columns:
+        adata = adata[~adata.obs["donor_id"].isna(), :]
 
     # Suppress only during write_h5ad, as these are known to be harmless (e.g., dtype conversion warnings).
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         adata.write_h5ad(adata_out_path)
-
 
 def load_libraries_from_path(
     basepath: str,
