@@ -59,7 +59,7 @@ def ensg_to_symbol(ensg_list):
 
 
 
-def find_markers(adata, cluster_key, **kwargs):
+def find_markers(adata, cluster_key, layer=None, **kwargs):
     """
     Find marker genes for each cluster in adata, given the cluster assignment in adata.obs
     """
@@ -71,6 +71,7 @@ def find_markers(adata, cluster_key, **kwargs):
         pts=True,
         use_raw=False,
         key_added=f"rank_genes_{cluster_key}",
+        layer=layer,
         **kwargs
     )
 
@@ -107,6 +108,7 @@ def filter_markers(adata,
     Returns:
     - filtered_markers: pd.DataFrame of filtered marker genes
     """
+
     markers = sc.get.rank_genes_groups_df(
             adata,
             group=None,
@@ -187,6 +189,41 @@ def merge_h5ads(list_of_paths):
 
     return merged
 
+def neighbor_cluster_umap(
+        adata_sub,
+        adata_full,
+        resolutions,
+        n_neighbors=30,
+        n_pcs=30,
+        cluster_name_prefix="leiden",
+        dim_reduction_key="pca",
+        umap_key="umap"
+):  
+    
+    print(f"\ndata_utils.py:\tComputing Neighbors on {dim_reduction_key} space...")
+    sc.pp.neighbors(
+        adata_sub,
+        n_neighbors=n_neighbors,
+        n_pcs=n_pcs,
+        use_rep = f"X_{dim_reduction_key}")
+    adata_full.obsp[f"connectivities_{dim_reduction_key}"] = adata_sub.obsp[f"connectivities"]
+    adata_full.obsp[f"distances_{dim_reduction_key}"] = adata_sub.obsp[f"distances"]
+    adata_full.uns[f"neighbors_{dim_reduction_key}"] = adata_sub.uns.get(f"neighbors", {})
+
+    print(f"\ndata_utils.py:\tComputing UMAP on HVG {dim_reduction_key} space...")
+    sc.tl.umap(adata_sub)
+    adata_full.obsm[f"X_{umap_key}"] = adata_sub.obsm[f"X_umap"]
+    adata_full.uns[umap_key] = adata_sub.uns.get("umap", {})
+
+    for res in resolutions:
+        key = f"{cluster_name_prefix}_{str(res).replace('.', 'p')}"
+        print(f"\ndata_utils.py:\tClustering with Leiden, resolution = {res}\n\tkey = {key}")
+        sc.tl.leiden(adata_sub, resolution=res, key_added=key)
+        adata_full.obs[key] = adata_sub.obs[key]
+    
+    return adata_full
+    
+
 def normalize_scale_pca_cluster_umap(
     adata,
     n_hvg=2500,
@@ -206,10 +243,12 @@ def normalize_scale_pca_cluster_umap(
     Normalize, log-transform, select HVGs, scale, PCA, neighbors, Leiden, UMAP.
     """
 
+    adata.raw = None # clear raw to save memory
+
      # (1) Ensure counts layer exists and is integer-like
     if counts_layer in adata.layers:
         if is_integer_valued(adata.layers[counts_layer]):
-            adata.X = adata.layers[counts_layer]
+            adata.X = adata.layers[counts_layer].copy()
         else:
             raise ValueError(
                 f"\ndata_utils.py:\tLayer '{counts_layer}' exists but contains non-integer values! "
@@ -217,7 +256,7 @@ def normalize_scale_pca_cluster_umap(
             )
     elif counts_layer not in adata.layers:
         if is_integer_valued(adata.X):
-            adata.layers[counts_layer] = adata.X
+            adata.layers[counts_layer] = adata.X.copy()
         else:
             raise ValueError(
                 f"\ndata_utils.py:\tLayer '{counts_layer}' is missing and adata.X contains non-integer values. "
@@ -225,10 +264,10 @@ def normalize_scale_pca_cluster_umap(
             )
     
     print(f"\ndata_utils.py:\tUsing adata.X for normalization and downstream analysis. Example values:\n")
-
     num_genes = min(2000, adata.X.shape[1])
     min_num_genes = max(0, num_genes - 10)
-    print(adata.X[1:10, min_num_genes:num_genes].toarray())
+    ex = adata.X[1:10, min_num_genes:num_genes]
+    print(ex.toarray() if hasattr(ex, "toarray") else ex)
 
     # 2) Normalize total
     print(f"\ndata_utils.py:\tNormalizing total counts per cell...")
@@ -239,8 +278,7 @@ def normalize_scale_pca_cluster_umap(
     sc.pp.log1p(adata)
 
     if lognorm_layer is not None:
-        # Reference assignment; safe as long as you don't later overwrite adata.X with something else.
-        adata.layers[lognorm_layer] = adata.X
+        adata.layers[lognorm_layer] = adata.X.copy()
 
     # 4) HVGs (do NOT subset by default, to keep all genes)
     print(f"\ndata_utils.py:\tSelecting highly variable genes...")
@@ -252,7 +290,7 @@ def normalize_scale_pca_cluster_umap(
         layer=counts_layer
     )
 
-    # 5) Scale and PCA on HVG subset only for clustering/UMAP
+    # Scale, PCA, UMAP, Leiden on HVG subset only
     hvgs = adata.var["highly_variable"].to_numpy()
     if hvgs.sum() == 0:
         raise ValueError("\ndata_utils.py:\tNo HVGs selected (adata.var['highly_variable'] has 0 True entries).")
@@ -260,97 +298,57 @@ def normalize_scale_pca_cluster_umap(
     # Copy only HVG slice (much smaller than copying all genes)
     adata_hvg = adata[:, hvgs].copy()
 
-    # Scale HVGs only
+    # 5) Scale
     print(f"\ndata_utils.py:\tScaling data on HVGs...")
     sc.pp.scale(adata_hvg, max_value=max_value_scale)
 
-    # PCA on HVGs only
+    # 6) PCA
     print(f"\ndata_utils.py:\tRunning PCA on HVGs...")
     sc.tl.pca(adata_hvg, svd_solver="arpack")
 
-    # Neighbors/UMAP/Leiden on HVG PCA space
-    print(f"\ndata_utils.py:\tComputing Neighbors on HVG PCA space...")
-    sc.pp.neighbors(adata_hvg, n_neighbors=n_neighbors, n_pcs=n_pcs)
-    sc.tl.umap(adata_hvg)
-
-    for res in resolutions:
-        print(f"\ndata_utils.py:\tClustering with Leiden, resolution = {res}")
-        key = f"{cluster_name_prefix}_{str(res).replace('.', 'p')}"
-        sc.tl.leiden(adata_hvg, resolution=float(res), key_added=key)
-        # copy cluster labels back
-        adata.obs[key] = adata_hvg.obs[key].values
-
-    print(f"\ndata_utils.py:\tCopying embeddings and neighbors graph back to original adata...")
-    # copy embeddings back
+    # Copy PCA embeddings back to original adata
     adata.obsm["X_pca"] = adata_hvg.obsm["X_pca"]
     adata.uns["pca"] = adata_hvg.uns.get("pca", {})
-    adata.varm["PCs"] = adata_hvg.varm.get("PCs", None)
 
-    adata.obsm["X_umap"] = adata_hvg.obsm["X_umap"]
-    adata.uns["umap"] = adata_hvg.uns.get("umap", {})
-
-    # neighbors graph back (so downstream plotting/tools use the right graph)
-    adata.obsp["connectivities"] = adata_hvg.obsp["connectivities"]
-    adata.obsp["distances"] = adata_hvg.obsp["distances"]
-    adata.uns["neighbors"] = adata_hvg.uns.get("neighbors", {})
-
-
-    # 5) Scale
-    
-    sc.pp.scale(
-        adata,
-        max_value=max_value_scale)
-
-    # 6) PCA (Scanpy will already mask to HVGs when subset=False, via .var['highly_variable'])
-    print(f"\ndata_utils.py:\tRunning PCA...")
-    sc.tl.pca(
-        adata,
-        svd_solver="arpack"
+    #7) Neighbors, Leiden, UMAP
+    adata = neighbor_cluster_umap(
+        adata_sub = adata_hvg,
+        adata_full=adata,
+        resolutions=resolutions,
+        n_neighbors=n_neighbors,
+        n_pcs=n_pcs,
+        cluster_name_prefix=cluster_name_prefix,
+        dim_reduction_key="pca",
+        umap_key="umap"
     )
-
-    # 7) Neighbors + UMAP + Leiden
-    print(f"\ndata_utils.py:\tComputing Neighbors...")
-    sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
-
-    print(f"\ndata_utils.py:\tComputing UMAP...")
-    sc.tl.umap(adata)
-    
-    for res in resolutions:
-        print(f"\ndata_utils.py:\tClustering with Leiden, resolution = {res}")
-        key = f"{cluster_name_prefix}_{str(res).replace('.', 'p')}"
-        sc.tl.leiden(adata, resolution=res, key_added=key)
 
     # 8) optionally run harmony
     if run_harmony_on is not None:
         print(f"\ndata_utils.py:\tRunning Harmony integration...")
-        sce.pp.harmony_integrate(adata, key=run_harmony_on)    
-        sc.pp.neighbors(adata,  n_neighbors=n_neighbors, n_pcs=n_pcs, use_rep = 'X_pca_harmony')
-        sc.tl.umap(adata, key_added = 'umap_harmony')
-
-        for res in resolutions:
-            print(f"\ndata_utils.py:\tClustering with Leiden, resolution = {res}")
-            key = f"harmony_{cluster_name_prefix}_{str(res).replace('.', 'p')}"
-            sc.tl.leiden(adata, resolution=res, key_added=key)
+        sce.pp.harmony_integrate(adata_hvg, key=run_harmony_on)
+        adata.obsm["X_pca_harmony"] = adata_hvg.obsm["X_pca_harmony"]
+        adata.uns["pca_harmony"] = adata_hvg.uns.get("pca_harmony", {})
+        adata = neighbor_cluster_umap(
+            adata_sub = adata_hvg,
+            adata_full=adata,
+            resolutions=resolutions,
+            n_neighbors=n_neighbors,
+            n_pcs=n_pcs,
+            cluster_name_prefix=f"harmony_{cluster_name_prefix}",
+            dim_reduction_key="pca_harmony",
+            umap_key="umap_harmony"
+        )   
         
     # 9) optionally find markers
     if run_find_markers:
-
-        # need X to be normalized + log1p transformed of raw counts 
-        print(f"\ndata_utils.py:\tResetting adata.X to normalized + log1p of raw counts for marker finding...")
-        adata.X = adata.raw.X.copy()
-        print(f"\ndata_utils.py:\tNormalizing total counts per cell...")
-        sc.pp.normalize_total(adata, target_sum=target_sum_norm)
-        print(f"\ndata_utils.py:\tLog1p transform...")
-        sc.pp.log1p(adata)
-
         for res in resolutions:
             cluster_key = f"{cluster_name_prefix}_{str(res).replace('.', 'p')}"
             print(f"\ndata_utils.py:\tFinding markers for clusters in {cluster_key}...")
-            adata = find_markers(adata, cluster_key=cluster_key, **kwargs)
+            adata = find_markers(adata, cluster_key=cluster_key, layer = lognorm_layer, **kwargs)
 
             if run_harmony_on is not None:
                 harmony_cluster_key = f"harmony_{cluster_key}"
                 print(f"\ndata_utils.py:\tFinding markers for clusters in {harmony_cluster_key}...")
-                adata = find_markers(adata, cluster_key=harmony_cluster_key, **kwargs)
+                adata = find_markers(adata, cluster_key=harmony_cluster_key, layer = lognorm_layer, **kwargs)
 
     return adata
