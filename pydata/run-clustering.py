@@ -12,14 +12,20 @@ def parse_args():
         help="Path to original counts .h5ad file to restore counts from. \
             If not set, uses counts from input .h5ad.",
     )
-    ap.add_argument("--output-path", "-o", required=True, help="Output .h5ad path")
+    # if output-patch is not provided, set to input-path
+    ap.add_argument("--output-path", "-o", 
+                    required=False, 
+                    default=None,
+                    help="Output .h5ad path. If not set, overwrites input path.")
     ap.add_argument(
-        "--resolutions", "-r", nargs="+", type=float, default=[0.2, 0.5, 1.0]
+        "--resolutions", "-r", nargs="+", type=float, default=[0.2, 0.5, 0.8]
     )
     ap.add_argument("--n-hvg", type=int, default=2500)
     ap.add_argument("--n-pcs", type=int, default=30)
     ap.add_argument("--n-neighbors", type=int, default=20)
     ap.add_argument("--cluster-name-prefix", type=str, default="leiden_")
+    ap.add_argument("--vars-to-regress", nargs="+", default=None,
+                    help="List of obs columns to regress out after normalization.")
     ap.add_argument(
         "--run-harmony-on",
         nargs="+",
@@ -34,11 +40,15 @@ def parse_args():
         help="Whether to find marker genes for each cluster after clustering."
     )
 
-    # print arguments for reference
-    for arg in vars(ap.parse_args()):
-        print(f"{arg}: {getattr(ap.parse_args(), arg)}")
+    args = ap.parse_args()
+    if args.output_path is None:
+        args.output_path = args.input_path
 
-    return ap.parse_args()
+    # print arguments for reference
+    for arg in vars(args):
+        print(f"{arg}: {getattr(args, arg)}")
+    
+    return args
 
 
 def main():
@@ -69,6 +79,7 @@ def main():
         target_sum_norm=1e6,
         max_value_scale=10,
         cluster_name_prefix=args.cluster_name_prefix,
+        vars_to_regress=args.vars_to_regress,
         run_harmony_on=args.run_harmony_on,
         run_find_markers=args.find_markers
     )
