@@ -16,6 +16,13 @@ def add_back_og_counts(adata, og_adata):
     """
 
     # subset the og_adata to only include cells present in adata
+    # raise an error if any cells in adata are missing from og_adata
+    missing_cells = set(adata.obs_names) - set(og_adata.obs_names)
+    if len(missing_cells) > 0:
+        raise ValueError(
+            f"add_back_og_counts:\tThe following cells are missing from og_adata: {missing_cells}"
+        )
+    
     og_adata_subset = og_adata[adata.obs_names, :]
 
     new_adata = ad.AnnData(
@@ -237,6 +244,7 @@ def normalize_scale_pca_cluster_umap(
     run_find_markers=False,
     counts_layer: str = "counts",
     lognorm_layer: str = "norm_log",
+    vars_to_regress=None,
     **kwargs
 ):
     """
@@ -248,6 +256,7 @@ def normalize_scale_pca_cluster_umap(
      # (1) Ensure counts layer exists and is integer-like
     if counts_layer in adata.layers:
         if is_integer_valued(adata.layers[counts_layer]):
+            print(f"\ndata_utils.py:\tUsing layer '{counts_layer}' as raw counts for normalization.")
             adata.X = adata.layers[counts_layer].copy()
         else:
             raise ValueError(
@@ -256,6 +265,7 @@ def normalize_scale_pca_cluster_umap(
             )
     elif counts_layer not in adata.layers:
         if is_integer_valued(adata.X):
+            print(f"\ndata_utils.py:\tLayer '{counts_layer}' not found; using adata.X as raw counts for normalization.")
             adata.layers[counts_layer] = adata.X.copy()
         else:
             raise ValueError(
@@ -263,7 +273,14 @@ def normalize_scale_pca_cluster_umap(
                 "Provide raw counts in adata.X or in a layer, then rerun."
             )
     
-    print(f"\ndata_utils.py:\tUsing adata.X for normalization and downstream analysis. Example values:\n")
+    if vars_to_regress is not None:
+        if not all(var in adata.obs.columns for var in vars_to_regress):
+            missing_vars = [var for var in vars_to_regress if var not in adata.obs.columns]
+            raise ValueError(
+                f"\ndata_utils.py:\tThe following vars to regress are missing from adata.obs: {missing_vars}"
+            )
+    
+    print(f"\ndata_utils.py:\tUsing adata.X for downstream analysis. Example values:\n")
     num_genes = min(2000, adata.X.shape[1])
     min_num_genes = max(0, num_genes - 10)
     ex = adata.X[1:10, min_num_genes:num_genes]
@@ -289,6 +306,16 @@ def normalize_scale_pca_cluster_umap(
         subset=False,
         layer=counts_layer
     )
+
+    # optionally regress out vars
+    if vars_to_regress is not None:
+        print(f"\ndata_utils.py:\tRegressing out variables: {vars_to_regress} ...")
+        sc.pp.regress_out(adata, keys=vars_to_regress, layer=lognorm_layer)
+        # after regression, log1p again to ensure non-negative values
+        print(f"\ndata_utils.py:\tLog1p transform after regression...")
+        sc.pp.log1p(adata)
+        if lognorm_layer is not None:
+            adata.layers[lognorm_layer] = adata.X.copy()
 
     # Scale, PCA, UMAP, Leiden on HVG subset only
     hvgs = adata.var["highly_variable"].to_numpy()
