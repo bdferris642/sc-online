@@ -8,30 +8,65 @@ usage() {
   echo "Usage: $0 -r REF.h5ad -q QUERY.h5ad -o OUTPUT_DIR -p PREFIX [-c]"
   echo "  -r, --ref           Path to reference .h5ad (required)"
   echo "  -q, --query         Path to query .h5ad (required)"
-  echo "  -o, --output_path   Output directory (required)"
+  echo "  -o, --output-path   Output directory (required)"
+  echo "  -t, --hierarchy     Cell type hierarchy space-delimited (required)"
   echo "  -p, --prefix        Output name prefix (required)"
   echo "  -c, --clobber       Overwrite/recompute all intermediates (optional)"
+  echo "  -h, --help          Show this help message and exit"
   exit 1
 }
 
 # Parse flags
+hierarchy=()   # initialize as array
+
+# Parse flags
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -r|--ref) ref="$2"; shift ;;
-    -q|--query) query="$2"; shift ;;
-    -o|--output_path) output_path="$2"; shift ;;
-    -p|--prefix) prefix="$2"; shift ;;
-    -c|--clobber) clobber=1 ;;                       # <-- flip to 1 when present
-    -h|--help) usage ;;
-    *) echo "Unknown option: $1"; usage ;;
+    -r|--ref)
+      ref="$2"
+      shift
+      ;;
+    -q|--query)
+      query="$2"
+      shift
+      ;;
+    -o|--output-path)
+      output_path="$2"
+      shift
+      ;;
+    -p|--prefix)
+      prefix="$2"
+      shift
+      ;;
+    -t|--hierarchy)
+      shift
+      # collect all following non-flag arguments
+      while [[ $# -gt 0 && "$1" != --* ]]; do
+        hierarchy+=("$1")
+        shift
+      done
+      continue   # IMPORTANT: skip the final shift below
+      ;;
+    -c|--clobber)
+      clobber=1
+      ;;
+    -h|--help)
+      usage
+      ;;
+    *)
+      echo "Unknown option: $1"
+      usage
+      ;;
   esac
   shift
 done
 
+
 # Required args
 : "${ref:?Error: -r/--ref is required}"
 : "${query:?Error: -q/--query is required}"
-: "${output_path:?Error: -o/--output_path is required}"
+: "${output_path:?Error: -o/--output-path is required}"
+: "${hierarchy:?Error: -t/--hierarchy is required}"
 : "${prefix:?Error: -p/--prefix is required}"        # <-- enforce prefix
 
 ref_dir="$(dirname "$ref")"
@@ -52,12 +87,17 @@ ref_precomp_stats_path="${ref_dir}/${ref_prefix}_precomputed_stats.h5"
 ref_marker_path="${ref_dir}/${ref_prefix}_reference_markers.h5"
 query_marker_path="${output_path}/${prefix}_query_markers.json"   # <-- put in output dir
 
+# hierarchy is a bash array: hierarchy=("cell_class" "cell_type")
+json_hierarchy="[$(printf '"%s", ' "${hierarchy[@]}" | sed 's/, $//')]"
+# -> '["cell_class", "cell_type"]'
+echo "Using hierarchy: $json_hierarchy"
+
 echo "== Precompute stats =="
 if [[ ! -e "$ref_precomp_stats_path" || "$clobber" -eq 1 ]]; then
   echo "Computing stats for reference"
   python -m cell_type_mapper.cli.precompute_stats_scrattch \
     --h5ad_path "$ref" \
-    --hierarchy '["cell_class", "cell_type"]' \
+    --hierarchy "$json_hierarchy" \
     --n_processors 12 \
     --output_path "$ref_precomp_stats_path" \
     --clobber True \
