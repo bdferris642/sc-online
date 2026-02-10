@@ -37,6 +37,74 @@ def add_back_og_counts(adata, og_adata):
 
     return new_adata
 
+def apply_cnmf_usage_df(
+        adata, 
+        slogan=None, 
+        k=None, 
+        dt=0.05, 
+        cnmf_dir="/mnt/accessory/seq_data/pd-freeze/sn-vta/subsets/cNMF/outputs",
+        cnmf_path = None,
+        geps_to_skip=None
+    ):
+
+    dt_str = str(dt).replace('.', '_')
+    if cnmf_path is None:
+        cnmf_path = f"{cnmf_dir}/{slogan}/{slogan}.usages.k_{k}.dt_{dt_str}.consensus.txt"
+    else:
+        cnmf_path = cnmf_path
+        cnmf_usage_basename = cnmf_path.split("/")[-1]
+        slogan = cnmf_usage_basename.split(".")[0]
+        k = int(cnmf_usage_basename.split("k_")[1].split(".")[0])
+        dt_str = cnmf_usage_basename.split("dt_")[1].split(".")[0]
+
+    usages = pd.read_csv(
+        cnmf_path,
+        sep="\t", index_col=0)
+    print(f"\n\tLoaded cNMF {usages.shape[0]} usages \
+          from {cnmf_path}")
+
+    # subset usages to only include cells in adata, and vice versa
+    index_intersection = usages.index.intersection(adata.obs_names)
+    usages = usages.loc[index_intersection, :]
+    print(f"\n\tSubsetting usages to cells in adata, leaving {usages.shape[0]} cells...")
+    
+    print(f"\n\tBefore subsetting, adata has {adata.n_obs} cells...")
+    adata = adata[index_intersection, :]
+    print(f"\n\tSubsetting adata to cells in usages, leaving {adata.n_obs} cells...")
+
+    usages.columns = [f'cnmf_{slogan}_k_{k}_gep_{i+1:02d}' for i in range(usages.shape[1])]
+
+    if geps_to_skip is not None:
+        usages_clean = usages.drop(
+            columns=[f'cnmf_{slogan}_k_{k}_gep_{i:02d}' for i in geps_to_skip], inplace=False)
+
+    # create a copy of usages, normalized so that each row sums to 1
+    usages_norm = usages.div(usages.sum(axis=1), axis=0)
+    usages_norm.columns = [f'cnmf_{slogan}_k_{k}_gep_{i+1:02d}_norm' for i in range(usages.shape[1])]
+
+    # cbind usages_norm to usages
+    usages = pd.concat([usages, usages_norm], axis=1)
+
+    if geps_to_skip is not None:
+        usages_norm_clean = usages_clean.div(usages_clean.sum(axis=1), axis=0)
+        usages_norm_clean.columns = [col + "_norm_clean" for col in usages_clean.columns]
+        usages = pd.concat([usages, usages_norm_clean], axis=1)
+
+    # remove all columns from adata.obs with identifying slogan
+    cols_to_remove = [col for col in adata.obs.columns if f"cnmf_{slogan}_k_{k}" in col]
+    adata.obs.drop(columns=cols_to_remove, inplace=True)
+
+    # join usages to adata.obs using index
+    adata.obs = adata.obs.join(usages)
+
+    # sometimes due to divide-by-0 errors we get NaNs; remove these rows from the adata 
+    rows_to_remove = usages[usages.isna().any(axis=1)].index
+    if len(rows_to_remove) > 0:
+        print(f"\n\tRemoving {len(rows_to_remove)} cells with NaN usages")
+        adata = adata[~adata.obs_names.isin(rows_to_remove), :]
+
+    return adata
+
 def ensg_to_symbol(ensg_list):
     """
     Convert a list of ENSG IDs -> gene symbols using mygene.info
@@ -64,6 +132,31 @@ def ensg_to_symbol(ensg_list):
     # return with original ENSG keys
     return {orig: out[orig.split(".")[0]] for orig in ensg_list}
 
+def cluster_on_obs_cols(
+    adata,
+    obs_cols,
+    obsm_key,
+    resolutions = [0.2, 0.5, 0.8],
+    **kwargs
+): 
+
+    # make sure they are numeric
+    X = adata.obs[obs_cols].apply(pd.to_numeric, errors="raise").to_numpy(dtype=float)
+
+    # store in obsm with the name your function expects
+    adata.obsm[f"X_{obsm_key}"] = X
+
+    neighbor_cluster_umap(
+        adata, 
+        adata, 
+        n_pcs=len(obs_cols),
+        cluster_name_prefix=f"{obsm_key}_leiden",
+        dim_reduction_key=f"{obsm_key}",
+        umap_key=f"{obsm_key}_umap",
+        resolutions=resolutions,
+    )
+
+    return adata
 
 
 def find_markers(adata, cluster_key, layer=None, **kwargs):
@@ -145,8 +238,18 @@ def filter_markers(adata,
             .reset_index(drop=True)
         )
 
+    filtered_markers["group"] = filtered_markers["group"].astype(int)
+    filtered_markers["pct_nz_diff"] = \
+        round(filtered_markers["pct_nz_group"] - filtered_markers["pct_nz_reference"], 3)
+    filtered_markers["pct_nz_group"] = round(filtered_markers["pct_nz_group"], 3)
+    filtered_markers["pct_nz_reference"] = round(filtered_markers["pct_nz_reference"], 3)
+    filtered_markers["logfoldchanges"] = round(filtered_markers["logfoldchanges"], 3)
+    filtered_markers["pvals_adj"] = filtered_markers["pvals_adj"].apply(lambda x: f"{x:.3e}")
+
+    filtered_markers =  filtered_markers.sort_values(by=['group', 'pct_nz_diff'], ascending=[True, False])
+
     return filtered_markers[[
-        "group", 'gene_name', "logfoldchanges", "pvals_adj", "pct_nz_group", "pct_nz_reference"
+        "group", 'gene_name', "logfoldchanges", "pvals_adj", "pct_nz_group", "pct_nz_reference", "pct_nz_diff"
     ]]
 
 
@@ -204,7 +307,8 @@ def neighbor_cluster_umap(
         n_pcs=30,
         cluster_name_prefix="leiden",
         dim_reduction_key="pca",
-        umap_key="umap"
+        umap_key="umap",
+        run_find_markers=False
 ):  
     
     print(f"\ndata_utils.py:\tComputing Neighbors on {dim_reduction_key} space...")
@@ -227,6 +331,10 @@ def neighbor_cluster_umap(
         print(f"\ndata_utils.py:\tClustering with Leiden, resolution = {res}\n\tkey = {key}")
         sc.tl.leiden(adata_sub, resolution=res, key_added=key)
         adata_full.obs[key] = adata_sub.obs[key]
+
+        if run_find_markers:
+            print(f"\ndata_utils.py:\tFinding markers for clusters in {key}...")
+            adata_full = find_markers(adata_full, cluster_key=key, layer="norm_log")
     
     return adata_full
     
