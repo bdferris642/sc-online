@@ -1,3 +1,11 @@
+suppressMessages(suppressWarnings({
+    library(lme4)
+    library(glue)
+
+    g = glue::glue
+}))
+
+
 .sconline.MASCfn = function(
         dataset, 
         cluster, 
@@ -213,23 +221,29 @@ masc_fn_continuous = function(
     designmat = model.matrix(~ cluster + 0, data.frame(cluster = cluster))
     dataset = cbind(designmat, dataset)
 
+
     res = vector(mode = "list", length = length(unique(cluster)))
     names(res) = attributes(designmat)$dimnames[[2]]
 
     model_rhs = paste0(c(paste0(c(test_colname, fixed_effects), collapse = " + "),
                             paste0("(1|", random_effects, ")", collapse = " + ")),
                             collapse = " + ")
-    model_rhs
 
     null_rhs = paste0(c(paste0(fixed_effects, collapse = " + "),
                             paste0("(1|", random_effects, ")", collapse = " + ")),
                             collapse = " + ") 
-    null_rhs                 
+
+    print("model_rhs:")
+    print(model_rhs)
+    print("null_rhs:")
+    print(null_rhs)
+             
 
     # Initialize list to store model objects for each cluster
     cluster_models = vector(mode = "list",
                             length = length(attributes(designmat)$dimnames[[2]]))
     names(cluster_models) = attributes(designmat)$dimnames[[2]]
+    print(names(cluster_models))
 
     models=list()
     null_models = list()
@@ -237,15 +251,14 @@ masc_fn_continuous = function(
     # Run nested mixed-effects models for each cluster
     for (i in seq_along(attributes(designmat)$dimnames[[2]])) {
         test_cluster = attributes(designmat)$dimnames[[2]][i]
-        
-        print(paste("Creating logistic mixed models for", test_cluster))
+        print(g("---\nCreating logistic mixed models for {test_cluster}"))
         
         full_fm = as.formula(paste0(c(paste0(test_cluster, " ~ "),
                                     model_rhs), collapse = ""))
 
         
-        print(paste("Full model:", full_fm))
-        
+        print("Full model formula:")
+        print(full_fm)
         
         # Run null and full mixed-effects models
         full_model = lme4::glmer(formula = full_fm, data = dataset,
@@ -283,16 +296,28 @@ masc_fn_continuous = function(
 
     model_coef_list = list()
     for (name in names(models)){
-        cat("\n", name)
+        message(g("\n{name}\n"))
         model = models[[name]]
         
 
         model_summary=summary(model)
-        coef = model_summary$coefficients[test_colname, 1]
-        pval=model_summary$coefficients[test_colname, 4]
-        ci = confint.merMod(model, method = "Wald", parm = test_colname)
+        print(model_summary)
         
+        # OJO: hack to deal with factors
+        # i give up
+        test_colname = "case_controlpd:log10_kde_CALB1_CRYM_CALCR_Unweighted"
 
+        
+        print(model_summary$coefficients)
+        print(rownames(model_summary$coefficients))
+
+        coef = as.data.frame(model_summary$coefficients)[test_colname, 1]
+        pval = as.data.frame(model_summary$coefficients)[test_colname, 4]
+        ci = confint.merMod(model, method = "Wald", parm = test_colname)
+        print(ci)
+        qsave(ci , file.path(base_path, "masc", "ci.qs"))
+        qsave(model, file.path(base_path, "masc", "model.qs"))
+        
         model_coef_list[[name]] = list(
             cluster_name=name, 
             or=exp(coef), 

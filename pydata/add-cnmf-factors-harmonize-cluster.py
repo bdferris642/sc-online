@@ -79,7 +79,21 @@ def main():
     X = adata.obs[usage_cols].apply(pd.to_numeric, errors="raise").to_numpy(dtype=float) # make sure numeric
     print(f"\nadd-cnmf-factors-harmonize-cluster.py:\tAdding normalized CNMF usage columns to adata.obsm['X_{args.dimension_reduction_name}']")
     adata.obsm[f"X_{args.dimension_reduction_name}"] = X
+
+    # first cluster on the native cNMF factors
+    adata = neighbor_cluster_umap(
+        adata_sub = adata,
+        adata_full=adata,
+        resolutions=args.resolutions,
+        n_neighbors=args.num_neighbors,
+        n_pcs=adata.obsm[f"X_{args.dimension_reduction_name}"].shape[1],
+        cluster_name_prefix=f"{args.dimension_reduction_name}_leiden",
+        dim_reduction_key=f"{args.dimension_reduction_name}",
+        umap_key=f"umap_{args.dimension_reduction_name}",
+        run_find_markers=True
+    )
     
+    # then run harmony on the cNMF factors, cluster, and find markers on those as well
     print(f"\nadd-cnmf-factors-harmonize-cluster.py:\tRunning harmony integration on {args.dimension_reduction_name}")
     sce.pp.harmony_integrate(
         adata, 

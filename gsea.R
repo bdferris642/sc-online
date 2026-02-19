@@ -53,6 +53,10 @@ suppressMessages(suppressWarnings({
       rwNames=unlist(lapply(rwNames,function(x)x[1]))
     }
     
+    if (! dir.exists(file.path(this_dir, "serverFiles"))) {
+      dir.create(file.path(this_dir, "serverFiles"), recursive = T)
+    }
+
     if (! file.exists(file.path(this_dir, "serverFiles/human_map_to_ensembl.rda"))) {
       system(g('gcloud storage cp gs://fc-71ac3b81-2441-4171-8038-baf653634620/serverFiles/human_map_to_ensembl.rda {this_dir}/serverFiles/human_map_to_ensembl.rda'))
     }

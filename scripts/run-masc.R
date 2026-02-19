@@ -93,7 +93,7 @@ JK_SAMPLES = FALSE
 
 message(paste("PATH:", PATH))
 message(paste("CONTRAST_COL:", CONTRAST_COL))
-message(paste("COVARIATES:", COVARIATES))
+message(g("COVARIATES: {COVARIATES}"))
 message(paste("RAND_COL:", RAND_COL))
 message(paste("CLUSTER_COL:", CLUSTER_COL))
 message(paste("CONTINUOUS:", CONTINUOUS))
@@ -191,6 +191,9 @@ pd = pd[complete.cases(pd),]
 
 # replace dashes with underscores in actual column data
 for (col in meta_cols) {
+    if (! is.character(pd[[col]]) | ! is.factor(pd[[col]])) {
+        next
+    }
     pd[[col]] = gsub("-", "_", pd[[col]])
     pd[[col]] = gsub(" ", "_", pd[[col]])
     pd[[col]] = gsub(":", "_x_", pd[[col]])
@@ -204,9 +207,9 @@ for (col in meta_cols) {
     pd[[col]] = gsub("\\/", "", pd[[col]])
 }
 
-or_colname = paste0(CONTRAST_COL, case_name, ".OR")
-ci_low_colname = paste0(CONTRAST_COL, case_name, ".OR.95pct.ci.lower")
-ci_high_colname = paste0(CONTRAST_COL, case_name, ".OR.95pct.ci.upper")
+or_colname = paste0(CONTRAST_COL, ".OR")
+ci_low_colname = paste0(CONTRAST_COL, ".OR.95pct.ci.lower")
+ci_high_colname = paste0(CONTRAST_COL, ".OR.95pct.ci.upper")
 
 message(paste("OR Column Name:", or_colname))
 message(paste("CI High Column Name:", ci_high_colname))

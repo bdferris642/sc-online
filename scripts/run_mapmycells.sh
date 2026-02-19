@@ -113,8 +113,8 @@ if [[ ! -e "$ref_marker_path" || "$clobber" -eq 1 ]]; then
   rm -f "${ref_dir}/reference_markers.h5"            # <-- force remove quietly
   python -m cell_type_mapper.cli.reference_markers \
     --precomputed_path_list "$precompute_path_list" \
-    --n_valid 30 \
-    --n_processors 12 \
+    --n_valid 150 \
+    --n_processors 36 \
     --output_dir "$ref_dir" \
     --clobber True
 
@@ -142,7 +142,7 @@ if [[ ! -e "$query_marker_path" || "$clobber" -eq 1 ]]; then
     --output_path "$query_marker_path" \
     --reference_marker_path_list "$ref_marker_path_list" \
     --n_per_utility 100 \
-    --n_processors 12
+    --n_processors 36
 else
   echo "Query markers exist. Skipping."
 fi

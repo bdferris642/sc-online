@@ -252,6 +252,14 @@ def filter_markers(adata,
         "group", 'gene_name', "logfoldchanges", "pvals_adj", "pct_nz_group", "pct_nz_reference", "pct_nz_diff"
     ]]
 
+def get_gini_impurity(counts):
+    total = counts.sum()
+    if total == 0:
+        return 0
+    probs = counts / total
+    gini = 1 - np.sum(probs ** 2)
+    return gini
+
 
 def is_integer_valued(X, tol=1e-8, max_check=200_000):
     import numpy as np

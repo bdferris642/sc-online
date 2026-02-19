@@ -18,14 +18,14 @@
 # Default values
 CC_FILE="/mnt/analysis/eqtl/gtex/ccs"
 CT_ID="cell_class"
-GENE_LOG_EXPR_THRESHOLD=1.5
+GENE_LOG_EXPR_THRESHOLD=0.01
 MASH_EPS=1e-6
 MASH_NUM_RANDOM=1000000
 MASH_PADJ_THRESH=0.01
 MIN_NUM_CELLS=10
 PB_OUTPUT_SUBDIR="pseudobulk"
 SAMPLE_ID="participant_id"
-STRS_TO_SKIP="endo,opc"
+STRS_TO_SKIP="endo"
 START_AT_STEP=1
 STOP_AFTER_STEP=1000
 
@@ -198,7 +198,7 @@ if [ $START_AT_STEP -le 3 ] && [ $STOP_AFTER_STEP -ge 3 ]; then
             "$OSCA_INPUT_DIR/Upprobe_@.opi" \
             "$OSCA_INPUT_DIR/cov1_@.txt" \
             "$OSCA_INPUT_DIR/cov2_@_reduced.txt" \
-            6 \
+            5 \
             "$OSCA_OUTPUT_DIR/eqtl_@.tsv" | \
         parallel -j 0 --tmpdir /mnt/accessory/tmp && {
             echo "STEP 3 SUCCESSFULLY ran OSCA eQTL pipeline."
