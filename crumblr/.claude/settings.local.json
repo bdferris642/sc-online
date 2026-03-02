@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/home/ferris/cc-sandbox/micromamba_root/envs/crumblr/bin/Rscript:*)",
+      "Bash(tail:*)",
+      "Bash(MAMBA_ROOT_PREFIX=/home/ferris/cc-sandbox/micromamba_root /home/ferris/cc-sandbox/bin/micromamba run:*)",
+      "Bash(grep:*)"
+    ]
+  }
+}
