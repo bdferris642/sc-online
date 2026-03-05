@@ -14,6 +14,8 @@ N_FOLDS=""
 N_CORES=""
 SAVE_TMP="0"
 SUFFIX=""
+CONTRAST_COL="case_control"
+CASE_VAL="pd"
 
 usage() {
   cat <<USAGE
@@ -23,6 +25,8 @@ Usage:
     --id-col donor_id \\
     --covs sex,batch,age \\
     --offset-col nCount_RNA \\
+    --contrast-col case_control \\
+    --case-val pd \\
     --n-folds 8 \\
     --n-cores 4 \\
     --save-tmp 0|1 \\
@@ -43,6 +47,8 @@ while [[ $# -gt 0 ]]; do
     --id-col) ID_COL="$2"; shift 2 ;;
     --covs) COVS="$2"; shift 2 ;;
     --offset-col) OFFSET_COL="$2"; shift 2 ;;
+    --contrast-col) CONTRAST_COL="$2"; shift 2 ;;
+    --case-val) CASE_VAL="$2"; shift 2 ;;
     --n-folds) N_FOLDS="$2"; shift 2 ;;
     --n-cores) N_CORES="$2"; shift 2 ;;
     --save-tmp) SAVE_TMP="$2"; shift 2 ;;
@@ -169,7 +175,12 @@ echo
 
 Rscript "$SCRIPT_DIR/combine-nebula-results.R" \
   --in-dir "$tmp_de_dir" \
-  --out "$final_qs"
+  --out "$final_qs" \
+  --seurat-qs "$PATH_QS" \
+  --contrast-col "$CONTRAST_COL" \
+  --covariates "$COVS" \
+  --id-col "$ID_COL" \
+  --suffix "$SUFFIX"
 
 echo "[INFO] Final combined results: ${final_qs}"
 

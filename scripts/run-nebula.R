@@ -32,6 +32,8 @@ spec = matrix(c(
     'id-col', 'r', 2, "character",
     'offset-col', 'f', 2, "character",
     'suffix', 's', 2, "character",
+    'min-num-cells-per-id', 'm', 2, "integer",
+    'pct-nz-threshold', 'z', 2, "double",
     'n-cores', 'n', 2, "integer",
     'out-dir', 'o', 2, "character",
     'clobber', 'b', 2, "logical"
@@ -55,6 +57,18 @@ if (is.null(opt[['offset-col']])){
     OFFSET_COL = "nCount_RNA"
 } else {
     OFFSET_COL = opt[['offset-col']]
+}
+
+if (is.null(opt[['pct-nz-threshold']])){
+    PCT_NZ_THRESHOLD = 0.01
+} else {
+    PCT_NZ_THRESHOLD = opt[['pct-nz-threshold']]
+}
+
+if (is.null(opt[["min-num-cells-per-id"]])){
+    MIN_NUM_CELLS_PER_ID = 5
+} else {
+    MIN_NUM_CELLS_PER_ID = opt[['min-num-cells-per-id']]
 }
 
 if (is.null(opt[['suffix']])){
@@ -129,6 +143,17 @@ if (length(missing_cols) > 0){
   stop(g("ERROR: The following columns are missing from metadata: {paste(missing_cols, collapse=', ')}"))
 }
 
+# remove cells from donors with fewer than MIN_NUM_CELLS_PER_ID
+cell_counts_per_id = table(sobj@meta.data[[ID_COL]])
+num_cells_before = ncol(sobj)
+num_donors_before = length(cell_counts_per_id)
+valid_ids = names(cell_counts_per_id[cell_counts_per_id >= MIN_NUM_CELLS_PER_ID])
+keep <- sobj@meta.data[[ID_COL]] %in% valid_ids
+sobj <- sobj[, keep]
+# warn the user how many cells and donors were removed out of original
+num_removed_cells = num_cells_before - ncol(sobj)
+num_removed_donors = num_donors_before - length(valid_ids)
+message(g("Removed {num_removed_cells} cells from {num_removed_donors} donors with fewer than {MIN_NUM_CELLS_PER_ID} cells."))
 
 print ("**************** PREPARING DATA FOR NEBULA ****************")
 seuratdata = scToNeb(obj = sobj, assay = "RNA", id = ID_COL, pred = COVS[!grepl(":|\\*", COVS)], offset=OFFSET_COL)
@@ -177,7 +202,8 @@ re_ln = tryCatch({
         offset = data_g$offset,
         method = 'LN',
         ncore  = N_CORES,
-        output_re = TRUE
+        output_re = TRUE,
+        mincp = round(ncol(sobj) * 0.01)
     )}, error = function(e) {
     msg = conditionMessage(e)
     if (grepl("No gene passed the filtering", msg, ignore.case = TRUE)) {
