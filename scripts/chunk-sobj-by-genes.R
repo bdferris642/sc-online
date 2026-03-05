@@ -38,6 +38,14 @@ if (is.null(PATH_QS) || is.null(N_FOLDS) || is.null(OUTDIR)) {
 message("***** LOADING sobj: ", PATH_QS)
 sobj = qread(PATH_QS)
 
+sobj@meta.data$region_SN = ifelse(grepl("SN", sobj@meta.data$region), 1, 0)
+sobj@meta.data$region_VTA = ifelse(grepl("VTA", sobj@meta.data$region), 1, 0)
+
+# print the number of donors with fewer than 5 cells per ID_COL 
+cell_counts_per_id = table(sobj@meta.data[[ID_COL]])
+num_donors_fewer_than_5 = sum(cell_counts_per_id < 5)
+message(g("Number of donors with fewer than 5 cells: {num_donors_fewer_than_5}"))
+
 if (!OFFSET_COL %in% colnames(sobj@meta.data)) {
     stop(g("offset-col {OFFSET_COL} not in metadata."))
 }
