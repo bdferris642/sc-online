@@ -30,8 +30,9 @@ spec = matrix(c(
     'path', 'p', 1, "character",
     'min-features', 'f', 1, "numeric",
     'min-cells', 'c', 1, "numeric",
-    'convert-rownames', 'r', 1, "logical",
+    'use-layer', 'l', 1, "character",
     'use-raw', 'u', 0, "logical",
+    'convert-rownames', 'r', 0, "logical",
     'clobber', 'x', 0, "logical"
 ), byrow = TRUE, ncol = 4)
 opt = getopt(spec)
@@ -59,6 +60,12 @@ if (is.null(opt[['use-raw']])){
     USE_RAW = opt[['use-raw']]
 }
 
+if (is.null(opt[['use-layer']])){
+    USE_LAYER = FALSE
+} else {
+    USE_LAYER = opt[['use-layer']]
+}
+
 CLOBBER = ifelse(
     is.null(opt[['clobber']]), 
     FALSE,
@@ -83,7 +90,10 @@ print(paste("Loaded data from:", PATH))
 print(paste("Number of cells:", nrow(data)))
 print(paste("Number of features:", ncol(data)))
 
-if (USE_RAW){
+if (!USE_LAYER == FALSE){
+    print(paste("Using layer:", USE_LAYER))
+    data_x = data$layers[[USE_LAYER]]
+} else if (USE_RAW){
     print("Using raw data matrix(adata.raw.X)")
     data_x = data$raw$X
 } else {
@@ -93,9 +103,9 @@ if (USE_RAW){
 
 print(class(data_x))
 print(dim(data_x))
-print(data_x[100:115, 100:115])
+print(data_x[100:115, 1000:1015])
 
-counts_mat = t(as.matrix(data_x))
+counts_mat = Matrix::t(data_x)   # NOT as.matrix()
 
 # set rownames to be gene names, and colnames to be cell names
 colnames(counts_mat) = rownames(data$obs)
