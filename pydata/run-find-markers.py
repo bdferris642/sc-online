@@ -21,7 +21,14 @@ def parse_args():
         default=["leiden_0p5"],
         help="set of cluster keys in adata.obs to find markers for. Can specify multiple keys.",
     )
-    
+    ap.add_argument(
+        "--layer",
+        type=str,
+        default=None,
+        required=False,
+        help="Layer in the AnnData object to use for marker finding. If not set, uses `adata.X`.",
+    )
+
     # print arguments for reference
     for arg in vars(ap.parse_args()):
         print(f"{arg}: {getattr(ap.parse_args(), arg)}")
@@ -56,7 +63,7 @@ def main():
 
     for cluster_key in args.cluster_keys:
         print(f"\nrun-find-markers.py:\tFinding markers for clusters in {cluster_key}...")
-        adata = find_markers(adata, cluster_key=cluster_key)
+        adata = find_markers(adata, cluster_key=cluster_key, layer=args.layer)
 
         # sc.tl.rank_genes_groups(
         #     adata,
