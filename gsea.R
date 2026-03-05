@@ -181,6 +181,9 @@ runGSEA = function(
 prep_df_for_gsea = function(dataDE, protein_coding=T){
     dataDE
     anno=.extraHumanGeneAnnoAdderFn(inputGeneNames=dataDE$gene)
+    #make rownames unique
+    rownames(dataDE) = make.unique(as.character(dataDE$gene))
+
     anno=anno[match(dataDE$gene,anno$gene_id),]
     dataDE=cbind(dataDE,anno)
     if(protein_coding){
