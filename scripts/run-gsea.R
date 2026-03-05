@@ -22,13 +22,23 @@ if (length(script_path) == 1) {
 #   (in case you want to run GSEA on different segments of the data)
 
 # add the paths to the gene sets you want to use here
+# gene_sets = list(
+#     kegg_2021_human = file.path(script_dir, "../genesets/KEGG_2021_Human.txt"),
+#     go_process = file.path(script_dir, "../genesets/GO_Biological_Process_2021.txt"),
+#     go_function = file.path(script_dir, "../genesets/GO_Molecular_Function_2021.txt"),
+#     msigdb_hallmark = file.path(script_dir, "../genesets/MSigDB_Hallmark_2020.txt"),
+#     syngo_ontologies = file.path(script_dir, "../genesets/syngo_ontologies.txt"))
+#  #   cort_and_snap = file.path(script_dir, "../genesets/cort_and_snap.txt")   
+
 gene_sets = list(
-    kegg_2021_human = file.path(script_dir, "../genesets/KEGG_2021_Human.txt"),
-    go_process = file.path(script_dir, "../genesets/GO_Biological_Process_2021.txt"),
-    go_function = file.path(script_dir, "../genesets/GO_Molecular_Function_2021.txt"),
-    msigdb_hallmark = file.path(script_dir, "../genesets/MSigDB_Hallmark_2020.txt"),
-    syngo_ontologies = file.path(script_dir, "../genesets/syngo_ontologies.txt"),
-    cort_and_snap = file.path(script_dir, "../genesets/cort_and_snap.txt")   
+    kegg_2026_human = file.path(script_dir, "../genesets/latest/KEGG_2026.gmt"),
+    reactome_2024 = file.path(script_dir, "../genesets/latest/Reactome_Pathways_2024.gmt"),
+    gwas_2025 = file.path(script_dir, "../genesets/latest/GWAS_Catalog_2025.gmt"),
+    jensen_disease_2025 = file.path(script_dir, "../genesets/latest/Jensen_DISEASES_Curated_2025.gmt"),
+    trrust_2019 = file.path(script_dir, "../genesets/latest/TRRUST_Transcription_Factors_2019.gmt"),
+    jaspar_tf_2025 = file.path(script_dir, "../genesets/latest/JASPAR_PWM_Human_2025.gmt"),
+    go_bp_2025 = file.path(script_dir, "../genesets/latest/GO_Biological_Process_2025.gmt"),
+    go_mf_2025 = file.path(script_dir, "../genesets/latest/GO_Molecular_Function_2025.gmt")
 )
 
 # latest_me_pd = "~/genesets/latest_me_pd_de.txt",
@@ -121,6 +131,10 @@ if(!dir.exists(figure_outdir)){
 }
 
 de_df = read.csv(PATH)
+if ("signed_neg_log10_p_case_controlpd" %in% colnames(de_df)) {
+    de_df = de_df %>% filter(is.finite(signed_neg_log10_p_case_controlpd))
+}
+
 colnames(de_df) = sapply(colnames(de_df), sanitize_column_name)
 
 if (is.null(SEGMENT_BY)){
