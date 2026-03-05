@@ -67,7 +67,7 @@ normalizeScalePcaClusterUmap = function(
     sobj = (sobj
         %>% NormalizeData() 
         %>% ScaleData(features=hvgs, split.by=scaling_subset_col, vars.to.regress=regression_vars) 
-        %>% RunPCA(features=hvgs, npcs=n_dims_use) 
+        %>% RunPCA(features=hvgs, npcs=n_dims_use)
     )
     if (run_harmony){
         sobj = RunHarmony(sobj, group.by.vars=harmony_group_vars)
@@ -76,11 +76,15 @@ normalizeScalePcaClusterUmap = function(
         reduction_to_use = "pca"
     }
 
-    sobj = FindNeighbors(sobj, dims=1:n_dims_use, reduction=reduction_to_use)
-    for(res in resolutions){
-        sobj = sobj %>% FindClusters(resolution = res)
+    if (resolutions[[1]] == 0) {
+      print("Resolution is 0, skipping clustering")
+    } else {
+        sobj = FindNeighbors(sobj, dims=1:n_dims_use, reduction=reduction_to_use)
+        for(res in resolutions){
+            sobj = sobj %>% FindClusters(resolution = res)
+        }
+        sobj = sobj %>% RunUMAP(dims = 1:n_dims_use, reduction = reduction_to_use)
     }
-    sobj = sobj %>% RunUMAP(dims = 1:n_dims_use, reduction = reduction_to_use)
     return(sobj)
 }
 
@@ -140,40 +144,40 @@ printMarkersByCluster = function(marker_df, marker_tsv="~/all_markers.tsv", clus
   
   myPrepDR=function (scaledData, features, verbose = TRUE,projection_state=F) {
     
-    data.use <- scaledData
+    data.use = scaledData
     if (nrow(x = data.use) == 0) {
       stop("Data has not been scaled. Please run ScaleData and retry")
     }
-    features.keep <- unique(x = features[features %in% rownames(x = data.use)])
+    features.keep = unique(x = features[features %in% rownames(x = data.use)])
     if (length(x = features.keep) < length(x = features)) {
-      features.exclude <- setdiff(x = features, y = features.keep)
+      features.exclude = setdiff(x = features, y = features.keep)
       if (verbose) {
         warning(paste0("The following ", length(x = features.exclude),
                        " features requested have not been scaled (running reduction without them): ",
                        paste0(features.exclude, collapse = ", ")))
       }
     }
-    features <- features.keep
+    features = features.keep
     # TODO jonah parallize buyt make sure chunked
-    features.var <- apply(X = data.use[features, ], MARGIN = 1,
+    features.var = apply(X = data.use[features, ], MARGIN = 1,
                           FUN = var)
     if(!projection_state){
-      features.keep <- features[features.var > 0]
+      features.keep = features[features.var > 0]
     } else {
-      features.keep <- features
+      features.keep = features
     }
     
     if (length(x = features.keep) < length(x = features)) {
-      features.exclude <- setdiff(x = features, y = features.keep)
+      features.exclude = setdiff(x = features, y = features.keep)
       if (verbose) {
         warning(paste0("The following ", length(x = features.exclude),
                        " features requested have zero variance (running reduction without them): ",
                        paste0(features.exclude, collapse = ", ")))
       }
     }
-    features <- features.keep
-    features <- features[!is.na(x = features)]
-    data.use <- data.use[features, ]
+    features = features.keep
+    features = features[!is.na(x = features)]
+    data.use = data.use[features, ]
     return(data.use)
   }
   
@@ -557,4 +561,80 @@ printMarkersByCluster = function(marker_df, marker_tsv="~/all_markers.tsv", clus
     }
   }
   return(pca_final_res)
+}
+
+pick_pcs = function(
+  sobj,
+  reduction = "pca",
+  ndims_max = NULL,
+  cumvar_threshold = 0.90,
+  title="Variance Explained by PCs"
+) {
+  stopifnot(inherits(sobj, "Seurat"))
+  red = Seurat::Embeddings(sobj, reduction = reduction)  # just to validate reduction exists
+  pca_obj = sobj[[reduction]]
+  if (is.null(pca_obj) || is.null(pca_obj@stdev)) stop("Seurat object has no PCA stdevs in this reduction.")
+  stdev = pca_obj@stdev
+
+  if (!is.null(ndims_max)) {
+    ndims_max = min(as.integer(ndims_max), length(stdev))
+    stdev = stdev[seq_len(ndims_max)]
+  }
+
+  x = seq_along(stdev)
+
+  # Variance explained per PC from stdev
+  var_expl = stdev^2
+  var_expl = var_expl / sum(var_expl)
+
+  # ----- Method 1: "knee" / max distance to line between endpoints -----
+  # Use y = variance explained (or could use stdev; variance is more standard)
+  y = var_expl
+
+  # Normalize x,y to [0,1] so scale doesn't dominate
+  xn = (x - min(x)) / (max(x) - min(x))
+  yn = (y - min(y)) / (max(y) - min(y))
+
+  # Distance from point to line through first and last points
+  # Line defined by points A=(0,yn[1]) and B=(1,yn[n])
+  A = c(0, yn[1])
+  B = c(1, yn[length(yn)])
+  AB = B - A
+  ab2 = sum(AB^2)
+
+  dists = vapply(seq_along(xn), function(i) {
+    P = c(xn[i], yn[i])
+    # projection of AP onto AB
+    AP = P - A
+    t = if (ab2 == 0) 0 else sum(AP * AB) / ab2
+    proj = A + t * AB
+    sqrt(sum((P - proj)^2))
+  }, numeric(1))
+
+  pc_knee = which.max(dists)
+
+  # ----- Method 2: max absolute 2nd derivative of variance-explained -----
+  d1 = diff(y)
+  d2 = diff(d1)
+  pc_second_deriv = if (length(d2) == 0) NA_integer_ else (which.max(abs(d2)) + 1L)
+
+  # ----- Method 3: cumulative variance threshold -----
+  cumvar = cumsum(y)
+  pc_cumvar = which(cumvar >= cumvar_threshold)[1]
+  if (is.na(pc_cumvar)) pc_cumvar = length(cumvar)
+
+  ElbowPlot(exc_ctr, ndims = ndims_max) + ggtitle(title)
+
+  list(
+    method1_knee_pc = pc_knee,
+    method2_second_derivative_pc = pc_second_deriv,
+    method3_cumvar_pc = pc_cumvar,
+    details = list(
+      reduction = reduction,
+      ndims_used = length(stdev),
+      cumvar_threshold = cumvar_threshold,
+      variance_explained = y,
+      cumulative_variance = cumvar
+    )
+  )
 }
