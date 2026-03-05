@@ -44,6 +44,9 @@ if (is.null(opt[['assay']])) {
     pca_assay = opt[['assay']]
 }
 
+# ojo: parametrize later
+DO_NORMALIZE = TRUE
+
 ctr = qread(CTR_PATH)
 gene_loadings = ctr[["pca"]]@feature.loadings
 pca_genes = as.character(rownames(gene_loadings))
@@ -56,8 +59,9 @@ if (! pca_assay %in% names(sobj@assays)) {
 
 # if no `data` layer in sobj, normalize  
 remove_data_layer = FALSE
-if (! "data" %in% names(sobj[[pca_assay]]@layers)) {
-    message("No 'data' layer found in target object; normalizing data...")
+#if (DO_NORMALIZE | (! "data" %in% names(sobj[[pca_assay]]@layers))) {
+if (DO_NORMALIZE) {
+    message("Normalizing data...")
     sobj = NormalizeData(sobj, assay = pca_assay)
     remove_data_layer = TRUE
 }
@@ -100,10 +104,10 @@ sobj@meta.data = sobj@meta.data[, !grepl("^PC_", colnames(sobj@meta.data)), drop
 sobj = join_df_to_sobj_metadata(sobj, sobj_pca, "row.names")
 
 print("Saving Case with PCs")
-if (remove_data_layer){
-    print("Removing 'data' layer added for normalization...")
-    sobj[[pca_assay]]@layers[["data"]] = NULL
-}
+# if (remove_data_layer){
+#     print("Removing 'data' layer added for normalization...")
+#     sobj[[pca_assay]]@layers[["data"]] = NULL
+# }
 qsave(sobj, SOBJ_PATH)
 
 print("Done adding PCs to cases!")
