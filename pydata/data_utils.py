@@ -187,7 +187,15 @@ def filter_markers(adata,
                    top_n=None,
                    order_by_col="logfoldchanges",
                    filter_positive=True,
-                   filter_out_ensg=True):
+                   filter_out_ensg=True,
+                   filter_logfc=True,
+                   filter_padj=True,
+                   filter_pct_nz_group=True,
+                   filter_pct_nz_reference=True,
+                   filter_pct_nz_diff=True,
+                   cols2return=[
+                       "group", 'gene_name', "logfoldchanges", "pvals_adj", "pct_nz_group", "pct_nz_reference", "pct_nz_diff"]
+):
     """
     Filter marker genes found by sc.tl.rank_genes_groups based on logFC and adjusted p-value thresholds.
     Returns a dataframe of filtered markers with one row per gene per cluster.
@@ -215,14 +223,21 @@ def filter_markers(adata,
             key=f"rank_genes_{cluster_key}",
         ).dropna(subset=["logfoldchanges"])
 
-    filtered_markers = markers[
-        (markers['logfoldchanges'] >= logfc_threshold) &
-        (markers['pvals_adj'] <= adj_pval_threshold) & 
-        (markers['pct_nz_group'] >= pct_nz_group_threshold) &
-        (markers['pct_nz_reference'] <= pct_nz_reference_threshold) & 
-        (markers['pct_nz_group'] - markers['pct_nz_reference'] >= pct_nz_diff_threshold) &
-        ((markers['logfoldchanges'] > 0) if filter_positive else True)
-    ]
+    filtered_markers = markers.copy()
+    if filter_logfc:
+        filtered_markers = filtered_markers[abs(filtered_markers['logfoldchanges']) >= logfc_threshold]
+    if filter_padj:
+        filtered_markers = filtered_markers[filtered_markers['pvals_adj'] <= adj_pval_threshold]
+    if filter_pct_nz_group:
+        filtered_markers = filtered_markers[filtered_markers['pct_nz_group'] >= pct_nz_group_threshold]
+    if filter_pct_nz_reference:
+        filtered_markers = filtered_markers[filtered_markers['pct_nz_reference'] <= pct_nz_reference_threshold]
+    if filter_pct_nz_diff:
+        filtered_markers = filtered_markers[
+            (filtered_markers['pct_nz_group'] - filtered_markers['pct_nz_reference']) >= pct_nz_diff_threshold
+        ]
+    if filter_positive:
+        filtered_markers = filtered_markers[filtered_markers['logfoldchanges'] > 0]
 
     filtered_markers = (filtered_markers.merge(adata.var, left_on='names', right_index=True, how='left'))
 
@@ -238,7 +253,9 @@ def filter_markers(adata,
             .reset_index(drop=True)
         )
 
-    filtered_markers["group"] = filtered_markers["group"].astype(int)
+    # if all members of group can be converted to int, do so
+    if filtered_markers["group"].apply(lambda x: str(x).isdigit()).all():
+        filtered_markers["group"] = filtered_markers["group"].astype(int)
     filtered_markers["pct_nz_diff"] = \
         round(filtered_markers["pct_nz_group"] - filtered_markers["pct_nz_reference"], 3)
     filtered_markers["pct_nz_group"] = round(filtered_markers["pct_nz_group"], 3)
@@ -249,7 +266,7 @@ def filter_markers(adata,
     filtered_markers =  filtered_markers.sort_values(by=['group', 'pct_nz_diff'], ascending=[True, False])
 
     return filtered_markers[[
-        "group", 'gene_name', "logfoldchanges", "pvals_adj", "pct_nz_group", "pct_nz_reference", "pct_nz_diff"
+        cols2return
     ]]
 
 def get_gini_impurity(counts):
