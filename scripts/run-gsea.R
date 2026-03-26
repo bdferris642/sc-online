@@ -188,6 +188,30 @@ for (segment in names(dataDE_list)){
     cat(paste0("\nWriting GSEA Results for ", de_slogan, "\nto ", de_slogan, "_gsea.csv\n"))
     write.csv(gsea_df, file.path(gsea_outdir, paste0(de_slogan, "_gsea.csv")), row.names=FALSE)
 
+    # Redundancy filtering: applied independently per gene set collection
+    filtered_list = list()
+    for (gene_set in names(gsea_list)) {
+        cat(paste0("\nApplying redundancy filter to gene set: ", gene_set, "\n"))
+        gs_df = gsea_list[[gene_set]]
+        gs_df_filtered = filter_redundant_gene_sets(gs_df)
+        n_raw = sum(abs(gs_df$NES) >= 1.0 & gs_df$padj < 0.05)
+        n_kept = sum(abs(gs_df_filtered$NES) >= 1.0 & gs_df_filtered$padj < 0.05)
+        cat(paste0("  Significant sets: ", n_raw, " -> ", n_kept, " after pruning\n"))
+        filtered_list[[gene_set]] = gs_df_filtered
+    }
+    gsea_df_filtered = do.call(rbind, filtered_list)
+
+    cat(paste0("\nWriting Redundancy-Filtered GSEA Results for ", de_slogan,
+               "\nto ", de_slogan, "_gsea_redundancy_filtered.csv\n"))
+    write.csv(gsea_df_filtered,
+              file.path(gsea_outdir, paste0(de_slogan, "_gsea_redundancy_filtered.csv")),
+              row.names=FALSE)
+
+    figure_outdir_filtered = file.path(base_path, "gsea", tolower(abs_str), "figures/png/redundancy_filtered")
+    if (!dir.exists(figure_outdir_filtered)){
+        dir.create(figure_outdir_filtered, recursive = TRUE)
+    }
+
     for (gene_set in unique(gsea_df$gene_set)){
         cat(paste0("\nPlotting GSEA Results for ", de_slogan, " ", gene_set, "\n"))
         gsea_df_subset = gsea_df[gsea_df$gene_set==gene_set & gsea_df$padj < 0.05,]
@@ -200,13 +224,34 @@ for (segment in names(dataDE_list)){
         min_nes = floor(min(c(min(gsea_df_subset$NES), 0)))
 
         plot_gsea_result_hdot(
-            gsea_df_subset, 
+            gsea_df_subset,
             title = paste("GSEA NES by Pathway:", gene_set, gsub("_", " ", abs_str)),
             xlim=c(min_nes, max_nes),
             leading_edge_n=10,
             leading_edge_linebreak_n=5,
             top_n=10,
             fig_filename=file.path(figure_outdir, paste0(de_slogan, "_", gene_set, "_gsea.png"))
+        )
+
+        # Plot redundancy-filtered results
+        cat(paste0("\nPlotting Redundancy-Filtered GSEA Results for ", de_slogan, " ", gene_set, "\n"))
+        gsea_df_subset_filtered = gsea_df_filtered[gsea_df_filtered$gene_set==gene_set & gsea_df_filtered$padj < 0.05,]
+
+        if (nrow(gsea_df_subset_filtered) == 0){
+            next
+        }
+
+        max_nes_f = ceiling(max(c(max(gsea_df_subset_filtered$NES), 0)))
+        min_nes_f = floor(min(c(min(gsea_df_subset_filtered$NES), 0)))
+
+        plot_gsea_result_hdot(
+            gsea_df_subset_filtered,
+            title = paste("GSEA NES by Pathway (Redundancy Filtered):", gene_set, gsub("_", " ", abs_str)),
+            xlim=c(min_nes_f, max_nes_f),
+            leading_edge_n=10,
+            leading_edge_linebreak_n=5,
+            top_n=10,
+            fig_filename=file.path(figure_outdir_filtered, paste0(de_slogan, "_", gene_set, "_gsea_redundancy_filtered.png"))
         )
     }
 }

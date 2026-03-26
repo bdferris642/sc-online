@@ -192,6 +192,117 @@ prep_df_for_gsea = function(dataDE, protein_coding=T){
     return(dataDE)
 }
 
+filter_redundant_gene_sets = function(
+    gsea_df,
+    nes_threshold = 1.0,
+    fdr_threshold = 0.05,
+    overlap_threshold = 0.21,
+    hub_degree_threshold = 12) {
+  # Implements leading-edge overlap network pruning to reduce redundancy among
+  # significant gene sets. Performed independently for positive and negative
+  # enrichment. Non-significant sets are returned unchanged.
+  #
+  # Args:
+  #   gsea_df: data.frame from runGSEA (single gene set collection)
+  #   nes_threshold: minimum |NES| for significance (default 1.0)
+  #   fdr_threshold: maximum padj for significance (default 0.05)
+  #   overlap_threshold: min leading-edge overlap fraction to draw an edge (default 0.21)
+  #   hub_degree_threshold: degree above which a node is considered a hub (default 12)
+  #
+  # Returns:
+  #   data.frame with only winners (per connected component) + all non-significant rows
+
+  require(igraph)
+
+  parse_le = function(le_str) {
+    if (is.na(le_str) || le_str == "") return(character(0))
+    strsplit(le_str, ",")[[1]]
+  }
+
+  le_overlap = function(a, b) {
+    if (length(a) == 0 || length(b) == 0) return(0)
+    length(intersect(a, b)) / min(length(a), length(b))
+  }
+
+  # Select winners from one sign group (data.frame of sig sets, same sign)
+  select_winners = function(df) {
+    if (nrow(df) == 0) return(character(0))
+    if (nrow(df) == 1) return(df$pathway)
+
+    le_lists = lapply(df$leadingEdge, parse_le)
+    n = nrow(df)
+
+    # Build symmetric overlap matrix
+    adj = matrix(FALSE, n, n)
+    for (i in seq_len(n - 1)) {
+      for (j in seq(i + 1, n)) {
+        ov = le_overlap(le_lists[[i]], le_lists[[j]])
+        if (ov > overlap_threshold) {
+          adj[i, j] = adj[j, i] = TRUE
+        }
+      }
+    }
+
+    # Iteratively remove hubs (degree > hub_degree_threshold)
+    active = seq_len(n)
+    repeat {
+      if (length(active) == 0) break
+      sub_adj = adj[active, active, drop = FALSE]
+      degs = rowSums(sub_adj)
+      hub_local = which(degs > hub_degree_threshold)
+      if (length(hub_local) == 0) break
+      active = active[-hub_local]
+    }
+
+    if (length(active) == 0) return(character(0))
+
+    # Find connected components on the pruned subgraph
+    sub_adj = adj[active, active, drop = FALSE]
+    g_sub = graph_from_adjacency_matrix(sub_adj, mode = "undirected")
+    comps = components(g_sub)
+
+    winners = character(0)
+    for (comp_id in seq_len(comps$no)) {
+      comp_local = which(comps$membership == comp_id)
+      orig_idx = active[comp_local]
+      comp_df = df[orig_idx, , drop = FALSE]
+
+      # Degree within the component sub-adjacency (for tie-breaking)
+      comp_sub_adj = adj[orig_idx, orig_idx, drop = FALSE]
+      comp_df$._comp_degree = rowSums(comp_sub_adj)
+
+      # Rank: highest degree, then lowest padj, then highest |NES|
+      comp_df = comp_df[order(
+        -comp_df$._comp_degree,
+        comp_df$padj,
+        -abs(comp_df$NES)
+      ), ]
+      winners = c(winners, comp_df$pathway[1])
+    }
+
+    return(winners)
+  }
+
+  sig_mask = abs(gsea_df$NES) >= nes_threshold & gsea_df$padj < fdr_threshold
+  sig_df   = gsea_df[sig_mask,  , drop = FALSE]
+  nonsig_df = gsea_df[!sig_mask, , drop = FALSE]
+
+  if (nrow(sig_df) == 0) {
+    return(gsea_df)
+  }
+
+  pos_df = sig_df[sig_df$NES > 0, , drop = FALSE]
+  neg_df = sig_df[sig_df$NES < 0, , drop = FALSE]
+
+  pos_winners = select_winners(pos_df)
+  neg_winners = select_winners(neg_df)
+
+  all_winners = c(pos_winners, neg_winners)
+  winner_sig_df = sig_df[sig_df$pathway %in% all_winners, , drop = FALSE]
+
+  rbind(winner_sig_df, nonsig_df)
+}
+
 prep_gsea_df_for_plotting = function(gsea_df, leading_n=10, display_n=10){
 
     gsea_df$leading_edge_top_n = sapply(gsea_df$leadingEdge, function(x){
