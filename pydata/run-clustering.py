@@ -12,6 +12,13 @@ def parse_args():
         help="Path to original counts .h5ad file to restore counts from. \
             If not set, uses counts from input .h5ad.",
     )
+    ap.add_argument(
+        "--only-keep-original-genes",
+        action="store_true",
+        default=False,
+        help="Whether to only keep genes that are present in the original counts .h5ad file when restoring counts. \
+            If not set, keeps all genes in the input .h5ad file.",
+    )
     # if output-patch is not provided, set to input-path
     ap.add_argument("--output-path", "-o", 
                     required=False, 
@@ -58,16 +65,18 @@ def main():
     adata = sc.read_h5ad(args.input_path)
     print(f"\nrun-clustering.py:\tNumber of cells: {adata.n_obs}, Number of genes: {adata.n_vars}")
 
+
     if args.og_counts_path is not None:
 
         print(f"\nrun-clustering.py:\tLoading ORIGINAL AnnData from {args.og_counts_path}...")
         og_adata = sc.read_h5ad(args.og_counts_path)
         print(f"\nrun-clustering.py:\tRestoring original counts to adata object...")
-        adata = add_back_og_counts(adata, og_adata)
+        adata = add_back_og_counts(adata, og_adata, only_keep_original_genes=args.only_keep_original_genes)
         print(
             f"\nrun-clustering.py:\tNumber of cells after restoring counts: {adata.n_obs}, Number of genes: {adata.n_vars}"
         )
         del og_adata  # free memory
+
 
     print("\nrun-clustering.py:\tCalling Clustering Routine...")
     adata = normalize_scale_pca_cluster_umap(
