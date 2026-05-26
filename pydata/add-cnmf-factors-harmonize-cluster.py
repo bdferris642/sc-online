@@ -10,7 +10,7 @@ import pandas as pd
 import numpy as np
 import re
 import scanpy.external as sce
-from data_utils import apply_cnmf_usage_df, neighbor_cluster_umap
+from data_utils import apply_cnmf_usage_df, neighbor_cluster_umap, is_integer_valued
 
 
 def parse_args():
@@ -25,11 +25,21 @@ def parse_args():
                     help="Name for the dimension reduction to store in adata.obsm (default: cnmf_norm_clean)")
     ap.add_argument("--batch-key", "-b", default="donor_id", help="Key in adata.obs for donor/batch IDs (default: donor_id)")
     ap.add_argument("--max-iter-harmony", "-m", type=int, default=20, help="Maximum iterations for Harmony (default: 20)")
-    ap.add_argument("--resolutions", "-r", nargs="+", type=float, default=[0.2, 0.5, 0.8], 
-                    help="List of resolutions for Leiden clustering (default: [0.2, 0.5, 0.8])")
+    ap.add_argument("--resolutions", "-r", nargs="+", type=float, default=[0.1, 0.2, 0.3, 0.4, 0.5], 
+                    help="List of resolutions for Leiden clustering (default: [0.1, 0.2, 0.3, 0.4, 0.5])")
     ap.add_argument("--num-neighbors", "-n", type=int, default=30, help="Number of neighbors for clustering/UMAP (default: 30)")
-    ap.add_argument("--force", action="store_true", help="Force the script to run even if more than 5 percent of cells are removed after applying cNMF usages. \
+    ap.add_argument("--prune-cnmf-cols", action="store_true", 
+                    help="Prune cNMF columns before applying usages (default: False). \
+                        \nThis can be helpful if your adata already has cNMF columns from a previous run \
+                        \nand you want to make sure they don't interfere with the new ones being added.")
+    ap.add_argument("--force", action="store_true", 
+                    help="Force the script to run even if more than 5 percent of cells are removed after applying cNMF usages. \
                     \nUse with caution and make sure to check the output adata carefully if you use this flag.")
+    ap.add_argument("--run-find-markers", action="store_true",
+                    help="Whether to run sc.tl.rank_genes_groups to find marker genes for each cluster after clustering. \
+                    \nThis can add significant runtime, so only use if you need marker genes for the new clusters.")
+    ap.add_argument("--distance-metric", default="cosine", 
+                    help="Distance metric for neighbor graph construction in scanpy.pp.neighbors (default: cosine)")
     
     args = ap.parse_args()
     # print arguments for reference
@@ -55,21 +65,50 @@ def main():
     
     print(f"\nadd-cnmf-factors-harmonize-cluster.py:\tLoading input AnnData from: {args.h5ad_path}")
     adata = sc.read_h5ad(args.h5ad_path)
+
+    print(f"\nadd-cnmf-factors-harmonize-cluster.py:\tadata shape: {adata.shape}, \
+          \n\tadata.layers: {list(adata.layers.keys())}, \
+          \n\tadata.obsm keys: {list(adata.obsm.keys())}, adata.obs columns: {list(adata.obs.columns)}")
+    
+    if not ("counts" in adata.layers):
+        if is_integer_valued(adata.X):
+            print(f"\nadd-cnmf-factors-harmonize-cluster.py:\tadata.X appears to be raw counts but no 'counts' layer found. \
+                    \nCopying adata.X to adata.layers['counts']")
+            adata.layers["counts"] = adata.X.copy()
+        else:
+            raise ValueError(f"adata does not have a 'counts' layer and adata.X does not appear to be raw counts. \
+                             \nPlease provide raw counts in adata.layers['counts'] or ensure adata.X contains raw counts.")
+
+    if ("counts" in adata.layers) and not ("norm_log" in adata.layers):
+        print(f"\nadd-cnmf-factors-harmonize-cluster.py:\tadata has raw counts in adata.layers['counts'] \
+                \nbut no normalized log data in adata.layers['norm_log']. \
+                \nNormalizing and log-transforming counts to adata.layers['norm_log']")
+        adata.X = adata.layers["counts"].copy()  # set adata.X to raw counts for normalization
+        sc.pp.normalize_total(adata, target_sum=1e6)
+        sc.pp.log1p(adata)
+        adata.layers["norm_log"] = adata.X.copy()  # store the normalized log data in a new layer
+        
     orig_n_obs = adata.n_obs
     print(f"\nadd-cnmf-factors-harmonize-cluster.py:\tOriginal adata shape: {adata.shape}")
     
     for k in list(adata.obsm.keys()):
         if "cnmf" in k.lower():
             print(f"\nadd-cnmf-factors-harmonize-cluster.py:\tDeleting {k} from adata.obsm")
-            del adata.obsm[k]    
+            del adata.obsm[k]  
+
+    if args.prune_cnmf_cols:
+        cnmf_cols = [col for col in adata.obs.columns if re.match(r"cnmf.*_k_[0-9]+_gep.*", col)]
+        print(f"\nadd-cnmf-factors-harmonize-cluster.py:\tPruning existing cNMF columns from adata.obs: {cnmf_cols}")
+        adata.obs.drop(columns=cnmf_cols, inplace=True)  
     
     print(f"\nadd-cnmf-factors-harmonize-cluster.py:\tApplying cNMF usages from: {args.usages_path}")
     adata = apply_cnmf_usage_df(adata, cnmf_path=args.usages_path, geps_to_skip=args.geps_to_skip)
     print(f"\nadd-cnmf-factors-harmonize-cluster.py:\tadata shape after applying cNMF usages: {adata.shape}")
 
     if adata.n_obs / orig_n_obs < 0.95 and not args.force:
-        raise ValueError(f"{100 * (1 - adata.n_obs / orig_n_obs):.2f}% of cells were removed after applying cNMF usages. Original n_obs: {orig_n_obs}, new n_obs: {adata.n_obs}. \n \
-                         Please check your CNMF usages and geps_to_skip parameters as well as adata.obs_names!")
+        raise ValueError(f"{100 * (1 - adata.n_obs / orig_n_obs):.2f}% of cells were removed after applying cNMF usages. \
+                         \n\tOriginal n_obs: {orig_n_obs}, new n_obs: {adata.n_obs}. \
+                         \n\tPlease check your CNMF usages and geps_to_skip parameters as well as adata.obs_names!")
     print(f"\nadd-cnmf-factors-harmonize-cluster.py:\tNumber of cells removed after applying cNMF usages: {orig_n_obs - adata.n_obs}")
 
 
@@ -77,7 +116,8 @@ def main():
     usage_cols = sorted(
         [col for col in adata.obs.columns if re.match(r"cnmf.*_k_[0-9]+_gep.*_norm_clean$", col)])
     X = adata.obs[usage_cols].apply(pd.to_numeric, errors="raise").to_numpy(dtype=float) # make sure numeric
-    print(f"\nadd-cnmf-factors-harmonize-cluster.py:\tAdding normalized CNMF usage columns to adata.obsm['X_{args.dimension_reduction_name}']")
+    print(f"\nadd-cnmf-factors-harmonize-cluster.py:\
+          \tAdding normalized CNMF usage columns to adata.obsm['X_{args.dimension_reduction_name}']")
     adata.obsm[f"X_{args.dimension_reduction_name}"] = X
 
     # first cluster on the native cNMF factors
@@ -90,7 +130,8 @@ def main():
         cluster_name_prefix=f"{args.dimension_reduction_name}_leiden",
         dim_reduction_key=f"{args.dimension_reduction_name}",
         umap_key=f"umap_{args.dimension_reduction_name}",
-        run_find_markers=True
+        metric = args.distance_metric,
+        run_find_markers=args.run_find_markers
     )
     
     # then run harmony on the cNMF factors, cluster, and find markers on those as well
@@ -112,7 +153,8 @@ def main():
         cluster_name_prefix=f"harmony_{args.dimension_reduction_name}_leiden",
         dim_reduction_key=f"harmony_{args.dimension_reduction_name}",
         umap_key=f"umap_harmony_{args.dimension_reduction_name}",
-        run_find_markers=True
+        metric = args.distance_metric,
+        run_find_markers=args.run_find_markers
     )
     
     print(f"\nadd-cnmf-factors-harmonize-cluster.py:\tWriting output AnnData to: {args.output_path}")
