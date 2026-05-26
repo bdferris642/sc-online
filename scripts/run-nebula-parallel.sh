@@ -34,7 +34,8 @@ Usage:
 
 
 Notes:
-- Steps 1–3 are handled by chunk-sobj-by-genes.R (creates chunks with ALL CELLS and a CHUNK OF GENES, and meta {id, covs, nUMI_nebula}).
+- Steps 1–3 are handled by chunk-sobj-by-genes.R (creates chunks with ALL CELLS and a CHUNK OF GENES, 
+- and meta {id, covs, nUMI_nebula}).
 - Step 4 runs run-nebula.R on each chunk with -n 1 and -f nUMI_nebula, in parallel using GNU parallel.
 - Step 5 is combine-nebula-results.R (row-binds fields and writes combined .qs).
 - Step 6 optionally removes tmp.
@@ -142,7 +143,7 @@ Rscript "$(dirname "$0")/chunk-sobj-by-genes.R" \
   --offset-col "$OFFSET_COL" \
   --n-folds "$N_FOLDS" \
   --outdir "$chunks_dir" || {
-    echo "[ERROR] chunk-sobj-by-genes.R failed"; exit 1;
+    echo "[ERROR] chunk-sobj-by-genes.R failed"; rm -r "$chunks_dir" "$tmp_de_dir"; exit 1;
   }
 
 echo
@@ -180,7 +181,8 @@ Rscript "$SCRIPT_DIR/combine-nebula-results.R" \
   --contrast-col "$CONTRAST_COL" \
   --covariates "$COVS" \
   --id-col "$ID_COL" \
-  --suffix "$SUFFIX"
+  --case-value "$CASE_VAL" \
+  --suffix "$SUFFIX" || { echo "[ERROR] combine-nebula-results.R failed"; rm -r "$tmp_de_dir" "$chunks_dir"; exit 1; }
 
 echo "[INFO] Final combined results: ${final_qs}"
 

@@ -192,8 +192,6 @@ empty_nebula_result = function() {
     )
 }
 
-
-# fail gracefully if no genes pass filtering
 re_ln = tryCatch({
     nebula(
         count  = data_g$count,
@@ -206,6 +204,7 @@ re_ln = tryCatch({
         mincp = round(ncol(sobj) * 0.01)
     )}, error = function(e) {
     msg = conditionMessage(e)
+    # fail gracefully if no genes pass filtering
     if (grepl("No gene passed the filtering", msg, ignore.case = TRUE)) {
         message("NEBULA: No genes passed the filtering in this chunk. ",
                 "Emitting empty results and exiting successfully.")
