@@ -8,7 +8,7 @@ import mygene
 mg = mygene.MyGeneInfo()
 
 
-def add_back_og_counts(adata, og_adata):
+def add_back_og_counts(adata, og_adata, only_keep_original_genes=False):
     """
     given an AnnData object 'adata' that may have modified counts (e.g. normalized, log1p, etc),
     and an original AnnData object 'og_adata' with raw counts, restore the counts from og_adata into adata.
@@ -24,6 +24,8 @@ def add_back_og_counts(adata, og_adata):
         )
     
     og_adata_subset = og_adata[adata.obs_names, :]
+    if only_keep_original_genes:
+        og_adata_subset = og_adata_subset[:, adata.var_names]
 
     new_adata = ad.AnnData(
         X=og_adata_subset.X,
@@ -33,8 +35,7 @@ def add_back_og_counts(adata, og_adata):
         obsm=adata.obsm.copy(),
     )
 
-    new_adata.raw = new_adata.copy()
-
+    new_adata.layers["counts"] = new_adata.X.copy()
     return new_adata
 
 def apply_cnmf_usage_df(
@@ -265,9 +266,7 @@ def filter_markers(adata,
 
     filtered_markers =  filtered_markers.sort_values(by=['group', 'pct_nz_diff'], ascending=[True, False])
 
-    return filtered_markers[[
-        cols2return
-    ]]
+    return filtered_markers[cols2return]
 
 def get_gini_impurity(counts):
     total = counts.sum()
@@ -331,6 +330,7 @@ def neighbor_cluster_umap(
         n_neighbors=30,
         n_pcs=30,
         cluster_name_prefix="leiden",
+        metric="euclidean",
         dim_reduction_key="pca",
         umap_key="umap",
         run_find_markers=False
@@ -341,7 +341,8 @@ def neighbor_cluster_umap(
         adata_sub,
         n_neighbors=n_neighbors,
         n_pcs=n_pcs,
-        use_rep = f"X_{dim_reduction_key}")
+        use_rep = f"X_{dim_reduction_key}",
+        metric = metric)
     adata_full.obsp[f"connectivities_{dim_reduction_key}"] = adata_sub.obsp[f"connectivities"]
     adata_full.obsp[f"distances_{dim_reduction_key}"] = adata_sub.obsp[f"distances"]
     adata_full.uns[f"neighbors_{dim_reduction_key}"] = adata_sub.uns.get(f"neighbors", {})
@@ -352,6 +353,8 @@ def neighbor_cluster_umap(
     adata_full.uns[umap_key] = adata_sub.uns.get("umap", {})
 
     for res in resolutions:
+        if res == 0:
+            break
         key = f"{cluster_name_prefix}_{str(res).replace('.', 'p')}"
         print(f"\ndata_utils.py:\tClustering with Leiden, resolution = {res}\n\tkey = {key}")
         sc.tl.leiden(adata_sub, resolution=res, key_added=key)
