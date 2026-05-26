@@ -1273,6 +1273,7 @@ volcano_plot = function(
     annot_genes = NULL,
     vline_intercept=c(0),
     xlim=c(-3,3),
+    ylim=NULL,
     point_padding=0.5,
     nudge_y=0.25,
     nudge_x_scale=1,
@@ -1284,11 +1285,16 @@ volcano_plot = function(
         if (is.null(title)){
             title = paste0("Volcano Plot\nFraction of Expressed Genes Significant: ", round(sum(data[[sig_col]])/nrow(data), 2))
         }
+    
+    if (is.null(ylim)){
+        ylim = c(0, max(data[[y_col]], na.rm=TRUE)*1.1)
+    }
 
     volcano_plot = ggplot(data, aes_string(x = x_col, y = y_col)) +
         geom_point(aes_string(color = sig_col)) +
         scale_color_manual(values = c("FALSE" = "black", "TRUE" = "red")) +
         scale_x_continuous(limits = xlim) +
+        scale_y_continuous(limits = ylim) +
         geom_hline(yintercept = -log10(0.05), linetype = "dotted", color = "blue") +
         geom_vline(xintercept = vline_intercept, linetype = "dotted", color = "blue") +
         labs(
