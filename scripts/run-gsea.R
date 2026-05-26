@@ -134,6 +134,7 @@ de_df = read.csv(PATH)
 if ("signed_neg_log10_p_case_controlpd" %in% colnames(de_df)) {
     de_df = de_df %>% filter(is.finite(signed_neg_log10_p_case_controlpd))
 }
+de_df = de_df %>% filter(is.finite(!!sym(RANK_COL)))
 
 colnames(de_df) = sapply(colnames(de_df), sanitize_column_name)
 
