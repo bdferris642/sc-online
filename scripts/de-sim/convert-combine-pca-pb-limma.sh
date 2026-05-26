@@ -142,7 +142,7 @@ if (( START_AT_STEP <= 6 )); then
     ' | parallel -j 6
 
   # 6b) + 4 PCs
-  find "$pb_dir" -maxdepth 1 -type f -name '*.qs' -print0 | \
+  `find "$pb_dir" -maxdepth 1 -type f -name '*.qs' -print0 | \
     xargs -0 -I @ bash -c '
       abs=$(realpath "@")
       b=$(basename "@")
@@ -156,7 +156,7 @@ if (( START_AT_STEP <= 6 )); then
         --cov-list=case_control,Age.at.Death,Sex,PMI,pct_mt,pct_intronic,log10_nUMI,PC_1,PC_2,PC_3,PC_4 \
         --suffix="4pcs__${concat_suffix}" \
         --calc-purity=T
-    ' | parallel -j 6
+    ' | parallel -j 6`
 
   # 6c) + 20 PCs
   find "$pb_dir" -maxdepth 1 -type f -name '*.qs' -print0 | \
