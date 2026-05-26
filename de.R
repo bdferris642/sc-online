@@ -567,7 +567,14 @@ pr_from_df <- function(df, score_col, higher_score_is_positive = TRUE, title=NUL
   
 }
 
-get_de_correspondence_mats = function(de_dfs, union_min=50, mode="union"){
+get_de_correspondence_mats = function(
+  de_dfs, 
+  union_min=50, 
+  mode="union",
+  gene_col = "gene", 
+  logfc_col = "logFC", 
+  pval_col = "padj"
+){
 
   # de_dfs should be a named list of either
   # (a) paths to DE csvs 
@@ -602,6 +609,25 @@ get_de_correspondence_mats = function(de_dfs, union_min=50, mode="union"){
           } else {
               df2 = de_dfs[[name2]]
           }
+
+          # check that the necessary columns are present
+          if (! all(c(gene_col, logfc_col, pval_col) %in% colnames(df1))) {
+              missing_cols = setdiff(c(gene_col, logfc_col, pval_col), colnames(df1))
+              stop(paste0("DE dataframe ", name1, " is missing necessary columns: ", 
+              paste(missing_cols, collapse=", ")))
+          }
+          if (! all(c(gene_col, logfc_col, pval_col) %in% colnames(df2))) {
+              missing_cols = setdiff(c(gene_col, logfc_col, pval_col), colnames(df2))
+              stop(paste0("DE dataframe ", name2, " is missing necessary columns: ", 
+              paste(missing_cols, collapse=", ")))
+          }
+
+          df1[["gene"]] = df1[[gene_col]]
+          df1[["logFC"]] = df1[[logfc_col]]
+          df1[["adj.P.Val"]] = df1[[pval_col]]
+          df2[["gene"]] = df2[[gene_col]]
+          df2[["logFC"]] = df2[[logfc_col]]
+          df2[["adj.P.Val"]] = df2[[pval_col]]
           
           # get genes in common, and make sure they are in the same order
           genes = intersect(df1$gene, df2$gene)

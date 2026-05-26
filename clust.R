@@ -579,6 +579,9 @@ pick_pcs = function(
   if (!is.null(ndims_max)) {
     ndims_max = min(as.integer(ndims_max), length(stdev))
     stdev = stdev[seq_len(ndims_max)]
+  } else {
+    # set to number of pcs
+    ndims_max = length(stdev)
   }
 
   x = seq_along(stdev)
@@ -623,7 +626,7 @@ pick_pcs = function(
   pc_cumvar = which(cumvar >= cumvar_threshold)[1]
   if (is.na(pc_cumvar)) pc_cumvar = length(cumvar)
 
-  ElbowPlot(exc_ctr, ndims = ndims_max) + ggtitle(title)
+  ElbowPlot(sobj, ndims = ndims_max) + ggtitle(title)
 
   list(
     method1_knee_pc = pc_knee,
