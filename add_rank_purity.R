@@ -145,6 +145,11 @@ compute_rank_purity = function(
     message("Computing partial residuals ...")
 
     design     = .expand_covariate_design(covariates, coef_sub, donor_meta, common_donors, contrast_col)
+
+    #print the formula 
+    formula_terms = colnames(design$B)
+    formula_str = paste(formula_terms, collapse = " + ")
+    message("  Design formula: ~ ", formula_str)
     fitted_cov = design$B %*% t(design$X)
     residuals  = pb_sub - fitted_cov
 
