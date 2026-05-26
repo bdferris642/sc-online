@@ -30,7 +30,8 @@ spec <- matrix(c(
   'contrast-col', 'c', 1, "character",
   'covariates', 'v', 1, "character",
   'id-col', 'd', 1, "character",
-  'suffix', 's', 1, "character"
+  'suffix', 's', 1, "character",
+  'case-value', 'k', 1, "character"
 ), byrow=TRUE, ncol=4)
 opt <- getopt(spec)
 
@@ -39,9 +40,18 @@ OUT_QS = opt[['out']]
 OUT_CSV = sub("\\.qs$", ".csv", OUT_QS)
 SEURAT_QS_PATH = opt[['seurat-qs']]
 CONTRAST_COL = opt[['contrast-col']]
-COVARIATES = strsplit(opt[['covariates']], ",")[[1]]
+if (is.null(opt[['covariates']])) {
+    COVARIATES = NULL
+} else {
+    COVARIATES = strsplit(opt[['covariates']], ",")[[1]]
+}
 ID_COL = opt[['id-col']]
 SUFFIX = opt[['suffix']]
+if (is.null(opt[['case-value']])) {
+    CASE_VALUE = "pd"
+} else {
+    CASE_VALUE = opt[['case-value']]
+}
 
 if (!dir.exists(dirname(OUT_QS))) {
     dir.create(dirname(OUT_QS), recursive=TRUE)
@@ -103,25 +113,31 @@ logFC_cols = grep("logFC", colnames(summary_df), value=TRUE)
 logFC_df = summary_df %>% select(all_of(c("gene", logFC_cols)))
 colnames(logFC_df) = gsub("^logFC_", "", colnames(logFC_df))
 
-message(g("loading seurat object from {SEURAT_QS_PATH}"))
-seurat_orig = qread(SEURAT_QS_PATH)
-seurat_orig@meta.data$region_SN = ifelse(grepl("SN", seurat_orig@meta.data$region), 1, 0)
-seurat_orig@meta.data$region_VTA = ifelse(grepl("VTA", seurat_orig@meta.data$region), 1, 0)
-message(g("computing rank purity..."))
 
-rank_purity_df = compute_rank_purity(
-    seurat_obj = seurat_orig,
-    coef_df = logFC_df,
-    covariates = COVARIATES,
-    contrast_col = CONTRAST_COL,
-    groupby_col = NULL,
-    donor_col = ID_COL,
-    case_value = "pd"
-)
 
-# join to summary_df on gene 
-summary_df = summary_df %>%
-    left_join(rank_purity_df, by = "gene")
+if (!is.null(CONTRAST_COL) && !is.null(COVARIATES) && !is.null(ID_COL) && !is.null(SEURAT_QS_PATH)) {
+    message(g("loading seurat object from {SEURAT_QS_PATH}"))
+    seurat_orig = qread(SEURAT_QS_PATH)
+    seurat_orig@meta.data$region_SN = ifelse(grepl("SN", seurat_orig@meta.data$region), 1, 0)
+    seurat_orig@meta.data$region_VTA = ifelse(grepl("VTA", seurat_orig@meta.data$region), 1, 0)
+    message(g("computing rank purity..."))
+    rank_purity_df = compute_rank_purity(
+        seurat_obj = seurat_orig,
+        coef_df = logFC_df,
+        covariates = COVARIATES,
+        contrast_col = CONTRAST_COL,
+        groupby_col = NULL,
+        donor_col = ID_COL,
+        case_value = CASE_VALUE
+    )
+    # join to summary_df on gene 
+    summary_df = summary_df %>%
+        left_join(rank_purity_df, by = "gene")
+} else {
+    message(g("Skipping rank purity computation since contrast_col, covariates, or id_col is missing"))
+}
+
+
 
 combined = list(
   summary        = summary_df,
