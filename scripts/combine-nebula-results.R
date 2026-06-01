@@ -31,7 +31,8 @@ spec <- matrix(c(
   'covariates', 'v', 1, "character",
   'id-col', 'd', 1, "character",
   'suffix', 's', 1, "character",
-  'case-value', 'k', 1, "character"
+  'case-value', 'k', 1, "character",
+  'get-rank-purity', 'r', 1, "character"
 ), byrow=TRUE, ncol=4)
 opt <- getopt(spec)
 
@@ -51,6 +52,13 @@ if (is.null(opt[['case-value']])) {
     CASE_VALUE = "pd"
 } else {
     CASE_VALUE = opt[['case-value']]
+}
+
+GET_RANK_PURITY = opt[['get-rank-purity']]
+if (is.null(GET_RANK_PURITY)) {
+    GET_RANK_PURITY = 0
+} else {
+    GET_RANK_PURITY = as.integer(GET_RANK_PURITY)
 }
 
 if (!dir.exists(dirname(OUT_QS))) {
@@ -115,7 +123,7 @@ colnames(logFC_df) = gsub("^logFC_", "", colnames(logFC_df))
 
 
 
-if (!is.null(CONTRAST_COL) && !is.null(COVARIATES) && !is.null(ID_COL) && !is.null(SEURAT_QS_PATH)) {
+if (!is.null(CONTRAST_COL) && !is.null(COVARIATES) && !is.null(ID_COL) && !is.null(SEURAT_QS_PATH) && GET_RANK_PURITY == 1) {
     message(g("loading seurat object from {SEURAT_QS_PATH}"))
     seurat_orig = qread(SEURAT_QS_PATH)
     seurat_orig@meta.data$region_SN = ifelse(grepl("SN", seurat_orig@meta.data$region), 1, 0)
@@ -134,7 +142,7 @@ if (!is.null(CONTRAST_COL) && !is.null(COVARIATES) && !is.null(ID_COL) && !is.nu
     summary_df = summary_df %>%
         left_join(rank_purity_df, by = "gene")
 } else {
-    message(g("Skipping rank purity computation since contrast_col, covariates, or id_col is missing"))
+    message(g("Skipping rank purity computation since contrast_col, covariates, or id_col is missing or GET_RANK_PURITY is not 1"))
 }
 
 

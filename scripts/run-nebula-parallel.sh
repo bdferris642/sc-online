@@ -16,6 +16,7 @@ SAVE_TMP="0"
 SUFFIX=""
 CONTRAST_COL="case_control"
 CASE_VAL="pd"
+GET_RANK_PURITY=0
 
 usage() {
   cat <<USAGE
@@ -30,6 +31,7 @@ Usage:
     --n-folds 8 \\
     --n-cores 4 \\
     --save-tmp 0|1 \\
+    --get-rank-purity 0|1 \\
     --suffix <suffix>
 
 
@@ -54,6 +56,7 @@ while [[ $# -gt 0 ]]; do
     --n-cores) N_CORES="$2"; shift 2 ;;
     --save-tmp) SAVE_TMP="$2"; shift 2 ;;
     --suffix ) SUFFIX="$2"; shift 2 ;;
+    --get-rank-purity) GET_RANK_PURITY="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown arg: $1"; usage; exit 1 ;;
   esac
@@ -136,16 +139,23 @@ echo
 # -----------------------------
 # Step 1–3: Chunk (separate script)
 # -----------------------------
-Rscript "$(dirname "$0")/chunk-sobj-by-genes.R" \
-  --path "$PATH_QS" \
-  --id-col "$ID_COL" \
-  --covs "$COVS" \
-  --offset-col "$OFFSET_COL" \
-  --n-folds "$N_FOLDS" \
-  --outdir "$chunks_dir" || {
-    echo "[ERROR] chunk-sobj-by-genes.R failed"; rm -r "$chunks_dir" "$tmp_de_dir"; exit 1;
-  }
 
+# check if chunks already exist, if so skip chunking
+if compgen -G "${chunks_dir}/chunk_*.qs" > /dev/null; then
+  echo "[INFO] Chunk files already exist in ${chunks_dir}, skipping chunking step."
+else
+  echo "[INFO] Chunking sobj by genes into ${N_FOLDS} folds..."
+
+  Rscript "$(dirname "$0")/chunk-sobj-by-genes.R" \
+    --path "$PATH_QS" \
+    --id-col "$ID_COL" \
+    --covs "$COVS" \
+    --offset-col "$OFFSET_COL" \
+    --n-folds "$N_FOLDS" \
+    --outdir "$chunks_dir" || {
+      echo "[ERROR] chunk-sobj-by-genes.R failed"; rm -r "$chunks_dir" "$tmp_de_dir"; exit 1;
+    }
+fi
 echo
 
 # -----------------------------
@@ -182,6 +192,7 @@ Rscript "$SCRIPT_DIR/combine-nebula-results.R" \
   --covariates "$COVS" \
   --id-col "$ID_COL" \
   --case-value "$CASE_VAL" \
+  --get-rank-purity "$GET_RANK_PURITY" \
   --suffix "$SUFFIX" || { echo "[ERROR] combine-nebula-results.R failed"; rm -r "$tmp_de_dir" "$chunks_dir"; exit 1; }
 
 echo "[INFO] Final combined results: ${final_qs}"
