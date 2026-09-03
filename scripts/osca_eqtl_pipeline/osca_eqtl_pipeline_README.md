@@ -228,6 +228,7 @@ python 01-make-eqtl-pseudobulk.py \
 **Outputs per input file — named by `adata.obs[--ct-id].unique()[0]`, not the h5ad filename stem:**
 - `{output-dir}/{cell_class}_expression_matrix_ds.csv` — pseudobulk expression (samples × genes)
 - `{output-dir}/{cell_class}_composition_matrix_ds.csv` — cell composition (samples × cell types)
+- `{output-dir}/{cell_class}_obs_metadata.csv` — per-sample metadata from `adata.obs` (one row per surviving participant; `participant_id` column holds remapped VCF sample ID if `--id-map` was used)
 
 **Requirement:** Each input h5ad must contain exactly one cell type (one unique value in `--ct-id` column). Mixed-cell-type files will cause an error.
 
@@ -260,7 +261,7 @@ Rscript 02-run-osca-formatting-scanpy.R \
 | `--h5ad-quant-covars` | *(required unless `--sva-formula` given)* | Space-delimited quantitative covariate names (go to `cov2` min-max scaled; used to build SVA formula) |
 | `--sva-formula` | *(auto-built from covariate lists)* | Override SVA formula string (e.g. `"~ age + sex + pmi"`); does not affect `cov1`/`cov2` contents |
 | `--gene-anot` | `/mnt/accessory/analysis/eqtl/gene_loc.txt` | Gene annotation table |
-| `--metadata` | project-specific default (see Known Issues) | CSV with `participant_id` and all covariate columns |
+| `--metadata` | *(auto-discovered from expression dir)* | CSV with `participant_id` and all covariate columns. If omitted, step 2 reads `{cell_class}_obs_metadata.csv` from `--expression-dir` (written by step 1). Pass explicitly only to override with a global metadata file. |
 
 **Covariate flow — what goes where:**
 
@@ -443,8 +444,9 @@ Archives the entire `--osca-input-dir` (inputs + all outputs) to:
 
 | File | Step | Format | Description |
 |------|------|--------|-------------|
-| `{stem}_expression_matrix_ds.csv` | 1 | CSV | Pseudobulk expression (samples × genes) |
-| `{stem}_composition_matrix_ds.csv` | 1 | CSV | Cell composition per sample |
+| `{cell_class}_expression_matrix_ds.csv` | 1 | CSV | Pseudobulk expression (samples × genes) |
+| `{cell_class}_composition_matrix_ds.csv` | 1 | CSV | Cell composition per sample |
+| `{cell_class}_obs_metadata.csv` | 1 | CSV | Per-sample metadata from `adata.obs`; auto-read by step 2 |
 | `Phenotype_{cc}_osca.txt` | 2 | TSV | OSCA phenotype file (genes × participants) |
 | `Upprobe_{cc}.opi` | 2 | TSV | OSCA probe info |
 | `cov1_{cc}.txt` | 2 | TSV | Categorical covariates |
@@ -544,15 +546,11 @@ Adds `--padj-thresh` argument (default `0.05` to match step 5).
 
 ---
 
-### 4. Hard-coded metadata path (`02-run-osca-formatting-scanpy.R`)
+### 4. Hard-coded metadata path (`02-run-osca-formatting-scanpy.R`) — **Resolved in patched version**
 
-The default `--metadata` path is:
-```
-/mnt/accessory/seq_data/pd_all/240514/dapi_nurr_merged_seurat_clean_subsets/dapi_nurr_metadata_new.csv
-```
-This is project-specific. Always pass `--metadata` explicitly, or the script will silently use stale data.
+The original script had a hardcoded default `--metadata` path pointing to a project-specific CSV. The patched version eliminates this: step 1 now writes `{cell_class}_obs_metadata.csv` (one row per surviving participant, derived from `adata.obs`) and step 2 auto-discovers it from `--expression-dir` when `--metadata` is not provided. Pass `--metadata` explicitly only to override with a global metadata file.
 
-The project-specific prefix strip (`gsub("dapi_nurr_merged_seurat_clean__", ...)`) has been removed from the patched version. Output CSVs from step 1 are now named `{cell_class}_expression_matrix_ds.csv` where `cell_class` comes from `adata.obs[CT_ID]`, so no stripping is needed.
+The project-specific prefix strip (`gsub("dapi_nurr_merged_seurat_clean__", ...)`) has also been removed. Output CSVs from step 1 are named `{cell_class}_expression_matrix_ds.csv` where `cell_class` comes from `adata.obs[CT_ID]`, so no stripping is needed.
 
 ---
 

@@ -51,7 +51,7 @@ parser.add_argument("--sample-id",
     help="Sample identifier")
 parser.add_argument("--strs-to-skip",
     type=str,
-    default="endo.h5ad,opc.h5ad",
+    default="",
     help="String to skip in the file name")
 parser.add_argument("--id-map",
     type=str,
@@ -87,9 +87,10 @@ print(input_files)
 for file in input_files:
     print(f"Processing {file}...")
 
-    if any(s in file for s in STRS_TO_SKIP):
-        print(f"Skipping {file} (matched strs-to-skip)")
-        continue
+    if not (STRS_TO_SKIP == [""] or STRS_TO_SKIP == []):
+        if any(s in file for s in STRS_TO_SKIP):
+            print(f"Skipping {file} (matched strs-to-skip)")
+            continue
 
     # Load the h5ad file
     adata = sc.read_h5ad(file)
@@ -245,6 +246,19 @@ for file in input_files:
     data_aligned.to_csv(output_file1)
     combined_df_corrected_aligned.to_csv(output_file2)
 
+    # Write per-sample obs metadata for use by step 02.
+    # One row per surviving sample; uses SAMPLE_ID as the participant_id column.
+    surviving_samples = set(common_samples)
+    sample_meta = (
+        adata.obs[adata.obs[SAMPLE_ID].isin(surviving_samples)]
+        .drop_duplicates(subset=[SAMPLE_ID])
+        .rename(columns={SAMPLE_ID: "participant_id"})
+        .reset_index(drop=True)
+    )
+    output_metadata = os.path.join(OUTPUT_DIR, f"{cell_class}_obs_metadata.csv")
+    sample_meta.to_csv(output_metadata, index=False)
+
     print(f"Saved {output_file1}")
     print(f"Saved {output_file2}")
+    print(f"Saved {output_metadata}")
 print("Processing completed.")

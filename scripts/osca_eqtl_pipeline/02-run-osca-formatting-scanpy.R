@@ -69,13 +69,9 @@ if (is.null(opt[['gene-anot']])) {
 } else {
     GENE_ANNOT_PATH = opt[['gene-anot']]
 }
-if (is.null(opt[['metadata']])) {
-    METADATA_PATH = "/mnt/accessory/seq_data/pd_all/240514/dapi_nurr_merged_seurat_clean_subsets/dapi_nurr_metadata_new.csv"
-} else {
-    METADATA_PATH = opt[['metadata']]
-}
+# If --metadata is given, load once; otherwise auto-discover per-cell-class CSV from EXPRESSION_DIR.
+METADATA_PATH = if (!is.null(opt[['metadata']])) opt[['metadata']] else NULL
 
-metadata = read.csv(METADATA_PATH)
 gene_annotation = read.table(GENE_ANNOT_PATH, header = TRUE) %>% distinct(NAME, .keep_all = TRUE)
 participants = readLines(PARTICIPANTS_PATH)
 print(participants)
@@ -99,8 +95,18 @@ cat("\nCommon prefixes:", common_prefixes, "\n")
 # Process each file
 for (cc in common_prefixes) {
     print(cc)
-    # Subset only the NPH expression and composition files
-    
+
+    # Load metadata: per-cell-class CSV written by step 01, or global --metadata if provided.
+    if (is.null(METADATA_PATH)) {
+        meta_file = file.path(EXPRESSION_DIR, paste0(cc, "_obs_metadata.csv"))
+        if (!file.exists(meta_file)) stop(paste0(
+            "No metadata found for ", cc, ": expected ", meta_file, ". ",
+            "Either provide --metadata or run step 01 to generate per-cell-class metadata."))
+        metadata = read.csv(meta_file)
+    } else {
+        metadata = read.csv(METADATA_PATH)
+    }
+
     efile = file.path(EXPRESSION_DIR, expression_files[[cc]])
     cfile = file.path(EXPRESSION_DIR, composition_files[[cc]])
       
