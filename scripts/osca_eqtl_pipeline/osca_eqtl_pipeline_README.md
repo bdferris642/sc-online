@@ -8,13 +8,14 @@ Single-nucleus RNA-seq pseudobulk eQTL analysis pipeline: pseudobulk aggregation
 
 ```bash
 ./00-run-osca-eqtl-pipeline.sh \
-  --cc-file /mnt/accessory/seq_data/gtex/ccs \
   --ct-id cell_class \
-  --expr-input-dir /mnt/accessory/seq_data/pd_all/240514/dapi_nurr_merged_seurat_clean_subsets \
-  --expr-output-subdir h5ad_pseudobulk \
   --gene-log-expr-threshold 0.01 \
+  --pb-output-dir /mnt/accessory/seq_data/pd_all/240514/dapi_nurr_merged_seurat_clean_subsets/h5ad_pseudobulk \
+  --h5ad-cat-covar "sex case_control study brain_bank dapi_nurr" \
+  --h5ad-quant-covar "age pmi" \
+  --input-files /mnt/accessory/seq_data/pd-freeze/sn-vta/subsets/latest/latest-h5ad-paths.txt \
   --mash-eps 1e-6 \
-  --mash-num-random 1000000 \
+  --mash-num-random 100000 \
   --mash-padj-thresh 0.05 \
   --min-num-cells 10 \
   --osca-input-dir /mnt/accessory/seq_data/gtex \
@@ -23,11 +24,10 @@ Single-nucleus RNA-seq pseudobulk eQTL analysis pipeline: pseudobulk aggregation
   --sample-id participant_id \
   --start-at-step 3 \
   --stop-after-step 6 \
-  --strs-to-skip opc,endo \
   --vcf-slogan gtex_merged_v8_v9_normed_dbsnp_annot_filtered_dedupe
 ```
 
-Source: `example-command.txt`
+Note: `--h5ad-cat-covar` and `--h5ad-quant-covar` match the current defaults; shown explicitly for clarity. `example-command.txt` in the original pipeline directory is outdated (predates these arguments).
 
 ---
 
@@ -73,7 +73,6 @@ The orchestrator calls `conda activate mashr` at startup. All R and Python packa
 |-------|--------|-------|
 | h5ad expression files (`--input-files`) | AnnData `.h5ad` | One file per cell type; must contain a `counts` layer with raw integer counts |
 | h5ad file list (`--input-files`) | Plain text | Newline-delimited absolute paths to the h5ad files to process |
-| Cell class list (`--cc-file`) | Plain text | One cell class name per line; names must match `--ct-id` values in `.obs` |
 | Participants list (`--participants`) | Plain text | One participant ID per line; must match `--sample-id` column in `.obs` |
 | ID map CSV (`--id-map`) | CSV | Optional. Columns: `nucseq_participant_id`, `vcf_sample_id`. Remaps h5ad participant IDs to VCF IDs and restricts to matched participants. |
 | PLINK bfiles (`--vcf-slogan`) | `.bed/.bim/.fam` | Placed in `--osca-input-dir`; VCF-derived genotype data |
@@ -87,26 +86,24 @@ The orchestrator calls `conda activate mashr` at startup. All R and Python packa
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--cc-file` | `/mnt/analysis/eqtl/gtex/ccs` | Path to cell-class list file |
 | `--ct-id` | `cell_class` | Column in `.obs` holding cell type labels |
-| `--expr-input-dir` | *(required)* | Parent directory for pseudobulk output CSVs (combined with `--expr-output-subdir`) |
-| `--expr-output-subdir` | `pseudobulk` | Subdirectory under `--expr-input-dir` for pseudobulk CSVs |
+| `--pb-output-dir` | *(required)* | Directory for pseudobulk output CSVs (written by step 1, read by step 2) |
 | `--input-files` | *(required)* | Path to newline-delimited text file listing h5ad files to process |
 | `--gene-log-expr-threshold` | `0.01` | Min mean log-expression to retain a gene |
-| `--h5ad-cat-covar` | *(none)* | Space-delimited list of categorical covariate column names from `.obs` (e.g. `"sex case_control study brain_bank"`). Passed to step 2 as `cov1` (converted to factors). Also used to auto-build the SVA formula unless `--sva-formula` is provided. |
-| `--h5ad-quant-covar` | *(none)* | Space-delimited list of quantitative covariate column names from `.obs` (e.g. `"age pmi"`). Passed to step 2 as `cov2` (min-max scaled). Also used to auto-build the SVA formula unless `--sva-formula` is provided. |
+| `--h5ad-cat-covar` | `"sex case_control study brain_bank dapi_nurr"` | Space-delimited list of categorical covariate column names from `.obs`. Passed to step 2 as `cov1` (converted to factors). Also used to auto-build the SVA formula unless `--sva-formula` is provided. |
+| `--h5ad-quant-covar` | `"age pmi"` | Space-delimited list of quantitative covariate column names from `.obs`. Passed to step 2 as `cov2` (min-max scaled). Also used to auto-build the SVA formula unless `--sva-formula` is provided. |
 | `--id-map` | *(none)* | Optional path to participant ID mapping CSV (see above) |
 | `--mash-eps` | `1e-6` | Floor for SE and beta values passed to mashr |
 | `--mash-num-random` | `1000000` | Number of random SNP-probe pairs used to estimate null correlation in mashr |
 | `--mash-padj-thresh` | `0.01` | BH-adjusted p-value threshold for "strong" tests in mashr |
 | `--min-num-cells` | `10` | Minimum cells per sample for pseudobulk inclusion |
 | `--osca-input-dir` | *(required)* | Directory for OSCA inputs/outputs; must contain PLINK bfiles |
-| `--participants` | *(required)* | Path to participants list file |
+| `--participants` | *(required unless `--id-map` given)* | Path to newline-delimited VCF participant ID list. If omitted, IDs are derived from the `vcf_sample_id` column of `--id-map`. |
 | `--pipeline-slogan` | *(required)* | Short label for this run; used in output paths and GCS bucket |
 | `--sample-id` | `participant_id` | Column in `.obs` holding sample/participant IDs |
 | `--start-at-step` | `1` | Resume from this step (inclusive) |
 | `--stop-after-step` | `1000` | Stop after this step (inclusive) |
-| `--strs-to-skip` | `endo` | Comma-separated strings; `.h5ad` files containing any of these are skipped |
+| `--strs-to-skip` | *(none)* | Comma-separated strings; `.h5ad` files containing any of these are skipped |
 | `--vcf-slogan` | *(required)* | Prefix of `.bed/.bim/.fam` and `_pca.eigenvec` files in `--osca-input-dir` |
 
 ---
@@ -119,7 +116,7 @@ h5ad files (one per cell type)  +  cell_class list
         ▼  Step 1: 01-make-eqtl-pseudobulk.py
         │  ID remap + restrict (if --id-map) → Pseudobulk sum aggregation → CPM normalize → log1p → scale
         │
-   {pseudobulk_dir}/
+   {pb-output-dir}/
      {cell_class}_expression_matrix_ds.csv   (samples × genes, log-normalized, scaled; cell_class from adata.obs[CT_ID])
      {cell_class}_composition_matrix_ds.csv  (samples × cell types, raw counts)
         │
@@ -201,7 +198,7 @@ python 01-make-eqtl-pseudobulk.py \
   --gene-log-expr-threshold 0.01 \
   --ct-id cell_class \
   --sample-id participant_id \
-  --strs-to-skip opc,endo \
+  [--strs-to-skip opc] \
   [--id-map /path/to/id_map.csv]
 ```
 
@@ -213,7 +210,7 @@ python 01-make-eqtl-pseudobulk.py \
 | `--gene-log-expr-threshold` | `1.5` | Min mean log-expression to retain gene |
 | `--ct-id` | `cell_class` | Cell type column in `.obs` |
 | `--sample-id` | `participant_id` | Sample column in `.obs` |
-| `--strs-to-skip` | `endo.h5ad,opc.h5ad` | Comma-separated substrings to skip |
+| `--strs-to-skip` | *(none)* | Comma-separated substrings to skip |
 | `--id-map` | *(none)* | CSV with `nucseq_participant_id` and `vcf_sample_id` columns; remaps and restricts participants |
 
 **Processing steps per h5ad:**
@@ -258,7 +255,7 @@ Rscript 02-run-osca-formatting-scanpy.R \
 | `--expression-dir` | *(required)* | Directory with pseudobulk CSVs |
 | `--output-dir` | *(required)* | OSCA input/output directory (also contains bfiles) |
 | `--vcf-slogan` | *(required)* | Prefix of `.fam`, `_pca.eigenvec` files |
-| `--participants` | *(required)* | Path to participants text file |
+| `--participants` | *(required)* | Path to newline-delimited VCF participant ID list. Passed by orchestrator; auto-derived from `--id-map` if not supplied directly. |
 | `--h5ad-cat-covars` | *(required unless `--sva-formula` given)* | Space-delimited categorical covariate names (go to `cov1` as factors; used to build SVA formula) |
 | `--h5ad-quant-covars` | *(required unless `--sva-formula` given)* | Space-delimited quantitative covariate names (go to `cov2` min-max scaled; used to build SVA formula) |
 | `--sva-formula` | *(auto-built from covariate lists)* | Override SVA formula string (e.g. `"~ age + sex + pmi"`); does not affect `cov1`/`cov2` contents |

@@ -5,17 +5,17 @@
 #   ./00-run-osca-eqtl-pipeline.sh [OPTIONS]
 #
 # Required arguments:
-#   --expr-input-dir DIR      Parent directory containing h5ad files and pseudobulk output subdir
 #   --input-files FILE        Newline-delimited text file listing absolute paths to h5ad files (step 1)
 #   --osca-input-dir DIR      Directory for OSCA inputs and outputs; must contain PLINK bfiles
-#   --participants FILE        Newline-delimited list of participant IDs to include
+#   --pb-output-dir DIR       Directory for pseudobulk output CSVs (steps 1 and 2)
 #   --pipeline-slogan STR     Short label for this run; used in output paths and GCS bucket
 #   --vcf-slogan STR          Prefix of .bed/.bim/.fam and _pca.eigenvec in --osca-input-dir
+#   --participants FILE        Newline-delimited list of VCF participant IDs to include
+#                             Required unless --id-map is provided, in which case participant IDs
+#                             are derived from the vcf_sample_id column of the id-map.
 #
 # Optional arguments (defaults shown):
-#   --cc-file FILE            Cell-class list, one name per line (required for steps 3-7)
 #   --ct-id STR               adata.obs column for cell type labels          [cell_class]
-#   --expr-output-subdir STR  Subdir under --expr-input-dir for pseudobulk CSVs [pseudobulk]
 #   --gene-log-expr-threshold FLOAT  Min mean log-expression to retain a gene [0.01]
 #   --h5ad-cat-covar STR      Space-delimited categorical covariate column names from adata.obs
 #                             Used for cov1 (as factors) and SVA formula
@@ -43,8 +43,8 @@
 #   8  (optional) Archive all inputs and outputs to Google Cloud Storage
 #
 # Key outputs  (OUTPUT_ROOT = {osca-input-dir}/eqtl_final_outs/{pipeline-slogan}):
-#   Step 1 → {expr-input-dir}/{expr-output-subdir}/{cell_class}_expression_matrix_ds.csv
-#             {expr-input-dir}/{expr-output-subdir}/{cell_class}_composition_matrix_ds.csv
+#   Step 1 → {pb-output-dir}/{cell_class}_expression_matrix_ds.csv
+#             {pb-output-dir}/{cell_class}_composition_matrix_ds.csv
 #   Step 2 → {osca-input-dir}/Phenotype_{cc}_osca.txt       (OSCA expression phenotype)
 #             {osca-input-dir}/Upprobe_{cc}.opi              (probe annotation)
 #             {osca-input-dir}/cov1_{cc}.txt                 (categorical covariates)
@@ -64,7 +64,6 @@
 # Logs: /mnt/accessory/analysis/eqtl/logs/osca_eqtl_pipeline_{pipeline-slogan}_{datetime}.log
 
 # Default values
-CC_FILE=""
 CT_ID="cell_class"
 GENE_EXPR_INPUT_FILES=""
 GENE_LOG_EXPR_THRESHOLD=0.01
@@ -75,7 +74,6 @@ MASH_EPS=1e-6
 MASH_NUM_RANDOM=100000
 MASH_PADJ_THRESH=0.01
 MIN_NUM_CELLS=10
-PB_OUTPUT_SUBDIR="pseudobulk"
 SAMPLE_ID="participant_id"
 STRS_TO_SKIP=""
 START_AT_STEP=1
@@ -84,11 +82,9 @@ STOP_AFTER_STEP=1000
 # Parse named arguments
 while [[ "$#" -gt 0 ]]; do
     case $1 in
-        --cc-file ) CC_FILE="$2"; shift ;;
         --ct-id) CT_ID="$2"; shift ;;
-        --expr-input-dir) GENE_EXPR_INPUT_DIR="$2"; shift ;;
-        --expr-output-subdir) PB_OUTPUT_SUBDIR="$2"; shift ;;
         --gene-log-expr-threshold) GENE_LOG_EXPR_THRESHOLD="$2"; shift ;;
+        --pb-output-dir) PB_OUTPUT_DIR="$2"; shift ;;
         --h5ad-cat-covar) H5AD_CAT_COVARS="$2"; shift ;;
         --h5ad-quant-covar) H5AD_QUANT_COVARS="$2"; shift ;;
         --input-files) GENE_EXPR_INPUT_FILES="$2"; shift ;;
@@ -111,12 +107,16 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 # Required argument checks
-: "${GENE_EXPR_INPUT_DIR:?--expr-input-dir is required}"
 : "${GENE_EXPR_INPUT_FILES:?--input-files is required}"
 : "${OSCA_INPUT_DIR:?--osca-input-dir is required}"
+: "${PB_OUTPUT_DIR:?--pb-output-dir is required}"
 : "${PIPELINE_SLOGAN:?--pipeline-slogan is required}"
 : "${VCF_SLOGAN:?--vcf-slogan is required}"
-: "${PARTICIPANT_FNAME:?--participants is required}"
+
+if [ -z "$PARTICIPANT_FNAME" ] && [ -z "$ID_MAP_PATH" ]; then
+    echo "ERROR: --participants is required unless --id-map is provided"
+    exit 1
+fi
 
 
 # include date in log filenames
@@ -139,7 +139,6 @@ echo "Branch: $branch"
 echo "Commit: $commit_hash"
 
 OSCA_OUTPUT_DIR=$OSCA_INPUT_DIR/eqtl_final_outs/$PIPELINE_SLOGAN
-PB_OUTPUT_DIR="$GENE_EXPR_INPUT_DIR/$PB_OUTPUT_SUBDIR"
 
 if [ ! -d "$PB_OUTPUT_DIR" ]; then
     mkdir -p "$PB_OUTPUT_DIR"
@@ -158,26 +157,33 @@ if [ ! -d "$OSCA_OUTPUT_DIR" ]; then
     mkdir -p "$OSCA_OUTPUT_DIR"
 fi
 
-if [ ! -f "$PARTICIPANT_FNAME" ]; then
-    echo "Must add line-delimited participant file to $PARTICIPANT_FNAME before running Pipeline."
-    exit 1
-fi
-
-if [ ! -f "$CC_FILE" ]; then
-    echo "CC file not found: $CC_FILE"
+# If --id-map provided but no --participants, derive participant list from id-map vcf_sample_id column
+if [ -z "$PARTICIPANT_FNAME" ] && [ -n "$ID_MAP_PATH" ]; then
+    if [ ! -f "$ID_MAP_PATH" ]; then
+        echo "ERROR: id-map file not found: $ID_MAP_PATH"
+        exit 1
+    fi
+    PARTICIPANT_FNAME=$(mktemp /tmp/participants_from_idmap_XXXXXX.txt)
+    python3 -c "
+import csv
+with open('$ID_MAP_PATH') as f:
+    for row in csv.DictReader(f):
+        print(row['vcf_sample_id'])
+" > "$PARTICIPANT_FNAME"
+    echo "Derived $(wc -l < "$PARTICIPANT_FNAME") participants from id-map: $ID_MAP_PATH"
+elif [ ! -f "$PARTICIPANT_FNAME" ]; then
+    echo "ERROR: participants file not found: $PARTICIPANT_FNAME"
     exit 1
 fi
 
 # write all function arguments to log file
 echo "Running OSCA eQTL pipeline with the following arguments:"
-echo "CC_FILE: $CC_FILE"
 echo "CT_ID: $CT_ID"
-echo "GENE_EXPR_INPUT_DIR: $GENE_EXPR_INPUT_DIR"
 echo "GENE_EXPR_INPUT_FILES: $GENE_EXPR_INPUT_FILES"
 echo "H5AD_CAT_COVARS: $H5AD_CAT_COVARS"
 echo "H5AD_QUANT_COVARS: $H5AD_QUANT_COVARS"
 echo "ID_MAP_PATH: $ID_MAP_PATH"
-echo "PB_OUTPUT_SUBDIR: $PB_OUTPUT_SUBDIR"
+echo "PB_OUTPUT_DIR: $PB_OUTPUT_DIR"
 echo "GENE_LOG_EXPR_THRESHOLD: $GENE_LOG_EXPR_THRESHOLD"
 echo "MASH_EPS: $MASH_EPS"
 echo "MASH_NUM_RANDOM: $MASH_NUM_RANDOM"
@@ -191,11 +197,6 @@ echo "START_AT_STEP: $START_AT_STEP"
 echo "STOP_AFTER_STEP: $STOP_AFTER_STEP"
 echo "STRS_TO_SKIP: $STRS_TO_SKIP"
 echo "VCF_SLOGAN: $VCF_SLOGAN"
-
-# check if all required arguments are provided
-
-# Pseudobulk h5ad files in GENE_EXPR_INPUT_DIR
-# save _expression_matrix_ds.csv and _composition_matrix_ds.csv to GENE_EXPR_INPUT_DIR/PB_OUTPUT_SUBDIR
 
 if [ $START_AT_STEP -le 1 ]; then
     echo "************************************* STEP 1 *************************************"
@@ -246,18 +247,19 @@ fi
 if [ $START_AT_STEP -le 3 ] && [ $STOP_AFTER_STEP -ge 3 ]; then
     echo "************************************* STEP 3 *************************************"
     echo "************************************* RUN OSCA ***********************************"
-    echo "Running OSCA eQTL analysis with the following parameters:"
-    echo "efile: $OSCA_INPUT_DIR/Phenotype_@_osca.txt"
-    echo "befile_prefix: $OSCA_INPUT_DIR/befile_@"
-    echo "bfile: $OSCA_INPUT_DIR/$VCF_SLOGAN"
-    echo "update_opi: $OSCA_INPUT_DIR/Upprobe_@.opi"
-    echo "covar_file: $OSCA_INPUT_DIR/cov1_@.txt"
-    echo "qcovar_file: $OSCA_INPUT_DIR/cov2_@_reduced.txt"
-    echo "cores: 6"
-    echo "final_output: $OSCA_OUTPUT_DIR/eqtl_@.tsv"
+    # Discover cell classes from Phenotype files written by step 2
+    mapfile -t CCS < <(
+        ls "$OSCA_INPUT_DIR"/Phenotype_*_osca.txt 2>/dev/null \
+        | sed 's|.*/Phenotype_||; s|_osca\.txt$||'
+    )
+    if [ ${#CCS[@]} -eq 0 ]; then
+        echo "ERROR: No Phenotype_*_osca.txt files found in $OSCA_INPUT_DIR. Run step 2 first."
+        exit 1
+    fi
+    echo "Cell classes: ${CCS[*]}"
 
-    # run OSCA on all CCs simultaneously
-    cat $CC_FILE | \
+    # run OSCA on all cell classes simultaneously
+    printf '%s\n' "${CCS[@]}" | \
         xargs -I @ echo $SCRIPT_DIR/03-build-eqtl.sh \
             "$OSCA_INPUT_DIR/Phenotype_@_osca.txt" \
             "$OSCA_INPUT_DIR/befile_@" \
@@ -301,9 +303,10 @@ if [ $START_AT_STEP -le 5 ] && [ $STOP_AFTER_STEP -ge 5 ]; then
     echo "************************************* STEP 5 *************************************"
     echo "************************************* SAVE OSCA RDS, MANHATTAN PLOTS *************"
     # process and plot OSCA outputs in parallel. Makes plots and saves huge tsvs as rds
-    cat $CC_FILE | \
-        xargs -I @ echo Rscript $SCRIPT_DIR/05-process-and-plot-osca-tsv.R \
-        --path="$OSCA_OUTPUT_DIR/eqtl_@.tsv" | parallel -j 0 --tmpdir /mnt/accessory/tmp && {
+    # Discover TSVs directly — no cc-file needed
+    ls "$OSCA_OUTPUT_DIR"/eqtl_*.tsv 2>/dev/null | \
+        xargs -I {} echo Rscript $SCRIPT_DIR/05-process-and-plot-osca-tsv.R \
+        --path="{}" | parallel -j 0 --tmpdir /mnt/accessory/tmp && {
             echo "STEP 5 SUCCESSFULLY processed and plotted OSCA outputs."
         } || {
             echo "STEP 5 FAILED to process and plot OSCA outputs."
