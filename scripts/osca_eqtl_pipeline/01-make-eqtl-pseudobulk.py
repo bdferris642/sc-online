@@ -106,12 +106,6 @@ for file in input_files:
 
     adata.X = adata.X.toarray() # convert from sparse to dense
 
-    # count cells per SAMPLE_ID
-    sample_counts = adata.obs[SAMPLE_ID].value_counts()
-
-    # get SAMPLE_IDs with at least MIN_NUM_CELLS and subset
-    sample_ids = sample_counts[sample_counts >= MIN_NUM_CELLS].index
-
     print(f"removing {(adata.X.sum(axis=0) == 0).sum()} genes with zero counts")
     print(f" removing {(adata.X.sum(axis=1) == 0).sum()} cells have zero counts")
 
@@ -193,7 +187,8 @@ for file in input_files:
     # Update the relevant columns in combined_df_corrected with the new names
     #combined_df_corrected.columns = list(data_scanpy_1.obs.columns) + new_column_names
 
-    # Pseudobulk aggregation
+    # Pseudobulk aggregation — samples with < MIN_NUM_CELLS cells are dropped
+    n_samples_before = adata.obs[SAMPLE_ID].nunique()
     pdata = dc.get_pseudobulk(
         adata,
         sample_col=SAMPLE_ID,
@@ -204,7 +199,9 @@ for file in input_files:
         min_counts=MIN_COUNTS,
         remove_empty=True
     )
-    print(f"pseudobulk (pdata) shape: {pdata.shape}")
+    n_samples_after = pdata.n_obs
+    print(f"pseudobulk: {n_samples_after} / {n_samples_before} samples kept "
+          f"(dropped {n_samples_before - n_samples_after} with < {MIN_NUM_CELLS} cells or < {MIN_COUNTS} counts)")
 
     # Normalize total counts and log-transform
     sc.pp.normalize_total(pdata, target_sum=1e6)
