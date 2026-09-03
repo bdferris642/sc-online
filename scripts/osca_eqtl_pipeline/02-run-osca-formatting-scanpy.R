@@ -1,3 +1,25 @@
+# 02-run-osca-formatting-scanpy.R — Format pseudobulk CSVs into OSCA input files.
+#
+# Arguments:
+#   --expression-dir  / -e  (required) Directory with {cell_class}_expression_matrix_ds.csv files
+#   --output-dir      / -o  (required) OSCA input/output directory (also contains bfiles)
+#   --vcf-slogan      / -v  (required) Prefix of .fam and _pca.eigenvec files
+#   --gene-anot       / -g  (optional) Gene annotation table; default /mnt/accessory/analysis/eqtl/gene_loc.txt
+#   --metadata        / -m  (optional) CSV with participant_id and all covariate columns
+#   --participants    / -p  (required) Path to participants text file
+#   --sva-formula     / -s  (optional) Override SVA formula; auto-built from --h5ad-cat-covars + --h5ad-quant-covars
+#   --h5ad-cat-covars / -c  (required unless --sva-formula given) Space-delimited categorical covariate names
+#   --h5ad-quant-covars / -q (required unless --sva-formula given) Space-delimited quantitative covariate names
+#
+# Processing per cell class:
+#   1. Loads expression CSV; subsets to participants in --participants
+#   2. Guards: fails fast if no participants remain; fails fast if no WGS intersection
+#   3. Removes low-variance genes (SD < 1e-6)
+#   4. Runs SVA (n.sv = 5 surrogates) using the formula built from covariate lists
+#   5. Runs PCA (30 PCs) on WGS-intersected expression data
+#   6. Removes SVs with Spearman |r| > 0.9 to any other covariate; drops PCs 21-30
+#   7. Annotates genes via gene_annotation table; drops unannotated genes
+
 suppressMessages(suppressWarnings(library(getopt)))
 suppressMessages(suppressWarnings(library(Matrix)))
 suppressMessages(suppressWarnings(library("sva")))
@@ -5,12 +27,15 @@ suppressMessages(suppressWarnings(library(tidyverse)))
 
 
 spec <- matrix(c(
-    'expression-dir', 'e', 1, "character",
-    'output-dir', 'o', 1, "character",
-    'vcf-slogan', 'v', 1, "character",
-    'gene-anot', 'g', 1, "character",
-    'metadata', 'm', 1, "character",
-    'participants', 'p', 1, "character"
+    'expression-dir',   'e', 1, "character",
+    'output-dir',       'o', 1, "character",
+    'vcf-slogan',       'v', 1, "character",
+    'gene-anot',        'g', 1, "character",
+    'metadata',         'm', 1, "character",
+    'participants',     'p', 1, "character",
+    'sva-formula',      's', 1, "character",
+    'h5ad-cat-covars',  'c', 1, "character",
+    'h5ad-quant-covars','q', 1, "character"
 ), byrow = TRUE, ncol = 4)
 
 opt = getopt(spec)
@@ -18,6 +43,22 @@ EXPRESSION_DIR = opt[['expression-dir']]
 OUTPUT_DIR = opt[['output-dir']]
 VCF_SLOGAN = opt[['vcf-slogan']]
 PARTICIPANTS_PATH = opt[['participants']]
+
+# Parse covariate lists (space-delimited strings → character vectors)
+CAT_COVARS   = if (is.null(opt[['h5ad-cat-covars']]))   character(0) else strsplit(trimws(opt[['h5ad-cat-covars']]),   "\\s+")[[1]]
+QUANT_COVARS = if (is.null(opt[['h5ad-quant-covars']])) character(0) else strsplit(trimws(opt[['h5ad-quant-covars']]), "\\s+")[[1]]
+cat("Categorical covariates:", if (length(CAT_COVARS))   paste(CAT_COVARS,   collapse=", ") else "(none)", "\n")
+cat("Quantitative covariates:", if (length(QUANT_COVARS)) paste(QUANT_COVARS, collapse=", ") else "(none)", "\n")
+
+# FIX: SVA formula built from covariate lists; --sva-formula overrides if provided
+if (!is.null(opt[['sva-formula']])) {
+    SVA_FORMULA_STR = opt[['sva-formula']]
+} else if (length(c(CAT_COVARS, QUANT_COVARS)) == 0) {
+    stop("Must provide --h5ad-cat-covars, --h5ad-quant-covars, or --sva-formula.")
+} else {
+    SVA_FORMULA_STR = paste("~", paste(c(CAT_COVARS, QUANT_COVARS), collapse = " + "))
+}
+cat("SVA formula:", SVA_FORMULA_STR, "\n")
 
 if (!dir.exists(OUTPUT_DIR)) {
     dir.create(OUTPUT_DIR)
@@ -51,7 +92,6 @@ all_files = list.files(EXPRESSION_DIR)
 expression_files = all_files[grep("expression_matrix", all_files)]
 composition_files = all_files[grep("composition_matrix", all_files)]
 common_prefixes = gsub("_expression_matrix_ds.csv", "",basename(expression_files))
-common_prefixes = gsub("dapi_nurr_merged_seurat_clean__" , "", common_prefixes)
 names(expression_files) = common_prefixes
 names(composition_files) = common_prefixes
 cat("\nCommon prefixes:", common_prefixes, "\n")
@@ -70,7 +110,9 @@ for (cc in common_prefixes) {
     # subset to participants of interest, enumerated in file in PARTICIPANTS_PATH
     participant_cols = colnames(edata)[colnames(edata) %in% participants]
     edata = edata[, participant_cols]
-    
+    if (ncol(edata) == 0) stop(paste0(
+        "No participants from ", PARTICIPANTS_PATH, " match expression data columns for ", cc, "."))
+
     rn = rownames(edata)
     edata = apply(edata, 2, as.numeric)
     rownames(edata) = rn
@@ -91,16 +133,30 @@ for (cc in common_prefixes) {
     rownames(pheno) = pheno$participant_id
 
     cat("\nRunning SVA:\n")
-    mod = model.matrix(~ age + sex + pmi, data = pheno)
+    # FIX: validate that all variables in the formula are present in pheno before running SVA
+    sva_formula = as.formula(SVA_FORMULA_STR)
+    sva_vars = all.vars(sva_formula)
+    missing_vars = setdiff(sva_vars, colnames(pheno))
+    if (length(missing_vars) > 0) {
+        stop(paste0(
+            "SVA formula '", SVA_FORMULA_STR, "' references variables not present in metadata: ",
+            paste(missing_vars, collapse = ", "),
+            ". Available columns: ", paste(colnames(pheno), collapse = ", ")
+        ))
+    }
+    mod = model.matrix(sva_formula, data = pheno)
     mod0 = model.matrix(~ 1, data = pheno)
-    svobj = sva(edata, mod, mod0, n.sv = 5)
+    svobj = sva(edata, mod, mod0, n.sv = 5)  # n.sv = 5: estimate 5 surrogate variables
 
     sv_factors = as.data.frame(svobj$sv)
     colnames(sv_factors) = paste0("SV", seq_len(ncol(sv_factors)))
+    sv_col_names = colnames(sv_factors)
     pheno_with_svs = cbind(pheno, sv_factors)
 
     # Match participant_ids with genotype data
     matching_columns = wgs_subset$V2[wgs_subset$V2 %in% colnames(edata)]
+    if (length(matching_columns) == 0) stop(paste0(
+        "No samples in expression data for ", cc, " have matching genotype data in ", VCF_SLOGAN, ".fam"))
     edata = edata[, matching_columns, drop = FALSE]
 
     cat("\nRunning PCA:\n")
@@ -113,12 +169,11 @@ for (cc in common_prefixes) {
         rownames_to_column("participant_id")
 
     cat("\nMerging metadata with SVs:\n")
-    covs1 = merge(
-                metadata %>% filter(participant_id %in% row.names(top_30_pcs)), 
-                pheno_with_svs, 
-                by = "participant_id") %>% 
-        select(participant_id, sex.x, age.x, pmi.x, SV1, SV2, SV3, SV4, SV5) %>%
-        rename(sex = sex.x, age = age.x, pmi=pmi.x)
+    covs1 = metadata %>%
+        filter(participant_id %in% row.names(top_30_pcs)) %>%
+        select(participant_id, all_of(c(CAT_COVARS, QUANT_COVARS))) %>%
+        left_join(pheno_with_svs %>% select(participant_id, all_of(sv_col_names)),
+                  by = "participant_id")
 
     pcs = as.data.frame(top_30_pcs) %>% rownames_to_column("participant_id")
     clusters =  (
@@ -127,16 +182,33 @@ for (cc in common_prefixes) {
         rename(participant_id=X))
 
     print("Merging metadata and svs with pcs:")
+    scaled_quant_covars = paste0(QUANT_COVARS, "_scaled")
     masterdf = merge(
         merge(
             merge(
-                merge(covs1, pcs, by = "participant_id"), 
-                genotype_pcs, by = "participant_id"), 
-            phenotype, by = "participant_id") %>% 
-            mutate(
-                age_scaled = (age - min(age)) / (max(age) - min(age)),
-                pmi_scaled = (pmi - min(pmi)) / (max(pmi) - min(pmi))),
-        clusters, by="participant_id")
+                merge(covs1, pcs, by = "participant_id"),
+                genotype_pcs, by = "participant_id"),
+            phenotype, by = "participant_id") %>%
+            mutate(across(all_of(QUANT_COVARS),
+                          ~ (. - min(., na.rm = TRUE)) / (max(., na.rm = TRUE) - min(., na.rm = TRUE)),
+                          .names = "{.col}_scaled")),
+        clusters, by = "participant_id")
+
+    # Drop covariates with a single unique value across participants in this cell class.
+    # Constant covariates cause rank deficiency in model.matrix() and must be excluded.
+    const_cat = CAT_COVARS[sapply(CAT_COVARS, function(v) length(unique(na.omit(masterdf[[v]]))) < 2)]
+    if (length(const_cat) > 0) {
+        warning(paste0("[", cc, "] Dropping constant categorical covariate(s) (one unique value): ",
+                       paste(const_cat, collapse=", ")))
+        CAT_COVARS = setdiff(CAT_COVARS, const_cat)
+    }
+    const_quant = QUANT_COVARS[sapply(QUANT_COVARS, function(v) length(unique(na.omit(masterdf[[v]]))) < 2)]
+    if (length(const_quant) > 0) {
+        warning(paste0("[", cc, "] Dropping constant quantitative covariate(s) (one unique value): ",
+                       paste(const_quant, collapse=", ")))
+        QUANT_COVARS = setdiff(QUANT_COVARS, const_quant)
+        scaled_quant_covars = paste0(QUANT_COVARS, "_scaled")
+    }
 
     valid_columns = intersect(names(phenotype)[-1], names(masterdf))
 
@@ -176,17 +248,18 @@ for (cc in common_prefixes) {
 
     write.table(masterdf %>%
                     mutate(FID = 0, IID = participant_id) %>%
-                    select(FID, IID, sex) %>%
-                    mutate(sex = as.factor(sex)),
+                    mutate(across(all_of(CAT_COVARS), as.factor)) %>%
+                    select(FID, IID, all_of(CAT_COVARS)),
                 paste0(OUTPUT_DIR, "/cov1_", cc, ".txt"),
                 quote = FALSE, sep = "\t", row.names = FALSE)
 
     write.table(masterdf %>%
                     mutate(FID = 0, IID = participant_id) %>%
                     select(FID, IID, names(pcs)[-1],
-                        "G_PC1", "G_PC2", "G_PC3", "G_PC4", "G_PC5",
-                        "SV1", "SV2", "SV3", "SV4", "SV5", 
-                        age_scaled, pmi_scaled, names(clusters)[-1]),
+                        all_of(c("G_PC1", "G_PC2", "G_PC3", "G_PC4", "G_PC5")),
+                        all_of(sv_col_names),
+                        all_of(scaled_quant_covars),
+                        names(clusters)[-1]),
                 paste0(OUTPUT_DIR, "/cov2_", cc, ".txt"),
                 quote = FALSE, sep = "\t", row.names = FALSE)
 }
@@ -206,7 +279,7 @@ for (cc in common_prefixes) {
             if (i == j) {
                 next
             }
-            if (cor_matrix[i, j] > 0.9) {
+            if (cor_matrix[i, j] > 0.9) {  # Spearman r > 0.9: remove SVs collinear with other covariates
                 rowname = rownames(cor_matrix)[[i]]
                 colname = colnames(cor_matrix)[[j]]
                 two_cols = c(rowname, colname)

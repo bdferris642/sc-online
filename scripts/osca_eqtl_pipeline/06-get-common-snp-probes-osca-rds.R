@@ -8,10 +8,18 @@ get_fname_slogan = function(fname) {
 }
 
 spec = matrix(c(
-    'base', 'b', 1, "character"
+    'base',       'b', 1, "character",
+    'padj-thresh', 't', 1, "numeric"
 ), byrow = TRUE, ncol = 4)
 
-base = getopt(spec)[["base"]]
+opt = getopt(spec)
+base = opt[["base"]]
+
+# FIX: --padj-thresh is now configurable (default 0.05 to match step 05's FDR_THRESH).
+# Previously hard-coded to 0.01, which was inconsistent with the 0.05 threshold used
+# in 05-process-and-plot-osca-tsv.R.
+PADJ_THRESH = if (is.null(opt[["padj-thresh"]])) 0.05 else opt[["padj-thresh"]]
+cat("padj threshold for sig_in_one:", PADJ_THRESH, "\n")
 
 # list files in base ending in .rds, NOT ending in _sig.rds
 files = list.files(base, pattern = "\\.rds$", full.names = T)
@@ -60,7 +68,7 @@ cat("SAVING DATA\n")
 saveRDS(eqtl_common_snps, file.path(base, "eqtl_present_in_all.rds"))
 
 cat("SAVING SIG DATA\n")
-common_snps_sig_only = eqtl_common_snps %>% filter(padj_snp < 0.01)
+common_snps_sig_only = eqtl_common_snps %>% filter(padj_snp < PADJ_THRESH)
 snp_probe_common_all_sig_one = unique(common_snps_sig_only$SNP_probe)
 common_snps_sig_in_one = eqtl_common_snps %>% filter(SNP_probe %in% snp_probe_common_all_sig_one)
 saveRDS(common_snps_sig_in_one, file.path(base, "eqtl_present_in_all_sig_in_one.rds"))

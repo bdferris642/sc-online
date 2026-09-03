@@ -1,3 +1,27 @@
+# 05-process-and-plot-osca-tsv.R — Apply two-stage FDR to OSCA output; save RDS; generate plots.
+#
+# Arguments:
+#   --path / -p   (required) Path to eqtl_{cell_class}.tsv produced by step 3.
+#                            File must be named eqtl_{cell_class}.tsv; cell_class is extracted
+#                            from the filename as everything after the leading "eqtl_" prefix.
+#   --out-dir / -o (optional) Output directory. Defaults to dirname(--path).
+#
+# Two-stage FDR procedure:
+#   1. Within each gene (Probe): Bonferroni across all cis-SNPs → p_bonf
+#   2. Minimum p_bonf per gene → BH across genes → padj_gene
+#   3. eGenes: padj_gene < FDR_THRESH
+#   4. Within eGenes: BH across all SNPs → padj_snp
+#   5. Significant eSNPs: padj_gene < FDR_THRESH AND padj_snp < FDR_THRESH
+#
+# Outputs (in out-dir):
+#   eqtl_{cell_class}.rds       — full data frame with FDR columns
+#   eqtl_{cell_class}_sig.rds   — significant rows only
+#   plots/eqtl_{cell_class}_manhattan.png
+#   plots/eqtl_{cell_class}_min_p_gene_hist.png
+#   plots/eqtl_{cell_class}_padj_gene_hist.png
+#   plots/eqtl_{cell_class}_pval_hist.png
+#   plots/eqtl_{cell_class}_padj_snp_hist.png
+
 print("**************** LOADING LIBRARIES ****************")
 suppressMessages(suppressWarnings(library(dplyr)))
 suppressMessages(suppressWarnings(library(getopt)))
@@ -21,15 +45,20 @@ if (is.null(opt[["out-dir"]])) {
 }
 
 base = dirname(PATH)
-slogan = strsplit(basename(PATH), "\\.")[[1]][[1]]
-cell_class = strsplit(slogan, "_")[[1]][[2]]
+# Extract cell_class from filename: input must be named eqtl_{cell_class}.tsv.
+# sub("^eqtl_", ...) handles underscores within cell class names (e.g. "da_neuron").
+slogan = tools::file_path_sans_ext(basename(PATH))   # "eqtl_da_neuron"
+cell_class = sub("^eqtl_", "", slogan)                # "da_neuron"
 print(slogan)
 print(cell_class)
 plot_dir = file.path(OUT_DIR, "plots")
 dir.create(OUT_DIR, showWarnings = F)
 dir.create(plot_dir, showWarnings = F)
 
+# HARD_CAP: maximum -log10(p) displayed in plots; values above this are capped to
+#           prevent extreme outliers from compressing the scale.
 HARD_CAP = 40
+# FDR_THRESH: BH adjusted p-value threshold for declaring eGenes and eSNPs significant.
 FDR_THRESH = 0.05
 
 cat(paste0("\n READING DataFrame from", PATH, "\n"))
@@ -38,82 +67,11 @@ df$BP = as.numeric(df$BP)
 df$negative_log10_p = -log10(df$p)
 df$negative_log10_p[df$negative_log10_p > HARD_CAP] = HARD_CAP
 
-# perform two stage FDR
-# (1) get min p-value for each gene and conduct FDR at gene level
-# (2) Within each gene, perform FDR correction at the SNP level
+# Two-stage FDR: within-gene Bonferroni → BH across genes (padj_gene) → BH within eGenes (padj_snp).
+# The commented-out alternative approaches were explored during development; active implementation below.
 
 cat(paste0("\n PERFORMING TWO-STAGE FDR\n"))
 cat(paste0("\n Step 1: Find lead SNPs per gene\n"))
-# Step 1: Find lead SNPs per gene
-# gene_leads = (df 
-#     %>% group_by(Probe)
-#     %>% slice_min(order_by = p, n = 1, with_ties = FALSE)
-#     %>% ungroup())
-
-# # Step 2: Gene-level FDR on lead SNP p-values
-# gene_leads = gene_leads %>% mutate(padj_gene = p.adjust(p, method = "bonferroni"))
-
-# # Step 3: Merge gene-level FDR back into main df
-# df = df %>% left_join(gene_leads %>% select(Probe, padj_gene), by = "Probe")
-
-# # Step 4: Keep only SNPs from genes passing Stage 1 FDR threshold
-# df_sig_genes = df %>% filter(padj_gene <= FDR_THRESH)
-
-
-# cat(paste0("\n", nrow(df_sig_genes), " significant genes out of", nrow(gene_leads), "\n"))
-
-# # Step 5: For those significant genes, apply SNP-level FDR correction within each gene
-# df_sig_genes = (df_sig_genes 
-#     %>% group_by(Probe) 
-#     %>% mutate(padj_snp = p.adjust(p, method = "BH")) 
-#     %>% ungroup())
-
-# # Step 6: Merge SNP-level FDR back into main df
-# df = df %>% left_join(df_sig_genes %>% select(SNP, Probe, padj_snp), by = c("SNP", "Probe"))
-
-# # STEP 1: Get lead SNP (smallest nominal p) per gene
-# gene_leads = df %>%
-#     group_by(Probe) %>%
-#     slice_min(order_by = p, n = 1, with_ties = FALSE) %>%
-#     ungroup()
-
-# # STEP 2: Apply gene-wise Bonferroni correction to lead SNPs
-# gene_leads = gene_leads %>%
-#     rowwise() %>%
-#     mutate(min_p_bonf_within_gene = min(p * sum(df$Probe == Probe), 1)) %>%
-#     ungroup()
-
-# # STEP 3: Apply BH FDR to the gene-level Bonferroni p-values
-# gene_leads = gene_leads %>%
-#     mutate(padj_gene = p.adjust(min_p_bonf_within_gene, method = "BH"))
-
-# # STEP 4: Identify significant eGenes
-# signif_genes = gene_leads %>% filter(padj_gene < FDR_THRESH)
-
-# # STEP 5: Apply BH correction across *all* gene–SNP pairs
-# df = df %>% mutate(padj_snp = p.adjust(p, method = "BH"))
-
-# # STEP 6: Determine nominal P threshold from significant gene–SNP pairs
-# signif_pairs = df %>% filter(padj_snp < FDR_THRESH)
-# nominal_p_thresh = max(signif_pairs$p)
-
-# # STEP 7: Declare all SNPs with nominal P ≤ threshold as significant eSNPs
-# signif_esnps = df %>%
-#     filter(p <= nominal_p_thresh)
-
-# # STEP 8: Set NA-adjusted p-values to 1 (optional, for plotting)
-# df$padj_snp[is.na(df$padj_snp)] = 1
-# df$negative_log10_padj_snp = -log10(df$padj_snp)
-# df$negative_log10_padj_snp[df$negative_log10_padj_snp > HARD_CAP] = HARD_CAP
-
-# # Add gene-level FDR values to df by joining from gene_leads
-# df = df %>% left_join(gene_leads %>% select(Probe, padj_gene), by = "Probe")
-
-# df$negative_log10_padj_gene = -log10(df$padj_gene)
-# df$negative_log10_padj_gene[df$negative_log10_padj_gene > HARD_CAP] = HARD_CAP
-
-# df$is_significant_gene = df$padj_gene < FDR_THRESH
-# df$is_significant_snp = df$padj_snp < FDR_THRESH
 
 # Step 1: Bonferroni correction within each gene
 df_probe = df %>%
@@ -143,7 +101,7 @@ df_eGenes = df %>%
     mutate(padj_snp = p.adjust(p, method = "BH"))
 
 # Step 6: Merge the min_p_gene and padj_gene back to the df
-df = df %>% 
+df = df %>%
     left_join(df_min_p_probe[, c("Probe", "min_p_gene", "padj_gene")], by = "Probe") %>%
     left_join(df_eGenes[, c("SNP", "Probe", "padj_snp")], by = c("SNP", "Probe")) %>%
     mutate(
@@ -173,10 +131,10 @@ cat("\n PLOTTING DATA\n")
 cat("\n GENE LEVEL Min(P) AND Padj HISTOGRAMS\n")
 
 p_gene_hist = (
-    ggplot(df_min_p_probe, aes(x = min_p_gene)) 
+    ggplot(df_min_p_probe, aes(x = min_p_gene))
     + geom_histogram(binwidth=0.02, fill = "blue", color = "black", alpha = 0.5)
     + coord_cartesian(xlim = c(0, 1))
-    + ggtitle(paste0("GTEX EQTL Gene Minimum P-value Histogram:\n", cell_class))
+    + ggtitle(paste0("eQTL Gene Minimum P-value Histogram:\n", cell_class))
     + theme(
             plot.title = element_text(size = 22), # title font size
             axis.text = element_text(size = 20),  # Increase tick label font size
@@ -185,14 +143,14 @@ p_gene_hist = (
 )
 print(p_gene_hist)
 ggsave(
-    file.path(plot_dir, paste0(slogan, "_min_p_gene_hist.png")), 
+    file.path(plot_dir, paste0(slogan, "_min_p_gene_hist.png")),
     plot=p_gene_hist, width=8, height=6, dpi=600)
 
 padj_gene_hist = (
-    ggplot(df_min_p_probe, aes(x = padj_gene)) 
+    ggplot(df_min_p_probe, aes(x = padj_gene))
     + geom_histogram(binwidth=0.02, fill = "blue", color = "black", alpha = 0.5)
     + coord_cartesian(xlim = c(0, 1))
-    + ggtitle(paste0("GTEX EQTL Gene Adj. P-value Histogram:\n", cell_class))
+    + ggtitle(paste0("eQTL Gene Adj. P-value Histogram:\n", cell_class))
     + theme(
             plot.title = element_text(size = 22), # title font size
             axis.text = element_text(size = 20),  # Increase tick label font size
@@ -201,16 +159,16 @@ padj_gene_hist = (
 )
 print(padj_gene_hist)
 ggsave(
-    file.path(plot_dir, paste0(slogan, "_padj_gene_hist.png")), 
+    file.path(plot_dir, paste0(slogan, "_padj_gene_hist.png")),
     plot=padj_gene_hist, width=8, height=6, dpi=600)
-    
+
 
 cat(paste0("\n RAW SNP PVAL HISTOGRAM\n"))
 pval_hist = (
-    ggplot(df, aes(x = p)) 
+    ggplot(df, aes(x = p))
     + geom_histogram(binwidth=0.02, fill = "blue", color = "black", alpha = 0.5)
     + coord_cartesian(xlim = c(0, 1))
-    + ggtitle(paste0("GTEX EQTL P-value Histogram:\n", cell_class))
+    + ggtitle(paste0("eQTL P-value Histogram:\n", cell_class))
     + theme(
             plot.title = element_text(size = 22), # title font size
             axis.text = element_text(size = 20),  # Increase tick label font size
@@ -221,14 +179,14 @@ pval_hist = (
 cat(paste0("\n SNP ADJ PVAL HISTOGRAM\n"))
 print(pval_hist)
 ggsave(
-    file.path(plot_dir, paste0(slogan, "_pval_hist.png")), 
+    file.path(plot_dir, paste0(slogan, "_pval_hist.png")),
     plot=pval_hist, width=8, height=6, dpi=600)
 
 padj_hist = (
-    ggplot(df, aes(x = padj_snp)) 
+    ggplot(df, aes(x = padj_snp))
     + geom_histogram(binwidth=0.02, fill = "blue", color = "black", alpha = 0.5)
     + coord_cartesian(xlim = c(0, 1))
-    + ggtitle(paste0("GTEX EQTL SNP Adj. P-value Histogram:\n", cell_class))
+    + ggtitle(paste0("eQTL SNP Adj. P-value Histogram:\n", cell_class))
     + theme(
             plot.title = element_text(size = 22), # title font size
             axis.text = element_text(size = 20),  # Increase tick label font size
@@ -237,23 +195,37 @@ padj_hist = (
 )
 print(padj_hist)
 ggsave(
-    file.path(plot_dir, paste0(slogan, "_padj_snp_hist.png")), 
+    file.path(plot_dir, paste0(slogan, "_padj_snp_hist.png")),
     plot=padj_hist, width=8, height=6, dpi=600)
 
 
 options(repr.plot.width = 20, repr.plot.height = 12)
 
 cat(paste0("\n PREPARING DATA FOR MANHATTAN PLOT\n"))
-# Prepare df by calculating chromosome midpoints and cumulative base pair positions
+# Prepare df by calculating chromosome midpoints and cumulative base pair positions.
+# Only chromosomes 1-22 are included; sex chromosomes and MT are dropped with a warning.
 chr_order <- as.character(1:22)
+
+unsupported_chrs = setdiff(unique(df$Chr), chr_order)
+if (length(unsupported_chrs) > 0)
+    warning(paste("Dropping", length(unsupported_chrs), "chromosomes not in 1:22:",
+                  paste(unsupported_chrs, collapse=", ")))
+
 df = df %>%
     mutate(Chr = factor(Chr, levels=chr_order)) %>%
     arrange(Chr, BP)
 
 df_sig = df[df$is_significant_gene & df$is_significant_snp,]
 df_insig = df[!df$is_significant_gene | !df$is_significant_snp,]
-# take 1/50th of the insignificant data
-df_insig_subset = df_insig[sample(nrow(df_insig), nrow(df_insig) / 50), ]
+
+# Subsample 1/50th of insignificant points for plotting performance.
+# set.seed ensures reproducibility of the random subsample.
+set.seed(42)
+df_insig_subset = if (nrow(df_insig) > 0) {
+    df_insig[sample(nrow(df_insig), max(1L, floor(nrow(df_insig) / 50L))), ]
+} else {
+    df_insig
+}
 df_plot = rbind(df_sig, df_insig_subset)
 df_plot = df_plot %>% arrange(Chr, BP)
 
@@ -284,8 +256,8 @@ cat(paste0("\n MAKING MANHATTAN PLOT\n"))
 # Manhattan plot
 m = (
     ggplot(df_plot, aes(x = BP_cum, y = negative_log10_padj_snp)) +
-    ggtitle(paste0("GTEX EQTL Manhattan Plot:\n", cell_class)) +
-  
+    ggtitle(paste0("eQTL Manhattan Plot:\n", cell_class)) +
+
     # Alternating background rectangles for chromosomes
     geom_rect(data = axis_df,
             aes(xmin = tot, xmax = tot + chr_len, ymin = -Inf, ymax = Inf, fill = as.factor(as.numeric(Chr) %% 2)),
@@ -330,5 +302,5 @@ m = (
 
 print(m)
 ggsave(
-    file.path(plot_dir, paste0(slogan, "_manhattan.png")), 
+    file.path(plot_dir, paste0(slogan, "_manhattan.png")),
     plot=m, width=20, height=12, dpi=800)

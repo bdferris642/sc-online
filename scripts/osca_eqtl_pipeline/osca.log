@@ -1,0 +1,18 @@
+Analysis started: Mon Jun 16 17:25:06 2025
+ 
+
+Options:
+--befile /mnt/accessory/seq_data/gtex/befile_oligo
+--update-opi /mnt/accessory/seq_data/gtex/Upprobe_oligo.opi
+Reading probe information from /mnt/accessory/seq_data/gtex/befile_oligo.opi ...
+WARNING: chromosome information of at least one probe is missing.
+WARNING: at least one gene id is missing.
+WARNING: At least one gene strand is missing.
+15731 probes to be included from  /mnt/accessory/seq_data/gtex/befile_oligo.opi .
+15731 probes have been saved in the file /mnt/accessory/seq_data/gtex/befile_oligo.bak.opi .
+Reading probe information from /mnt/accessory/seq_data/gtex/Upprobe_oligo.opi ...
+15731 probes have been saved in the file /mnt/accessory/seq_data/gtex/befile_oligo.opi .
+
+Analysis finished: Mon Jun 16 17:25:06 2025
+ 
+Computational time: 0:0:0

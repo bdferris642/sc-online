@@ -1,0 +1,18 @@
+./00-run-osca-eqtl-pipeline.sh \
+--cc-file /mnt/accessory/seq_data/gtex/ccs \
+--ct-id cell_class \
+--expr-input-dir /mnt/accessory/seq_data/pd_all/240514/dapi_nurr_merged_seurat_clean_subsets \
+--expr-output-subdir h5ad_pseudobulk \
+--gene-log-expr-threshold 0.01 \
+--mash-eps 1e-6 \
+--mash-num-random 1000000 \
+--mash-padj-thresh 0.05 \
+--min-num-cells 10 \
+--osca-input-dir /mnt/accessory/seq_data/gtex \
+--participants /mnt/accessory/seq_data/gtex/gtex_participants__10_cells_per_class.txt \
+--pipeline-slogan gtex_osca_0.01 \
+--sample-id participant_id \
+--start-at-step 3 \
+--stop-after-step 6 \
+--strs-to-skip opc,endo \
+--vcf-slogan gtex_merged_v8_v9_normed_dbsnp_annot_filtered_dedupe

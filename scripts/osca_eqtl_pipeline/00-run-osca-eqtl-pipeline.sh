@@ -1,31 +1,83 @@
 #!/bin/bash
-
-# start with h5ad files, eg in /mnt/accessory/seq_data/pd_all/240514/dapi_nurr_merged_seurat_clean_subsets
-# make PB csvs, eg in /mnt/accessory/seq_data/pd_all/240514/dapi_nurr_merged_seurat_clean_subsets/{pseudobulk}
-# put scanpy outputs into a different directory 
-# containing OSCA inputs, eg in /mnt/accessory/seq_data/gtex/eqtl_inputs
-
-
-# STEP 1: make pseudobulk csvs of gene expression and cell composition
-# STEP 2: format these into OSCA inputs, along with associated metadata
-# STEP 3: run OSCA on all cell classes simultaneously
-# STEP 4: copy OSCA tsv outputs to Google Cloud Storage
-# STEP 5: process and plot OSCA outputs
-# STEP 6: subset to common SNP-probes
-# STEP 7: run mashr
-# STEP 8: copy all OSCA inputs and outputs to Google Cloud Storage
+# 00-run-osca-eqtl-pipeline.sh — Orchestrate the full OSCA snRNA-seq cis-eQTL pipeline.
+#
+# Usage:
+#   ./00-run-osca-eqtl-pipeline.sh [OPTIONS]
+#
+# Required arguments:
+#   --expr-input-dir DIR      Parent directory containing h5ad files and pseudobulk output subdir
+#   --input-files FILE        Newline-delimited text file listing absolute paths to h5ad files (step 1)
+#   --osca-input-dir DIR      Directory for OSCA inputs and outputs; must contain PLINK bfiles
+#   --participants FILE        Newline-delimited list of participant IDs to include
+#   --pipeline-slogan STR     Short label for this run; used in output paths and GCS bucket
+#   --vcf-slogan STR          Prefix of .bed/.bim/.fam and _pca.eigenvec in --osca-input-dir
+#
+# Optional arguments (defaults shown):
+#   --cc-file FILE            Cell-class list, one name per line (required for steps 3-7)
+#   --ct-id STR               adata.obs column for cell type labels          [cell_class]
+#   --expr-output-subdir STR  Subdir under --expr-input-dir for pseudobulk CSVs [pseudobulk]
+#   --gene-log-expr-threshold FLOAT  Min mean log-expression to retain a gene [0.01]
+#   --h5ad-cat-covar STR      Space-delimited categorical covariate column names from adata.obs
+#                             Used for cov1 (as factors) and SVA formula
+#                             [default: "sex case_control study brain_bank dapi_nurr"]
+#   --h5ad-quant-covar STR    Space-delimited quantitative covariate column names from adata.obs
+#                             Used for cov2 (min-max scaled) and SVA formula  [default: "age pmi"]
+#   --id-map FILE             CSV with nucseq_participant_id + vcf_sample_id; remaps IDs (step 1)
+#   --mash-eps FLOAT          Floor for SE and beta values passed to mashr    [1e-6]
+#   --mash-num-random INT     Random SNP-probe pairs for mashr null correlation [100000]
+#   --mash-padj-thresh FLOAT  BH adjusted p-value threshold for mashr strong tests [0.01]
+#   --min-num-cells INT       Min cells per sample for pseudobulk inclusion   [10]
+#   --sample-id STR           adata.obs column for sample/participant IDs      [participant_id]
+#   --start-at-step INT       Resume from this step (inclusive)               [1]
+#   --stop-after-step INT     Stop after this step (inclusive)                [1000]
+#   --strs-to-skip STR        Comma-separated substrings; h5ad files matching any are skipped
+#
+# Pipeline steps:
+#   1  h5ad → pseudobulk CSVs (ID remap → sum aggregation → CPM → log1p → scale)
+#   2  pseudobulk CSVs → OSCA input files (SVA + PCA + covariate assembly)
+#   3  OSCA cis-eQTL analysis (parallelized per cell class via GNU parallel)
+#   4  (optional) Back up raw .tsv results to Google Cloud Storage
+#   5  Two-stage FDR; save RDS; generate Manhattan and p-value histogram plots
+#   6  Intersect tested SNP-probe pairs across all cell classes
+#   7  mashr effect-size sharing across cell classes
+#   8  (optional) Archive all inputs and outputs to Google Cloud Storage
+#
+# Key outputs  (OUTPUT_ROOT = {osca-input-dir}/eqtl_final_outs/{pipeline-slogan}):
+#   Step 1 → {expr-input-dir}/{expr-output-subdir}/{cell_class}_expression_matrix_ds.csv
+#             {expr-input-dir}/{expr-output-subdir}/{cell_class}_composition_matrix_ds.csv
+#   Step 2 → {osca-input-dir}/Phenotype_{cc}_osca.txt       (OSCA expression phenotype)
+#             {osca-input-dir}/Upprobe_{cc}.opi              (probe annotation)
+#             {osca-input-dir}/cov1_{cc}.txt                 (categorical covariates)
+#             {osca-input-dir}/cov2_{cc}_reduced.txt         (quantitative covariates)
+#   Step 3 → {OUTPUT_ROOT}/eqtl_{cc}.tsv                    (raw OSCA output; deleted after step 5)
+#             {OUTPUT_ROOT}/befile_{cc}.*                    (OSCA BOD binary files)
+#             {OUTPUT_ROOT}/eqtl_{cc}_osca_{output,error,progress}.log
+#   Step 5 → {OUTPUT_ROOT}/eqtl_{cc}.rds                    (full results + FDR columns)
+#             {OUTPUT_ROOT}/eqtl_{cc}_sig.rds                (significant results only)
+#             {OUTPUT_ROOT}/plots/eqtl_{cc}_manhattan.png
+#             {OUTPUT_ROOT}/plots/eqtl_{cc}_{min_p_gene,padj_gene,pval,padj_snp}_hist.png
+#   Step 6 → {OUTPUT_ROOT}/eqtl_present_in_all.rds
+#             {OUTPUT_ROOT}/eqtl_present_in_all_sig_in_one.rds
+#   Step 7 → {OUTPUT_ROOT}/eqtl_present_in_all__mash_results_{sig,random}.rds
+#             {OUTPUT_ROOT}/eqtl_present_in_all__mash_data_{sig,random}.rds
+#
+# Logs: /mnt/accessory/analysis/eqtl/logs/osca_eqtl_pipeline_{pipeline-slogan}_{datetime}.log
 
 # Default values
-CC_FILE="/mnt/analysis/eqtl/gtex/ccs"
+CC_FILE=""
 CT_ID="cell_class"
+GENE_EXPR_INPUT_FILES=""
 GENE_LOG_EXPR_THRESHOLD=0.01
+H5AD_CAT_COVARS="sex case_control study brain_bank dapi_nurr"
+H5AD_QUANT_COVARS="age pmi"
+ID_MAP_PATH=""
 MASH_EPS=1e-6
-MASH_NUM_RANDOM=1000000
+MASH_NUM_RANDOM=100000
 MASH_PADJ_THRESH=0.01
 MIN_NUM_CELLS=10
 PB_OUTPUT_SUBDIR="pseudobulk"
 SAMPLE_ID="participant_id"
-STRS_TO_SKIP="endo"
+STRS_TO_SKIP=""
 START_AT_STEP=1
 STOP_AFTER_STEP=1000
 
@@ -37,12 +89,16 @@ while [[ "$#" -gt 0 ]]; do
         --expr-input-dir) GENE_EXPR_INPUT_DIR="$2"; shift ;;
         --expr-output-subdir) PB_OUTPUT_SUBDIR="$2"; shift ;;
         --gene-log-expr-threshold) GENE_LOG_EXPR_THRESHOLD="$2"; shift ;;
+        --h5ad-cat-covar) H5AD_CAT_COVARS="$2"; shift ;;
+        --h5ad-quant-covar) H5AD_QUANT_COVARS="$2"; shift ;;
+        --input-files) GENE_EXPR_INPUT_FILES="$2"; shift ;;
+        --id-map ) ID_MAP_PATH="$2"; shift ;;
         --mash-eps) MASH_EPS="$2"; shift ;;
         --mash-num-random) MASH_NUM_RANDOM="$2"; shift ;;
         --mash-padj-thresh) MASH_PADJ_THRESH="$2"; shift ;;
         --min-num-cells) MIN_NUM_CELLS="$2"; shift ;;
         --osca-input-dir) OSCA_INPUT_DIR="$2"; shift ;;
-        --participants) PARTICIPANT_FNAME="$2"; shift ;;  
+        --participants) PARTICIPANT_FNAME="$2"; shift ;;
         --pipeline-slogan) PIPELINE_SLOGAN="$2"; shift ;;
         --sample-id) SAMPLE_ID="$2"; shift ;;
         --start-at-step) START_AT_STEP="$2"; shift ;;
@@ -56,6 +112,7 @@ done
 
 # Required argument checks
 : "${GENE_EXPR_INPUT_DIR:?--expr-input-dir is required}"
+: "${GENE_EXPR_INPUT_FILES:?--input-files is required}"
 : "${OSCA_INPUT_DIR:?--osca-input-dir is required}"
 : "${PIPELINE_SLOGAN:?--pipeline-slogan is required}"
 : "${VCF_SLOGAN:?--vcf-slogan is required}"
@@ -116,6 +173,10 @@ echo "Running OSCA eQTL pipeline with the following arguments:"
 echo "CC_FILE: $CC_FILE"
 echo "CT_ID: $CT_ID"
 echo "GENE_EXPR_INPUT_DIR: $GENE_EXPR_INPUT_DIR"
+echo "GENE_EXPR_INPUT_FILES: $GENE_EXPR_INPUT_FILES"
+echo "H5AD_CAT_COVARS: $H5AD_CAT_COVARS"
+echo "H5AD_QUANT_COVARS: $H5AD_QUANT_COVARS"
+echo "ID_MAP_PATH: $ID_MAP_PATH"
 echo "PB_OUTPUT_SUBDIR: $PB_OUTPUT_SUBDIR"
 echo "GENE_LOG_EXPR_THRESHOLD: $GENE_LOG_EXPR_THRESHOLD"
 echo "MASH_EPS: $MASH_EPS"
@@ -131,7 +192,7 @@ echo "STOP_AFTER_STEP: $STOP_AFTER_STEP"
 echo "STRS_TO_SKIP: $STRS_TO_SKIP"
 echo "VCF_SLOGAN: $VCF_SLOGAN"
 
-# check if all required arguments are provided 
+# check if all required arguments are provided
 
 # Pseudobulk h5ad files in GENE_EXPR_INPUT_DIR
 # save _expression_matrix_ds.csv and _composition_matrix_ds.csv to GENE_EXPR_INPUT_DIR/PB_OUTPUT_SUBDIR
@@ -140,13 +201,14 @@ if [ $START_AT_STEP -le 1 ]; then
     echo "************************************* STEP 1 *************************************"
     echo "************************************* PSEUDOBULK *********************************"
     python $SCRIPT_DIR/01-make-eqtl-pseudobulk.py \
-        --input-dir "$GENE_EXPR_INPUT_DIR" \
+        --input-files "$GENE_EXPR_INPUT_FILES" \
         --output-dir "$PB_OUTPUT_DIR" \
         --min-num-cells "$MIN_NUM_CELLS" \
         --gene-log-expr-threshold "$GENE_LOG_EXPR_THRESHOLD" \
         --ct-id "$CT_ID" \
         --sample-id "$SAMPLE_ID" \
-        --strs-to-skip "$STRS_TO_SKIP" && {
+        --strs-to-skip "$STRS_TO_SKIP" \
+        ${ID_MAP_PATH:+--id-map "$ID_MAP_PATH"} && {
             echo "STEP 1 SUCCESSFULLY created pseudobulk expression and composition matrices."
         } || {
             echo "STEP 1 FAILED to create pseudobulk expression and composition matrices."
@@ -161,12 +223,17 @@ if [ $START_AT_STEP -le 2 ] && [ $STOP_AFTER_STEP -ge 2 ]; then
 
     echo "************************************* STEP 2 *************************************"
     echo "************************************* FORMAT OSCA INPUTS *************************"
+    # Build step 2 args as an array so space-delimited covariate lists pass safely
+    STEP2_ARGS=(
+        "--expression-dir=$PB_OUTPUT_DIR"
+        "--output-dir=$OSCA_INPUT_DIR"
+        "--vcf-slogan=$VCF_SLOGAN"
+        "--participants=$PARTICIPANT_FNAME"
+    )
+    [ -n "$H5AD_CAT_COVARS" ]   && STEP2_ARGS+=("--h5ad-cat-covars=$H5AD_CAT_COVARS")
+    [ -n "$H5AD_QUANT_COVARS" ] && STEP2_ARGS+=("--h5ad-quant-covars=$H5AD_QUANT_COVARS")
     # format the OSCA inputs
-    Rscript $SCRIPT_DIR/02-run-osca-formatting-scanpy.R \
-        --expression-dir="$PB_OUTPUT_DIR" \
-        --output-dir="$OSCA_INPUT_DIR" \
-        --vcf-slogan="$VCF_SLOGAN" \
-        --participants="$PARTICIPANT_FNAME" && {
+    Rscript $SCRIPT_DIR/02-run-osca-formatting-scanpy.R "${STEP2_ARGS[@]}" && {
             echo "STEP 2 SUCCESSFULLY formatted OSCA inputs."
         } || {
             echo "STEP 2 FAILED to format OSCA inputs."
@@ -258,7 +325,7 @@ if [ $START_AT_STEP -le 6 ] && [ $STOP_AFTER_STEP -ge 6 ]; then
             echo "STEP 6 FAILED to create common SNP-by-Gene rds."
             exit 1
         }
-else 
+else
     echo "************************************* SKIPPING STEP 6 ****************************"
 fi
 
@@ -275,7 +342,7 @@ if [ $START_AT_STEP -le 7 ] && [ $STOP_AFTER_STEP -ge 7 ]; then
             echo "STEP 7 FAILED to run mashr."
             exit 1
         }
-else 
+else
     echo "************************************* SKIPPING STEP 7 ****************************"
 fi
 

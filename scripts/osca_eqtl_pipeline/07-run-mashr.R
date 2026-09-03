@@ -151,30 +151,50 @@ U.ed = cov_ed(data.strong, U.pca)
 U.c = cov_canonical(data.random)
 
 cat("SETTING UP CUSTOM COVARIANCES\n")
-# Add to the covariances neuron-specific and glia-specific covariances
-# cell classes = c("astro", "da", "mg", "nonda", "oligo",)
-astro_col_ind = which(colnames(eqtl_wide_b) == "astro")
-da_col_ind = which(colnames(eqtl_wide_b) == "da")
-mg_col_ind = which(colnames(eqtl_wide_b) == "mg")
-nonda_col_ind = which(colnames(eqtl_wide_b) == "nonda")
-oligo_col_ind = which(colnames(eqtl_wide_b) == "oligo")
+# FIX: replaced hard-coded per-column which() calls with a config list + helper.
+# The helper stops immediately with a clear message if any required cell class
+# is absent from the data, rather than silently returning an empty index.
 
-neurons_only = matrix(0, nrow=5, ncol=5)
-neurons_only[da_col_ind, da_col_ind] = 1
-neurons_only[da_col_ind, nonda_col_ind] = 1
-neurons_only[nonda_col_ind, da_col_ind] = 1
-neurons_only[nonda_col_ind, nonda_col_ind] = 1
+# --- Cell-class groupings for custom covariances ---
+# Edit these vectors if your experiment uses different cell classes.
+NEURON_CLASSES <- c("da", "nonda")
+GLIA_CLASSES   <- c("astro", "mg", "oligo")
 
-glia_only = matrix(0, nrow=5, ncol=5)
-glia_only[astro_col_ind, astro_col_ind] = 1
-glia_only[astro_col_ind, mg_col_ind] = 1
-glia_only[astro_col_ind, oligo_col_ind] = 1
-glia_only[mg_col_ind, astro_col_ind] = 1
-glia_only[mg_col_ind, mg_col_ind] = 1
-glia_only[mg_col_ind, oligo_col_ind] = 1
-glia_only[oligo_col_ind, astro_col_ind] = 1
-glia_only[oligo_col_ind, mg_col_ind] = 1
-glia_only[oligo_col_ind, oligo_col_ind] = 1
+# Helper: return column indices for a set of class names; stop if none found.
+get_col_inds <- function(class_names, mat) {
+    inds <- which(colnames(mat) %in% class_names)
+    if (length(inds) == 0) {
+        stop(paste0(
+            "None of the expected cell classes [",
+            paste(class_names, collapse = ", "),
+            "] were found in the data columns [",
+            paste(colnames(mat), collapse = ", "),
+            "]. Check NEURON_CLASSES / GLIA_CLASSES config."
+        ))
+    }
+    missing <- setdiff(class_names, colnames(mat))
+    if (length(missing) > 0) {
+        warning(paste0(
+            "Some expected cell classes not found in data and will be skipped: ",
+            paste(missing, collapse = ", ")
+        ))
+    }
+    inds
+}
+
+n_classes <- ncol(eqtl_wide_b)
+
+neuron_inds <- get_col_inds(NEURON_CLASSES, eqtl_wide_b)
+glia_inds   <- get_col_inds(GLIA_CLASSES,   eqtl_wide_b)
+
+cat("Neuron class columns:", paste(colnames(eqtl_wide_b)[neuron_inds], collapse=", "), "\n")
+cat("Glia class columns:  ", paste(colnames(eqtl_wide_b)[glia_inds],   collapse=", "), "\n")
+
+neurons_only <- matrix(0, nrow = n_classes, ncol = n_classes)
+neurons_only[neuron_inds, neuron_inds] <- 1
+
+glia_only <- matrix(0, nrow = n_classes, ncol = n_classes)
+glia_only[glia_inds, glia_inds] <- 1
 
 U.custom = list(
     neurons_only = neurons_only,
