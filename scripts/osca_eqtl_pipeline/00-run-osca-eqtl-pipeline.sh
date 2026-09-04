@@ -138,10 +138,12 @@ fi
 # include date in log filenames
 DATE_TIME=$(date +'%Y-%m-%d_%H-%M-%S')
 GOOGLE_BUCKET=gs://macosko_data/ferris/eqtl_outs/$PIPELINE_SLOGAN
-LOG_FNAME="/mnt/accessory/analysis/eqtl/logs/osca_eqtl_pipeline_$PIPELINE_SLOGAN_${DATE_TIME}.log"
+LOG_DIR="${OSCA_INPUT_DIR}/logs"
+mkdir -p "$LOG_DIR"
+LOG_FNAME="${LOG_DIR}/osca_eqtl_pipeline_${PIPELINE_SLOGAN}_${DATE_TIME}.log"
 # redirect stdout and stderr to log file and terminal
-touch "$LOG_FNAME"
 exec > >(tee -i "$LOG_FNAME") 2>&1
+echo "Logging to: $LOG_FNAME"
 
 # store git branch and commit hash to log file so pipeline can be replicated later
 branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")

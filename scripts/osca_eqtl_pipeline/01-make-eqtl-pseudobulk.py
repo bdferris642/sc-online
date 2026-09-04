@@ -161,7 +161,10 @@ for file in input_files:
         raise ValueError(f"{file} contains {len(cell_classes)} values of {CT_ID!r}: {cell_classes}. "
                          "Each input h5ad must contain exactly one cell type.")
     cell_class = str(cell_classes[0])
-    print(f"Cell class: {cell_class}")
+    # Sanitize for use in filenames — spaces break shell pipelines in step 3.
+    # Keep original cell_class for decoupler suffix stripping below (obs_names use the raw value).
+    cell_class_safe = cell_class.replace(" ", "_")
+    print(f"Cell class: {cell_class} (safe: {cell_class_safe})")
 
     print(f"adata shape: {adata.shape}")
 
@@ -221,8 +224,8 @@ for file in input_files:
 
     # Name outputs by cell_class from adata.obs[CT_ID], not the h5ad filename stem.
     # This avoids project-specific filename prefix stripping in step 2.
-    output_file1 = os.path.join(OUTPUT_DIR, f"{cell_class}_expression_matrix_ds.csv")
-    output_file2 = os.path.join(OUTPUT_DIR, f"{cell_class}_composition_matrix_ds.csv")
+    output_file1 = os.path.join(OUTPUT_DIR, f"{cell_class_safe}_expression_matrix_ds.csv")
+    output_file2 = os.path.join(OUTPUT_DIR, f"{cell_class_safe}_composition_matrix_ds.csv")
 
     # decoupler.get_pseudobulk constructs obs_names as "{sample_id}_{groups_col}".
     # Strip the exact known suffix rather than splitting on all underscores, which breaks
@@ -255,7 +258,7 @@ for file in input_files:
         .rename(columns={SAMPLE_ID: "participant_id"})
         .reset_index(drop=True)
     )
-    output_metadata = os.path.join(OUTPUT_DIR, f"{cell_class}_obs_metadata.csv")
+    output_metadata = os.path.join(OUTPUT_DIR, f"{cell_class_safe}_obs_metadata.csv")
     sample_meta.to_csv(output_metadata, index=False)
 
     print(f"Saved {output_file1}")

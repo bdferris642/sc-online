@@ -150,6 +150,30 @@ for (cc in common_prefixes) {
             ". Available columns: ", paste(colnames(pheno), collapse = ", ")
         ))
     }
+    # Drop constant covariates from the SVA formula *before* calling model.matrix.
+    # A covariate with only one level causes contrasts<- to fail inside model.matrix.
+    # (The same check runs again below against masterdf for the output covariate files.)
+    sva_cat_covars   = CAT_COVARS
+    sva_quant_covars = QUANT_COVARS
+    const_sva_cat = sva_cat_covars[sapply(sva_cat_covars, function(v)
+        length(unique(na.omit(pheno[[v]]))) < 2)]
+    if (length(const_sva_cat) > 0) {
+        warning(paste0("[", cc, "] Dropping constant categorical covariate(s) from SVA formula: ",
+                       paste(const_sva_cat, collapse=", ")))
+        sva_cat_covars = setdiff(sva_cat_covars, const_sva_cat)
+    }
+    const_sva_quant = sva_quant_covars[sapply(sva_quant_covars, function(v)
+        length(unique(na.omit(pheno[[v]]))) < 2)]
+    if (length(const_sva_quant) > 0) {
+        warning(paste0("[", cc, "] Dropping constant quantitative covariate(s) from SVA formula: ",
+                       paste(const_sva_quant, collapse=", ")))
+        sva_quant_covars = setdiff(sva_quant_covars, const_sva_quant)
+    }
+    if (length(c(sva_cat_covars, sva_quant_covars)) == 0) {
+        stop(paste0("[", cc, "] All covariates are constant after filtering pheno. Cannot run SVA."))
+    }
+    sva_formula = as.formula(paste("~", paste(c(sva_cat_covars, sva_quant_covars), collapse = " + ")))
+    cat("SVA formula after dropping constants:", deparse(sva_formula), "\n")
     mod = model.matrix(sva_formula, data = pheno)
     mod0 = model.matrix(~ 1, data = pheno)
     svobj = sva(edata, mod, mod0, n.sv = 5)  # n.sv = 5: estimate 5 surrogate variables
