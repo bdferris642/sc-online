@@ -63,6 +63,22 @@
 #
 # Logs: /mnt/accessory/analysis/eqtl/logs/osca_eqtl_pipeline_{pipeline-slogan}_{datetime}.log
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SANDBOX="$(cd "$(dirname "$0")/.." && pwd)"
+ENV_PREFIX="${SANDBOX}/micromamba_root/envs/osca-venv"
+ENV_BIN="${ENV_PREFIX}/bin"
+
+if [ ! -d "${ENV_BIN}" ]; then
+    echo "ERROR: osca-venv not found at ${ENV_BIN}."
+    echo "       Run: bash ${SCRIPT_DIR}/setup.sh"
+    exit 1
+fi
+
+# Prepend env bin to PATH so parallel subshells find python, Rscript, osca, parallel
+export PATH="${ENV_BIN}:${PATH}"
+PYTHON="${ENV_BIN}/python"
+RSCRIPT="${ENV_BIN}/Rscript"
+
 # Default values
 CT_ID="cell_class"
 GENE_EXPR_INPUT_FILES=""
@@ -123,17 +139,13 @@ fi
 DATE_TIME=$(date +'%Y-%m-%d_%H-%M-%S')
 GOOGLE_BUCKET=gs://macosko_data/ferris/eqtl_outs/$PIPELINE_SLOGAN
 LOG_FNAME="/mnt/accessory/analysis/eqtl/logs/osca_eqtl_pipeline_$PIPELINE_SLOGAN_${DATE_TIME}.log"
-SCRIPT_DIR=/home/ferris/sc-online/scripts/osca_eqtl_pipeline
-
 # redirect stdout and stderr to log file and terminal
 touch "$LOG_FNAME"
 exec > >(tee -i "$LOG_FNAME") 2>&1
 
-conda activate mashr
-
 # store git branch and commit hash to log file so pipeline can be replicated later
-branch=$(git rev-parse --abbrev-ref HEAD)
-commit_hash=$(git rev-parse HEAD)
+branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+commit_hash=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
 
 echo "Branch: $branch"
 echo "Commit: $commit_hash"
@@ -164,7 +176,7 @@ if [ -z "$PARTICIPANT_FNAME" ] && [ -n "$ID_MAP_PATH" ]; then
         exit 1
     fi
     PARTICIPANT_FNAME=$(mktemp /tmp/participants_from_idmap_XXXXXX.txt)
-    python3 -c "
+    "$PYTHON" -c "
 import csv
 with open('$ID_MAP_PATH') as f:
     for row in csv.DictReader(f):
@@ -201,7 +213,7 @@ echo "VCF_SLOGAN: $VCF_SLOGAN"
 if [ $START_AT_STEP -le 1 ]; then
     echo "************************************* STEP 1 *************************************"
     echo "************************************* PSEUDOBULK *********************************"
-    python $SCRIPT_DIR/01-make-eqtl-pseudobulk.py \
+    "$PYTHON" "$SCRIPT_DIR/01-make-eqtl-pseudobulk.py" \
         --input-files "$GENE_EXPR_INPUT_FILES" \
         --output-dir "$PB_OUTPUT_DIR" \
         --min-num-cells "$MIN_NUM_CELLS" \
@@ -234,7 +246,7 @@ if [ $START_AT_STEP -le 2 ] && [ $STOP_AFTER_STEP -ge 2 ]; then
     [ -n "$H5AD_CAT_COVARS" ]   && STEP2_ARGS+=("--h5ad-cat-covars=$H5AD_CAT_COVARS")
     [ -n "$H5AD_QUANT_COVARS" ] && STEP2_ARGS+=("--h5ad-quant-covars=$H5AD_QUANT_COVARS")
     # format the OSCA inputs
-    Rscript $SCRIPT_DIR/02-run-osca-formatting-scanpy.R "${STEP2_ARGS[@]}" && {
+    "$RSCRIPT" "$SCRIPT_DIR/02-run-osca-formatting-scanpy.R" "${STEP2_ARGS[@]}" && {
             echo "STEP 2 SUCCESSFULLY formatted OSCA inputs."
         } || {
             echo "STEP 2 FAILED to format OSCA inputs."
@@ -305,7 +317,7 @@ if [ $START_AT_STEP -le 5 ] && [ $STOP_AFTER_STEP -ge 5 ]; then
     # process and plot OSCA outputs in parallel. Makes plots and saves huge tsvs as rds
     # Discover TSVs directly — no cc-file needed
     ls "$OSCA_OUTPUT_DIR"/eqtl_*.tsv 2>/dev/null | \
-        xargs -I {} echo Rscript $SCRIPT_DIR/05-process-and-plot-osca-tsv.R \
+        xargs -I {} echo "$RSCRIPT" "$SCRIPT_DIR/05-process-and-plot-osca-tsv.R" \
         --path="{}" | parallel -j 0 --tmpdir /mnt/accessory/tmp && {
             echo "STEP 5 SUCCESSFULLY processed and plotted OSCA outputs."
         } || {
@@ -321,7 +333,7 @@ fi
 if [ $START_AT_STEP -le 6 ] && [ $STOP_AFTER_STEP -ge 6 ]; then
     echo "************************************* STEP 6 *************************************"
     echo "************************************* SUBSET TO COMMON SNP-PROBES ****************"
-    Rscript $SCRIPT_DIR/06-get-common-snp-probes-osca-rds.R \
+    "$RSCRIPT" "$SCRIPT_DIR/06-get-common-snp-probes-osca-rds.R" \
         --base="$OSCA_OUTPUT_DIR" && {
             echo "STEP 6 SUCCESSFULLY created common SNP-by-Gene rds."
         } || {
@@ -335,7 +347,7 @@ fi
 if [ $START_AT_STEP -le 7 ] && [ $STOP_AFTER_STEP -ge 7 ]; then
     echo "************************************* STEP 7 *************************************"
     echo "************************************* MASH ***************************************"
-    Rscript $SCRIPT_DIR/07-run-mashr.R \
+    "$RSCRIPT" "$SCRIPT_DIR/07-run-mashr.R" \
         --path="$OSCA_OUTPUT_DIR/eqtl_present_in_all.rds" \
         --padj-thresh="$MASH_PADJ_THRESH" \
         --num-random="$MASH_NUM_RANDOM" \

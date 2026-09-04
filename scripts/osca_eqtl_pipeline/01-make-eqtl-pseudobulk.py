@@ -51,7 +51,7 @@ parser.add_argument("--sample-id",
     help="Sample identifier")
 parser.add_argument("--strs-to-skip",
     type=str,
-    default="",
+    default=None,
     help="String to skip in the file name")
 parser.add_argument("--id-map",
     type=str,
@@ -87,7 +87,7 @@ print(input_files)
 for file in input_files:
     print(f"Processing {file}...")
 
-    if not (STRS_TO_SKIP == [""] or STRS_TO_SKIP == []):
+    if not (args.strs_to_skip is None or args.strs_to_skip == ""):
         if any(s in file for s in STRS_TO_SKIP):
             print(f"Skipping {file} (matched strs-to-skip)")
             continue
