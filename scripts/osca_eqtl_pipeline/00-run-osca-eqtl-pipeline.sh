@@ -283,7 +283,7 @@ if [ $START_AT_STEP -le 3 ] && [ $STOP_AFTER_STEP -ge 3 ]; then
             "$OSCA_INPUT_DIR/cov2_@_reduced.txt" \
             5 \
             "$OSCA_OUTPUT_DIR/eqtl_@.tsv" | \
-        parallel -j 0 --tmpdir /mnt/accessory/tmp && {
+        parallel -j 0 --tmpdir "$OSCA_OUTPUT_DIR" && {
             echo "STEP 3 SUCCESSFULLY ran OSCA eQTL pipeline."
         } || {
             echo "STEP 3 FAILED to run OSCA eQTL pipeline."
@@ -320,7 +320,7 @@ if [ $START_AT_STEP -le 5 ] && [ $STOP_AFTER_STEP -ge 5 ]; then
     # Discover TSVs directly — no cc-file needed
     ls "$OSCA_OUTPUT_DIR"/eqtl_*.tsv 2>/dev/null | \
         xargs -I {} echo "$RSCRIPT" "$SCRIPT_DIR/05-process-and-plot-osca-tsv.R" \
-        --path="{}" | parallel -j 0 --tmpdir /mnt/accessory/tmp && {
+        --path="{}" | parallel -j 0 --tmpdir "$OSCA_OUTPUT_DIR" && {
             echo "STEP 5 SUCCESSFULLY processed and plotted OSCA outputs."
         } || {
             echo "STEP 5 FAILED to process and plot OSCA outputs."

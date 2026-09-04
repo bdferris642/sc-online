@@ -31,6 +31,7 @@ spec <- matrix(c(
     'output-dir',       'o', 1, "character",
     'vcf-slogan',       'v', 1, "character",
     'gene-anot',        'g', 1, "character",
+    'ensg-to-symbol',   'E', 1, "character",
     'metadata',         'm', 1, "character",
     'participants',     'p', 1, "character",
     'sva-formula',      's', 1, "character",
@@ -69,10 +70,20 @@ if (is.null(opt[['gene-anot']])) {
 } else {
     GENE_ANNOT_PATH = opt[['gene-anot']]
 }
+if (is.null(opt[['ensg-to-symbol']])) {
+    ENSG_TO_SYMBOL_PATH = "/mnt/accessory/seq_data/pd-freeze/sn-vta/subsets/latest/ensg_to_symbol.csv"
+} else {
+    ENSG_TO_SYMBOL_PATH = opt[['ensg-to-symbol']]
+}
 # If --metadata is given, load once; otherwise auto-discover per-cell-class CSV from EXPRESSION_DIR.
 METADATA_PATH = if (!is.null(opt[['metadata']])) opt[['metadata']] else NULL
 
 gene_annotation = read.table(GENE_ANNOT_PATH, header = TRUE) %>% distinct(NAME, .keep_all = TRUE)
+ensg_to_sym = read.csv(ENSG_TO_SYMBOL_PATH) %>%
+    filter(hgnc_symbol != "") %>%
+    distinct(ensembl_gene_id, .keep_all = TRUE)
+ensg_to_sym_map = setNames(ensg_to_sym$hgnc_symbol, ensg_to_sym$ensembl_gene_id)
+cat("Loaded", nrow(ensg_to_sym), "Ensembl→symbol mappings\n")
 participants = readLines(PARTICIPANTS_PATH)
 print(participants)
 
@@ -250,6 +261,20 @@ for (cc in common_prefixes) {
         t() %>%
         as.data.frame()
 
+    # Translate Ensembl IDs → gene symbols so they match gene_annotation$NAME.
+    # Rows with no mapping are kept with their Ensembl ID and will be dropped by
+    # the !is.na(probe) filter in merged_data below.
+    n_ensg = sum(grepl("^ENSG", rownames(phenotype)))
+    if (n_ensg > 0) {
+        translated = ifelse(
+            rownames(phenotype) %in% names(ensg_to_sym_map),
+            ensg_to_sym_map[rownames(phenotype)],
+            rownames(phenotype))
+        n_mapped = sum(translated != rownames(phenotype))
+        cat(sprintf("Translated %d / %d Ensembl IDs to gene symbols\n", n_mapped, n_ensg))
+        rownames(phenotype) = translated
+    }
+
     merged_data = merge(
             phenotype %>% rownames_to_column("NAME"),
             gene_annotation,
@@ -257,6 +282,10 @@ for (cc in common_prefixes) {
             all.x = TRUE) %>%
         select(probe, chr, TSS, NAME, strand) %>%
         filter(!is.na(probe) & !is.na(chr) & !is.na(TSS))
+    cat(sprintf("[%s] %d genes retained after annotation merge\n", cc, nrow(merged_data)))
+    if (nrow(merged_data) == 0) stop(paste0(
+        "[", cc, "] No genes matched gene_annotation after Ensembl→symbol translation. ",
+        "Check that ENSG_TO_SYMBOL_PATH and GENE_ANNOT_PATH use compatible gene symbols."))
 
     # Update phenotype and match order
     phenotype = phenotype[rownames(phenotype) %in% merged_data$NAME, ]
