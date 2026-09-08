@@ -33,9 +33,12 @@ else
   echo "[micromamba] Already present: $("${MAMBA}" --version)"
 fi
 
-# ── 2. Create env (skip if already exists) ────────────────────────────────────
-if "${MAMBA}" env list | grep -q "^${ENV_NAME}"; then
+# ── 2. Create env (skip if already exists at any known location) ──────────────
+_EXISTING="/home/ferris/sc-online/scripts/micromamba_root/envs/${ENV_NAME}"
+if "${MAMBA}" env list | grep -q "^${ENV_NAME}" || [ -d "${_EXISTING}/bin" ]; then
   echo "[conda] '${ENV_NAME}' already exists — skipping creation."
+  # Point ENV_PREFIX at whichever location exists
+  [ -d "${ENV_PREFIX}/bin" ] || ENV_PREFIX="${_EXISTING}"
 else
   echo "[conda] Creating environment '${ENV_NAME}' …"
   # CONDA_PKGS_DIRS stored within MAMBA_ROOT (persistent, no /tmp dependency).
@@ -50,13 +53,13 @@ else
     r-base r-getopt r-mashr r-ashr r-matrix \
     r-tidyverse r-ggrepel r-repr r-cairo \
     bioconductor-sva \
-    parallel
+    parallel plink2
 fi
 
 # ── 2b. Packages to ensure are present in existing envs ──────────────────────
 # Runs unconditionally so re-running setup patches an already-created env.
 CONDA_PKGS_DIRS="${MAMBA_ROOT}/conda-pkgs" \
-"${MAMBA}" install -n "${ENV_NAME}" -y -c conda-forge r-repr r-cairo
+"${MAMBA}" install -n "${ENV_NAME}" -y -c conda-forge -c bioconda r-repr r-cairo plink2
 
 # ── 3. Symlink OSCA binary into env bin (so subshells find it on PATH) ────────
 OSCA_SRC="/mnt/accessory/analysis/eqtl/osca/osca"

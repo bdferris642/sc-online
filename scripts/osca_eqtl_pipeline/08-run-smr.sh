@@ -120,7 +120,7 @@ printf '  %s\n' "${RDS_FILES[@]}"
 # ── Process each cell class ───────────────────────────────────────────────────
 for RDS in "${RDS_FILES[@]}"; do
     CC=$(basename "${RDS}" .rds | sed 's/^eqtl_//')
-    QFILE="${OUT_DIR}/eqtl_${CC}.tsv"
+    QFILE="${OUT_DIR}/eqtl_${CC}_rs_only.tsv"
     PREFIX="${OUT_DIR}/eqtl_${CC}"
     echo ""
     echo "══════════════════════════════════════════"
