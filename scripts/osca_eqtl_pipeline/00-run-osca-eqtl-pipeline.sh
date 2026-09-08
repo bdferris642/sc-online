@@ -65,14 +65,23 @@
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SANDBOX="$(cd "$(dirname "$0")/.." && pwd)"
-ENV_PREFIX="${SANDBOX}/micromamba_root/envs/osca-venv"
-ENV_BIN="${ENV_PREFIX}/bin"
 
-if [ ! -d "${ENV_BIN}" ]; then
-    echo "ERROR: osca-venv not found at ${ENV_BIN}."
-    echo "       Run: bash ${SCRIPT_DIR}/setup.sh"
+# Locate osca-venv: prefer cc-sandbox, fall back to sc-online sibling location
+_ENV1="${SANDBOX}/micromamba_root/envs/osca-venv"
+_ENV2="/home/ferris/sc-online/scripts/micromamba_root/envs/osca-venv"
+if [ -d "${_ENV1}/bin" ]; then
+    ENV_PREFIX="${_ENV1}"
+elif [ -d "${_ENV2}/bin" ]; then
+    ENV_PREFIX="${_ENV2}"
+    echo "Note: using osca-venv from ${_ENV2}"
+else
+    echo "ERROR: osca-venv not found at either:"
+    echo "  ${_ENV1}"
+    echo "  ${_ENV2}"
+    echo "Run: bash ${SCRIPT_DIR}/setup.sh"
     exit 1
 fi
+ENV_BIN="${ENV_PREFIX}/bin"
 
 # Prepend env bin to PATH so parallel subshells find python, Rscript, osca, parallel
 export PATH="${ENV_BIN}:${PATH}"

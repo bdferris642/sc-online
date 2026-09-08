@@ -272,6 +272,14 @@ for (cc in common_prefixes) {
             rownames(phenotype))
         n_mapped = sum(translated != rownames(phenotype))
         cat(sprintf("Translated %d / %d Ensembl IDs to gene symbols\n", n_mapped, n_ensg))
+        # Drop duplicate symbols — keep first occurrence (arbitrary but deterministic)
+        dupes = duplicated(translated)
+        n_dupes = sum(dupes)
+        if (n_dupes > 0) {
+            cat(sprintf("Dropping %d rows with duplicate gene symbols\n", n_dupes))
+            phenotype = phenotype[!dupes, , drop = FALSE]
+            translated = translated[!dupes]
+        }
         rownames(phenotype) = translated
     }
 
