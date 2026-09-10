@@ -40,7 +40,18 @@
 #   5  Two-stage FDR; save RDS; generate Manhattan and p-value histogram plots
 #   6  Intersect tested SNP-probe pairs across all cell classes
 #   7  mashr effect-size sharing across cell classes
-#   8  (optional) Archive all inputs and outputs to Google Cloud Storage
+#   8  SMR + HEIDI (skipped gracefully if --smr-gwas / --smr-bfile not provided)
+#   9  eQTL validation (QQ/λ, π₁ vs GTEx SN, effect vs MAF, TSS/ATAC enrichment,
+#      eGene/chrom, GO enrichment, cis-distance, eQTLs/gene, top-SNP fraction)
+#  10  (optional) Archive all inputs and outputs to Google Cloud Storage
+#
+# New optional arguments for steps 8–9:
+#   --smr-gwas FILE       GWAS summary stats in SMR .ma format            [skip step 8]
+#   --smr-bfile PREFIX    PLINK bfile prefix for LD reference panel        [skip step 8]
+#   --smr-out-dir DIR     Output directory for SMR results  [OSCA_OUTPUT_DIR/smr]
+#   --gtex-sn-eqtl FILE   GTEx SN significant pairs .txt.gz               [auto from resources/]
+#   --atac-bed FILE       Corces 2020 ATAC peaks .bed.gz                   [auto from resources/]
+#   --validation-out-dir DIR  Validation output root  [OSCA_OUTPUT_DIR/validation]
 #
 # Key outputs  (OUTPUT_ROOT = {osca-input-dir}/eqtl_final_outs/{pipeline-slogan}):
 #   Step 1 → {pb-output-dir}/{cell_class}_expression_matrix_ds.csv
@@ -103,6 +114,14 @@ SAMPLE_ID="participant_id"
 STRS_TO_SKIP=""
 START_AT_STEP=1
 STOP_AFTER_STEP=1000
+# Step 8 (SMR) optional args
+SMR_GWAS=""
+SMR_BFILE=""
+SMR_OUT_DIR=""
+# Step 9 (validation) optional args
+GTEX_SN_EQTL=""
+ATAC_BED=""
+VALIDATION_OUT=""
 
 # Parse named arguments
 while [[ "$#" -gt 0 ]]; do
@@ -126,6 +145,12 @@ while [[ "$#" -gt 0 ]]; do
         --stop-after-step) STOP_AFTER_STEP="$2"; shift ;;
         --strs-to-skip) STRS_TO_SKIP="$2"; shift ;;
         --vcf-slogan) VCF_SLOGAN="$2"; shift ;;
+        --smr-gwas) SMR_GWAS="$2"; shift ;;
+        --smr-bfile) SMR_BFILE="$2"; shift ;;
+        --smr-out-dir) SMR_OUT_DIR="$2"; shift ;;
+        --gtex-sn-eqtl) GTEX_SN_EQTL="$2"; shift ;;
+        --atac-bed) ATAC_BED="$2"; shift ;;
+        --validation-out-dir) VALIDATION_OUT="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
@@ -220,6 +245,12 @@ echo "START_AT_STEP: $START_AT_STEP"
 echo "STOP_AFTER_STEP: $STOP_AFTER_STEP"
 echo "STRS_TO_SKIP: $STRS_TO_SKIP"
 echo "VCF_SLOGAN: $VCF_SLOGAN"
+echo "SMR_GWAS: $SMR_GWAS"
+echo "SMR_BFILE: $SMR_BFILE"
+echo "SMR_OUT_DIR: $SMR_OUT_DIR"
+echo "GTEX_SN_EQTL: $GTEX_SN_EQTL"
+echo "ATAC_BED: $ATAC_BED"
+echo "VALIDATION_OUT: $VALIDATION_OUT"
 
 if [ $START_AT_STEP -le 1 ]; then
     echo "************************************* STEP 1 *************************************"
@@ -374,15 +405,55 @@ fi
 
 if [ $START_AT_STEP -le 8 ] && [ $STOP_AFTER_STEP -ge 8 ]; then
     echo "************************************* STEP 8 *************************************"
+    echo "************************************* SMR + HEIDI ********************************"
+    if [ -z "${SMR_GWAS}" ] || [ -z "${SMR_BFILE}" ]; then
+        echo "STEP 8 SKIPPED: provide --smr-gwas and --smr-bfile to run SMR."
+    else
+        SMR_OUT_DIR="${SMR_OUT_DIR:-${OSCA_OUTPUT_DIR}/smr}"
+        bash "${SCRIPT_DIR}/08-run-smr.sh" \
+            --eqtl-dir "${OSCA_OUTPUT_DIR}" \
+            --bfile    "${SMR_BFILE}" \
+            --gwas     "${SMR_GWAS}" \
+            --out-dir  "${SMR_OUT_DIR}" \
+            --rscript  "${RSCRIPT}" && {
+                echo "STEP 8 SUCCESSFULLY ran SMR + HEIDI."
+            } || { echo "STEP 8 FAILED."; exit 1; }
+    fi
+else
+    echo "************************************* SKIPPING STEP 8 ****************************"
+fi
+
+if [ $START_AT_STEP -le 9 ] && [ $STOP_AFTER_STEP -ge 9 ]; then
+    echo "************************************* STEP 9 *************************************"
+    echo "************************************* eQTL VALIDATION ****************************"
+    VALIDATION_OUT="${VALIDATION_OUT:-${OSCA_OUTPUT_DIR}/validation}"
+    _GTEX="${GTEX_SN_EQTL:-${SANDBOX}/resources/gtex_sn_signif_pairs.txt.gz}"
+    _ATAC="${ATAC_BED:-${SANDBOX}/resources/corces_2020_da_atac_peaks.bed.gz}"
+    "${PYTHON}" "${SCRIPT_DIR}/09-eqtl-validation.py" \
+        --eqtl-dir    "${OSCA_OUTPUT_DIR}" \
+        --gene-loc    "${SCRIPT_DIR}/gene_loc_new.txt" \
+        --gtex-sn     "${_GTEX}" \
+        --atac-bed    "${_ATAC}" \
+        --go-bp-gmt   "/home/ferris/cc-sandbox/gene_sets/GO_Biological_Process_2025.gmt" \
+        --go-mf-gmt   "/home/ferris/cc-sandbox/gene_sets/GO_Molecular_Function_2025.gmt" \
+        --out-dir     "${VALIDATION_OUT}" && {
+            echo "STEP 9 SUCCESSFULLY ran eQTL validation."
+        } || { echo "STEP 9 FAILED."; exit 1; }
+else
+    echo "************************************* SKIPPING STEP 9 ****************************"
+fi
+
+if [ $START_AT_STEP -le 10 ] && [ $STOP_AFTER_STEP -ge 10 ]; then
+    echo "************************************* STEP 10 ************************************"
     echo "************************************* GS COPY OSCA INPUTS AND OUTPUTS ************"
     gcloud storage cp -r $OSCA_INPUT_DIR $GOOGLE_BUCKET/ && {
-        echo "STEP 8 SUCCESSFULLY copied OSCA inputs to Google Cloud Storage."
+        echo "STEP 10 SUCCESSFULLY copied OSCA inputs to Google Cloud Storage."
     } || {
-        echo "STEP 8 FAILED to copy OSCA inputs to Google Cloud Storage."
+        echo "STEP 10 FAILED to copy OSCA inputs to Google Cloud Storage."
         exit 1
     }
 else
-    echo "************************************* SKIPPING STEP 8 ****************************"
+    echo "************************************* SKIPPING STEP 10 ***************************"
 fi
 
 echo "************************************* PIPELINE COMPLETE **************************"
