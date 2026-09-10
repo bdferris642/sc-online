@@ -125,7 +125,8 @@ print(participants)
 
 wgs_subset = read.table(file.path(OUTPUT_DIR, paste0(VCF_SLOGAN, ".fam")), header = FALSE)
 genotype_pcs = read.table(file.path(OUTPUT_DIR, paste0(VCF_SLOGAN, "_pca.eigenvec"))) %>% rename(
-        participant_id = V2, G_PC1 = V3, G_PC2 = V4, G_PC3 = V5, G_PC4 = V6, G_PC5 = V7)
+        participant_id = V2, G_PC1 = V3, G_PC2 = V4, G_PC3 = V5, G_PC4 = V6, G_PC5 = V7) %>%
+    mutate(participant_id = as.character(participant_id))
 genotype_pcs$V1 = NULL
 head(genotype_pcs)
 fam_file = read.table(file.path(OUTPUT_DIR, paste0(VCF_SLOGAN, ".fam")), header = FALSE)
@@ -142,6 +143,9 @@ cat("\nCommon prefixes:", common_prefixes, "\n")
 # Process each file
 for (cc in common_prefixes) {
     print(cc)
+    # Fix 2: save originals so modifications for one CC don't bleed into the next
+    orig_cat_covars   <- CAT_COVARS
+    orig_quant_covars <- QUANT_COVARS
 
     # Load metadata: per-cell-class CSV written by step 01, or global --metadata if provided.
     if (is.null(METADATA_PATH)) {
@@ -243,7 +247,8 @@ for (cc in common_prefixes) {
 
     # Create phenotype and covariate data
     phenotype = as.data.frame(t(edata)) %>%
-        rownames_to_column("participant_id")
+        rownames_to_column("participant_id") %>%
+        mutate(participant_id = as.character(participant_id))
 
     cat("\nMerging metadata with SVs:\n")
     covs1 = metadata %>%
@@ -252,14 +257,16 @@ for (cc in common_prefixes) {
         left_join(pheno_with_svs %>% select(participant_id, all_of(sv_col_names)),
                   by = "participant_id")
 
-    pcs = as.data.frame(top_30_pcs) %>% rownames_to_column("participant_id")
+    pcs = as.data.frame(top_30_pcs) %>% rownames_to_column("participant_id") %>%
+        mutate(participant_id = as.character(participant_id))
     clusters =  (
         read.csv(cfile) %>%
-        filter(X %in% colnames(edata))%>%
-        rename(participant_id=X))
+        filter(X %in% colnames(edata)) %>%
+        rename(participant_id=X) %>%
+        mutate(participant_id = as.character(participant_id)))
 
     print("Merging metadata and svs with pcs:")
-    scaled_quant_covars = paste0(QUANT_COVARS, "_scaled")
+    scaled_quant_covars = if (length(QUANT_COVARS) > 0) paste0(QUANT_COVARS, "_scaled") else character(0)
     masterdf = merge(
         merge(
             merge(
@@ -284,7 +291,15 @@ for (cc in common_prefixes) {
         warning(paste0("[", cc, "] Dropping constant quantitative covariate(s) (one unique value): ",
                        paste(const_quant, collapse=", ")))
         QUANT_COVARS = setdiff(QUANT_COVARS, const_quant)
-        scaled_quant_covars = paste0(QUANT_COVARS, "_scaled")
+        scaled_quant_covars = if (length(QUANT_COVARS) > 0) paste0(QUANT_COVARS, "_scaled") else character(0)
+    }
+
+    # Fix 4: if all covariates were dropped (e.g. 0-row merge edge case), skip rather than crash
+    if (length(CAT_COVARS) == 0 && length(QUANT_COVARS) == 0) {
+        warning(paste0("[", cc, "] All covariates are constant after filtering. Skipping this cell class."))
+        CAT_COVARS   <- orig_cat_covars
+        QUANT_COVARS <- orig_quant_covars
+        next
     }
 
     valid_columns = intersect(names(phenotype)[-1], names(masterdf))
@@ -383,4 +398,8 @@ for (cc in common_prefixes) {
 
     cov2_reduced = cov2[, !colnames(cov2) %in% cols_to_remove]
     write.table(cov2_reduced, paste0(OUTPUT_DIR, "/cov2_", cc, "_reduced.txt"), sep = "\t", quote = F, row.names = F)
+
+    # Fix 2: restore originals so next CC starts clean
+    CAT_COVARS   <- orig_cat_covars
+    QUANT_COVARS <- orig_quant_covars
 }
