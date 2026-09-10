@@ -6,10 +6,11 @@
 #   3. Casts --sample-id to str and strips whitespace
 #   4. If --id-map provided: restricts to mapped participants and remaps IDs
 #   5. Validates that each h5ad contains exactly one cell type (pipeline assumption)
-#   6. Pseudobulk sum aggregation with decoupler.get_pseudobulk
-#   7. CPM normalization (target_sum=1e6) + log1p
-#   8. Gene filter: mean log-expression >= --gene-log-expr-threshold
-#   9. Scale to max value MAX_SCALE_EXPR_VALUE
+#   6. Pseudobulk sum aggregation with decoupler.pp.pseudobulk (decoupler >= 2.x)
+#   7. Filter samples with < MIN_NUM_CELLS cells or < MIN_COUNTS total counts
+#   8. CPM normalization (target_sum=1e6) + log1p
+#   9. Gene filter: mean log-expression >= --gene-log-expr-threshold
+#  10. Scale to max value MAX_SCALE_EXPR_VALUE
 #
 # Outputs per h5ad: named by cell_class from adata.obs[CT_ID], not the h5ad filename stem.
 #   {output-dir}/{cell_class}_expression_matrix_ds.csv
@@ -21,8 +22,6 @@ import numpy as np
 import os
 import pandas as pd
 import scanpy as sc
-from sccoda.util import comp_ana as mod
-from sccoda.util import cell_composition_data as dat
 
 # parse arguments
 parser = argparse.ArgumentParser()
@@ -168,41 +167,28 @@ for file in input_files:
 
     print(f"adata shape: {adata.shape}")
 
-    data_scanpy_1 = dat.from_scanpy(
-        adata,
-        cell_type_identifier=CT_ID,
-        sample_identifier=SAMPLE_ID
+    # Composition matrix: cell count per sample (one column = this cell type).
+    # Indexed by SAMPLE_ID; used later to align with the expression matrix.
+    cell_counts = adata.obs.groupby(SAMPLE_ID).size().rename(cell_class)
+    sample_obs = (
+        adata.obs.drop_duplicates(subset=[SAMPLE_ID])
+        .set_index(SAMPLE_ID)
     )
-    print(f"data_scanpy_1 shape: {data_scanpy_1.shape}")
-
-
-    combined_df_corrected = pd.concat(
-        [data_scanpy_1.obs,
-        pd.DataFrame(
-            data_scanpy_1.X,
-            index=data_scanpy_1.obs.index,
-            columns=data_scanpy_1.var.index)], axis=1)
+    combined_df_corrected = pd.concat([sample_obs, cell_counts], axis=1)
     print(f"combined_df_corrected shape: {combined_df_corrected.shape}")
 
-    # if adding `_{CT_ID}` to index names
-    # combined_df_corrected.index = combined_df_corrected.index + "_" + combined_df_corrected.columns[0]
-
-    #new_column_names = ['cluster' + str(col) for col in data_scanpy_1.var.index]
-    # Update the relevant columns in combined_df_corrected with the new names
-    #combined_df_corrected.columns = list(data_scanpy_1.obs.columns) + new_column_names
-
-    # Pseudobulk aggregation — samples with < MIN_NUM_CELLS cells are dropped
+    # Pseudobulk aggregation (decoupler >= 2.x API)
     n_samples_before = adata.obs[SAMPLE_ID].nunique()
-    pdata = dc.get_pseudobulk(
+    pdata = dc.pp.pseudobulk(
         adata,
         sample_col=SAMPLE_ID,
         groups_col=CT_ID,
         skip_checks=True,
         mode="sum",
-        min_cells=MIN_NUM_CELLS,
-        min_counts=MIN_COUNTS,
-        remove_empty=True
     )
+    # Filter samples with too few cells or too few counts (was done inside get_pseudobulk in v1)
+    keep = (pdata.obs["psbulk_cells"] >= MIN_NUM_CELLS) & (pdata.obs["psbulk_counts"] >= MIN_COUNTS)
+    pdata = pdata[keep].copy()
     n_samples_after = pdata.n_obs
     print(f"pseudobulk: {n_samples_after} / {n_samples_before} samples kept "
           f"(dropped {n_samples_before - n_samples_after} with < {MIN_NUM_CELLS} cells or < {MIN_COUNTS} counts)")
@@ -227,7 +213,7 @@ for file in input_files:
     output_file1 = os.path.join(OUTPUT_DIR, f"{cell_class_safe}_expression_matrix_ds.csv")
     output_file2 = os.path.join(OUTPUT_DIR, f"{cell_class_safe}_composition_matrix_ds.csv")
 
-    # decoupler.get_pseudobulk constructs obs_names as "{sample_id}_{groups_col}".
+    # decoupler.pp.pseudobulk constructs obs_names as "{sample_id}_{groups_col_value}".
     # Strip the exact known suffix rather than splitting on all underscores, which breaks
     # if participant IDs or cell class names themselves contain underscores.
     suffix = f"_{cell_class}"
