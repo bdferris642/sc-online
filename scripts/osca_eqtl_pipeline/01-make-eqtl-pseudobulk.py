@@ -153,17 +153,26 @@ for file in input_files:
     adata.obs.loc[mask, "study"] = "Estiar"
     print(f"ONE-OFF: normalized {mask.sum()} cells with study containing 'Estiar' to 'Estiar'.")
 
-    # Validate single cell type per h5ad (pipeline assumption: one file → one cell type).
-    # The cell_class value is used for output file naming so it must be unambiguous.
+    # Determine cell type. If multiple are present, keep only the majority class.
     cell_classes = adata.obs[CT_ID].unique().tolist()
     if len(cell_classes) != 1:
-        raise ValueError(f"{file} contains {len(cell_classes)} values of {CT_ID!r}: {cell_classes}. "
-                         "Each input h5ad must contain exactly one cell type.")
-    cell_class = str(cell_classes[0])
+        majority_class = adata.obs[CT_ID].value_counts().idxmax()
+        n_majority = (adata.obs[CT_ID] == majority_class).sum()
+        print(f"WARNING: {file} contains {len(cell_classes)} cell types: {cell_classes}. "
+              f"Keeping majority class '{majority_class}' ({n_majority}/{len(adata)} cells).")
+        adata = adata[adata.obs[CT_ID] == majority_class].copy()
+    cell_class = str(adata.obs[CT_ID].iloc[0])
     # Sanitize for use in filenames — spaces break shell pipelines in step 3.
     # Keep original cell_class for decoupler suffix stripping below (obs_names use the raw value).
     cell_class_safe = cell_class.replace(" ", "_")
     print(f"Cell class: {cell_class} (safe: {cell_class_safe})")
+
+    output_file1    = os.path.join(OUTPUT_DIR, f"{cell_class_safe}_expression_matrix_ds.csv")
+    output_file2    = os.path.join(OUTPUT_DIR, f"{cell_class_safe}_composition_matrix_ds.csv")
+    output_metadata = os.path.join(OUTPUT_DIR, f"{cell_class_safe}_obs_metadata.csv")
+    if all(os.path.exists(f) for f in [output_file1, output_file2, output_metadata]):
+        print(f"Skipping {cell_class}: all 3 output CSVs already exist.")
+        continue
 
     print(f"adata shape: {adata.shape}")
 
@@ -208,11 +217,6 @@ for file in input_files:
     data=pd.DataFrame(pdata.X, index=pdata.obs_names, columns=pdata.var_names)
     print(f"cleaned pseudobulk (data) shape: {data.shape}")
 
-    # Name outputs by cell_class from adata.obs[CT_ID], not the h5ad filename stem.
-    # This avoids project-specific filename prefix stripping in step 2.
-    output_file1 = os.path.join(OUTPUT_DIR, f"{cell_class_safe}_expression_matrix_ds.csv")
-    output_file2 = os.path.join(OUTPUT_DIR, f"{cell_class_safe}_composition_matrix_ds.csv")
-
     # decoupler.pp.pseudobulk constructs obs_names as "{sample_id}_{groups_col_value}".
     # Strip the exact known suffix rather than splitting on all underscores, which breaks
     # if participant IDs or cell class names themselves contain underscores.
@@ -244,7 +248,6 @@ for file in input_files:
         .rename(columns={SAMPLE_ID: "participant_id"})
         .reset_index(drop=True)
     )
-    output_metadata = os.path.join(OUTPUT_DIR, f"{cell_class_safe}_obs_metadata.csv")
     sample_meta.to_csv(output_metadata, index=False)
 
     print(f"Saved {output_file1}")
