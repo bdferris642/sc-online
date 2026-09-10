@@ -13,7 +13,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-ENSG_TO_SYMBOL = Path("/mnt/accessory/seq_data/pd-freeze/sn-vta/subsets/latest/ensg_to_symbol.csv")
 
 
 def _storey_pi1(pvals: np.ndarray, n_bootstrap: int = 1000) -> tuple[float, float, float]:
@@ -51,56 +50,43 @@ def run(df: pd.DataFrame, out_dir: Path, gene_loc_df=None, gtex_sn=None, **kwarg
     gtex["chrom"] = parts[0].str.replace("chr", "", regex=False)
     gtex["pos"] = pd.to_numeric(parts[1], errors="coerce")
 
-    # ── Ensembl → symbol → Entrez bridge ──────────────────────────────────────
-    ensg_sym = {}
-    if ENSG_TO_SYMBOL.exists():
-        es = pd.read_csv(ENSG_TO_SYMBOL)
-        ensg_sym = dict(zip(es["ensembl_gene_id"], es["hgnc_symbol"]))
-
-    sym_entrez = {}
-    if gene_loc_df is not None:
-        # gene_loc named cols: entrez, chr, TSS, symbol, strand
-        for _, row in gene_loc_df.iterrows():
-            sym_entrez[str(row["symbol"])] = str(row["entrez"])
-
-    # Map GTEx gene_id (ENSG.version) → Entrez
+    # v2: match directly on ENSG ID — no Entrez bridge needed
+    # GTEx gene_id format: ENSG00000XXXXXX.N (versioned); strip version for matching
     gtex["ensg_base"] = gtex["gene_id"].str.split(".").str[0]
-    gtex["symbol"] = gtex["ensg_base"].map(ensg_sym)
-    gtex["entrez"] = gtex["symbol"].map(sym_entrez)
-    gtex_matched = gtex.dropna(subset=["entrez", "pos"])
+    gtex_matched = gtex.dropna(subset=["pos"])
 
-    # ── Match to sn-vta eQTLs ─────────────────────────────────────────────────
-    df_match = df.copy()
-    df_match["Gene"] = df_match["Gene"].astype(str)
+    # ── Match to sn-vta eQTLs on ENSG + chromosome + position (±10 bp) ────────
+    # Vectorized via merge_asof: O((N+M) log N) instead of O(N×M) row iteration.
+    df_match = df[["ensg_id", "Chr", "BP", "p", "SNP"]
+                  + (["gene_symbol"] if "gene_symbol" in df.columns else [])].copy()
+    df_match["ensg_id"] = df_match["ensg_id"].astype(str)
     df_match["Chr"] = df_match["Chr"].astype(str)
     df_match["BP"] = pd.to_numeric(df_match["BP"], errors="coerce")
+    df_match = df_match.dropna(subset=["BP"]).sort_values(["ensg_id", "Chr", "BP"])
 
-    matched_rows = []
-    for _, grow in gtex_matched.iterrows():
-        ent = str(grow["entrez"])
-        chrom = str(grow["chrom"])
-        pos = grow["pos"]
-        hits = df_match[
-            (df_match["Gene"] == ent) &
-            (df_match["Chr"] == chrom) &
-            ((df_match["BP"] - pos).abs() <= 10)
-        ]
-        for _, hrow in hits.iterrows():
-            matched_rows.append({
-                "entrez": ent,
-                "chr": chrom,
-                "pos_gtex": pos,
-                "BP_sn": hrow["BP"],
-                "p_gtex": grow["pval_nominal"],
-                "p_sn": hrow["p"],
-                "SNP": hrow["SNP"],
-            })
+    gtex_s = gtex_matched[["ensg_base", "chrom", "pos", "pval_nominal"]].copy()
+    gtex_s["pos"] = gtex_s["pos"].astype(int)
+    gtex_s = gtex_s.sort_values(["ensg_base", "chrom", "pos"])
 
-    if not matched_rows:
+    # merge_asof matches each eQTL row to the nearest GTEx position within ±10 bp,
+    # on the same (ensg_id, Chr) key.
+    merged = pd.merge_asof(
+        df_match,
+        gtex_s,
+        left_on="BP", right_on="pos",
+        left_by=["ensg_id", "Chr"], right_by=["ensg_base", "chrom"],
+        tolerance=10, direction="nearest",
+    ).dropna(subset=["pos"])
+
+    if merged.empty:
         print("  [pi1_replication] No matched SNP-gene pairs found — skipping π₁.")
         return
 
-    match_df = pd.DataFrame(matched_rows).drop_duplicates(subset=["entrez", "chr", "pos_gtex"])
+    match_df = merged.rename(columns={"BP": "BP_sn", "pos": "pos_gtex",
+                                      "pval_nominal": "p_gtex", "p": "p_sn",
+                                      "Chr": "chr"}) \
+                     .drop(columns=["ensg_base", "chrom"], errors="ignore") \
+                     .drop_duplicates(subset=["ensg_id", "chr", "pos_gtex"])
     match_df.to_csv(out_dir / "pi1_gtex_sn.csv", index=False)
     n_matched = len(match_df)
     print(f"  [pi1_replication] {n_matched} matched pairs for π₁ estimation.")

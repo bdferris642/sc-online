@@ -20,7 +20,11 @@ def run(df: pd.DataFrame, out_dir: Path, gene_loc_df=None, padj_thresh: float = 
     padj_snp = df.get("padj_snp", pd.Series(np.nan, index=df.index))
     sig_df = df[padj_snp < padj_thresh]
 
-    counts = sig_df.groupby("Gene").size().reset_index(name="n_sig_snps")
+    counts = sig_df.groupby("ensg_id").size().reset_index(name="n_sig_snps")
+    # add gene_symbol column if available
+    if "gene_symbol" in sig_df.columns:
+        sym_map = sig_df.drop_duplicates("ensg_id").set_index("ensg_id")["gene_symbol"]
+        counts["gene_symbol"] = counts["ensg_id"].map(sym_map)
     counts.to_csv(out_dir / "eqtls_per_gene.csv", index=False)
 
     if counts.empty:

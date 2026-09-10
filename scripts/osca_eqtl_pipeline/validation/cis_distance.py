@@ -18,15 +18,15 @@ def run(df: pd.DataFrame, out_dir: Path, gene_loc_df=None, padj_thresh: float = 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Probe_bp from df or gene_loc
+    # Probe_bp from df or gene_loc_v2 (ensg_id-keyed)
     if "Probe_bp" in df.columns:
         probe_bp = df["Probe_bp"]
     elif gene_loc_df is not None:
-        # gene_loc named cols: entrez, chr, TSS, symbol, strand
-        tss_map = dict(zip(gene_loc_df["entrez"].astype(str), gene_loc_df["TSS"]))
-        probe_bp = df["Gene"].astype(str).map(tss_map)
+        # gene_loc_v2 cols: ensg_id, chr, TSS, gene_symbol, strand
+        tss_map = dict(zip(gene_loc_df["ensg_id"].astype(str), gene_loc_df["TSS"]))
+        probe_bp = df["ensg_id"].astype(str).map(tss_map)
     else:
-        print("  [cis_distance] No Probe_bp — skipping.")
+        print("  [cis_distance] No Probe_bp or gene_loc — skipping.")
         return
 
     df_work = df.copy()
@@ -37,13 +37,17 @@ def run(df: pd.DataFrame, out_dir: Path, gene_loc_df=None, padj_thresh: float = 
 
     # Lead SNP per eGene = min p per gene
     padj_gene = df_work.get("padj_gene", pd.Series(np.nan, index=df_work.index))
-    sig_genes = df_work[padj_gene < padj_thresh]["Gene"].unique()
-    df_sig = df_work[df_work["Gene"].isin(sig_genes)]
+    sig_genes = df_work[padj_gene < padj_thresh]["ensg_id"].unique()
+    df_sig = df_work[df_work["ensg_id"].isin(sig_genes)]
 
-    lead_idx = df_sig.groupby("Gene")["p"].idxmin()
+    lead_idx = df_sig.groupby("ensg_id")["p"].idxmin()
     lead_df = df_sig.loc[lead_idx].copy()
 
-    csv_df = lead_df[["Gene", "SNP", "BP", "Probe_bp_val", "cis_dist", "p"]].reset_index(drop=True)
+    out_cols = ["ensg_id"]
+    if "gene_symbol" in lead_df.columns:
+        out_cols.append("gene_symbol")
+    out_cols += ["SNP", "BP", "Probe_bp_val", "cis_dist", "p"]
+    csv_df = lead_df[out_cols].reset_index(drop=True)
     csv_df.to_csv(out_dir / "cis_distance.csv", index=False)
 
     dist_sig = lead_df["cis_dist"].values

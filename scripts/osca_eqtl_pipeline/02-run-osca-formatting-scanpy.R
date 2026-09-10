@@ -4,7 +4,10 @@
 #   --expression-dir  / -e  (required) Directory with {cell_class}_expression_matrix_ds.csv files
 #   --output-dir      / -o  (required) OSCA input/output directory (also contains bfiles)
 #   --vcf-slogan      / -v  (required) Prefix of .fam and _pca.eigenvec files
-#   --gene-anot       / -g  (optional) Gene annotation table; default /mnt/accessory/analysis/eqtl/gene_loc.txt
+#   --gene-anot       / -g  (optional) gene_loc_v2.txt (ensg_id,chr,TSS,gene_symbol,strand);
+#                                      default: {script_dir}/gene_loc_v2.txt
+#   --ensg-to-symbol  / -E  (optional) ENSG→symbol CSV (ensembl_gene_id,hgnc_symbol);
+#                                      default: /mnt/accessory/seq_data/pd-freeze/sn-vta/subsets/latest/ensg_to_symbol.csv
 #   --metadata        / -m  (optional) CSV with participant_id and all covariate columns
 #   --participants    / -p  (required) Path to participants text file
 #   --sva-formula     / -s  (optional) Override SVA formula; auto-built from --h5ad-cat-covars + --h5ad-quant-covars
@@ -18,7 +21,13 @@
 #   4. Runs SVA (n.sv = 5 surrogates) using the formula built from covariate lists
 #   5. Runs PCA (30 PCs) on WGS-intersected expression data
 #   6. Removes SVs with Spearman |r| > 0.9 to any other covariate; drops PCs 21-30
-#   7. Annotates genes via gene_annotation table; drops unannotated genes
+#   7. Annotates genes via gene_loc_v2.txt (ENSG-keyed); genes missing from annotation are dropped
+#
+# v2 changes vs v1:
+#   - No ENSG→symbol translation: phenotype columns remain ENSG IDs throughout
+#   - .opi probe = ENSG, NAME = gene_symbol (fallback to ENSG if unmapped)
+#   - gene_loc_v2.txt is keyed by ensg_id (no Entrez requirement → zero gene loss from Entrez join)
+#   - ensg_to_symbol is used only for the NAME column in .opi (non-fatal if a gene has no symbol)
 
 suppressMessages(suppressWarnings(library(getopt)))
 suppressMessages(suppressWarnings(library(Matrix)))
@@ -65,11 +74,25 @@ if (!dir.exists(OUTPUT_DIR)) {
     dir.create(OUTPUT_DIR)
 }
 
+# gene_loc_v2.txt: ensg_id, chr, TSS, gene_symbol, strand (ENSG-keyed; no Entrez required)
+SCRIPT_DIR = dirname(normalizePath(commandArgs(trailingOnly=FALSE)[
+    grep("--file=", commandArgs(trailingOnly=FALSE))][1], mustWork = FALSE))
+SCRIPT_DIR = sub("^--file=", "", commandArgs(trailingOnly=FALSE)[
+    grep("--file=", commandArgs(trailingOnly=FALSE))][1])
+SCRIPT_DIR = dirname(normalizePath(SCRIPT_DIR, mustWork = FALSE))
+
 if (is.null(opt[['gene-anot']])) {
-    GENE_ANNOT_PATH = "/mnt/accessory/analysis/eqtl/gene_loc.txt"
+    GENE_ANNOT_PATH = file.path(SCRIPT_DIR, "gene_loc_v2.txt")
 } else {
     GENE_ANNOT_PATH = opt[['gene-anot']]
 }
+if (!file.exists(GENE_ANNOT_PATH)) {
+    stop(paste0(
+        "gene_loc_v2.txt not found at: ", GENE_ANNOT_PATH, "\n",
+        "Run: Rscript regenerate_gene_loc.R --expr-csv <any_expression_matrix_ds.csv> ",
+        "--out ", GENE_ANNOT_PATH))
+}
+
 if (is.null(opt[['ensg-to-symbol']])) {
     ENSG_TO_SYMBOL_PATH = "/mnt/accessory/seq_data/pd-freeze/sn-vta/subsets/latest/ensg_to_symbol.csv"
 } else {
@@ -78,12 +101,25 @@ if (is.null(opt[['ensg-to-symbol']])) {
 # If --metadata is given, load once; otherwise auto-discover per-cell-class CSV from EXPRESSION_DIR.
 METADATA_PATH = if (!is.null(opt[['metadata']])) opt[['metadata']] else NULL
 
-gene_annotation = read.table(GENE_ANNOT_PATH, header = TRUE) %>% distinct(NAME, .keep_all = TRUE)
-ensg_to_sym = read.csv(ENSG_TO_SYMBOL_PATH) %>%
-    filter(hgnc_symbol != "") %>%
-    distinct(ensembl_gene_id, .keep_all = TRUE)
-ensg_to_sym_map = setNames(ensg_to_sym$hgnc_symbol, ensg_to_sym$ensembl_gene_id)
-cat("Loaded", nrow(ensg_to_sym), "Ensembl→symbol mappings\n")
+# gene_loc_v2: ensg_id-keyed annotation (chr, TSS, gene_symbol, strand)
+gene_annotation = read.table(GENE_ANNOT_PATH, header = TRUE,
+                             colClasses = c(ensg_id="character", chr="character",
+                                            TSS="integer", gene_symbol="character",
+                                            strand="character")) %>%
+    distinct(ensg_id, .keep_all = TRUE)
+cat(sprintf("Loaded gene_loc_v2: %d genes\n", nrow(gene_annotation)))
+
+# ensg_to_sym used only for .opi NAME column (best-effort; non-fatal if absent)
+ensg_to_sym_map = setNames(character(0), character(0))
+if (file.exists(ENSG_TO_SYMBOL_PATH)) {
+    ensg_to_sym = read.csv(ENSG_TO_SYMBOL_PATH) %>%
+        filter(!is.na(hgnc_symbol) & hgnc_symbol != "") %>%
+        distinct(ensembl_gene_id, .keep_all = TRUE)
+    ensg_to_sym_map = setNames(ensg_to_sym$hgnc_symbol, ensg_to_sym$ensembl_gene_id)
+    cat("Loaded", length(ensg_to_sym_map), "Ensembl→symbol mappings\n")
+} else {
+    cat("Warning: ensg_to_symbol CSV not found; .opi NAME will fall back to ENSG IDs\n")
+}
 participants = readLines(PARTICIPANTS_PATH)
 print(participants)
 
@@ -261,47 +297,27 @@ for (cc in common_prefixes) {
         t() %>%
         as.data.frame()
 
-    # Translate Ensembl IDs → gene symbols so they match gene_annotation$NAME.
-    # Rows with no mapping are kept with their Ensembl ID and will be dropped by
-    # the !is.na(probe) filter in merged_data below.
-    n_ensg = sum(grepl("^ENSG", rownames(phenotype)))
-    if (n_ensg > 0) {
-        translated = ifelse(
-            rownames(phenotype) %in% names(ensg_to_sym_map),
-            ensg_to_sym_map[rownames(phenotype)],
-            rownames(phenotype))
-        n_mapped = sum(translated != rownames(phenotype))
-        cat(sprintf("Translated %d / %d Ensembl IDs to gene symbols\n", n_mapped, n_ensg))
-        # Drop duplicate symbols — keep first occurrence (arbitrary but deterministic)
-        dupes = duplicated(translated)
-        n_dupes = sum(dupes)
-        if (n_dupes > 0) {
-            cat(sprintf("Dropping %d rows with duplicate gene symbols\n", n_dupes))
-            phenotype = phenotype[!dupes, , drop = FALSE]
-            translated = translated[!dupes]
-        }
-        rownames(phenotype) = translated
-    }
-
+    # v2: Keep ENSG IDs as phenotype row names — no symbol translation.
+    # Merge directly on ensg_id to get chr/TSS/strand from gene_loc_v2.txt.
     merged_data = merge(
-            phenotype %>% rownames_to_column("NAME"),
+            phenotype %>% rownames_to_column("ensg_id"),
             gene_annotation,
-            by = "NAME",
-            all.x = TRUE) %>%
-        select(probe, chr, TSS, NAME, strand) %>%
-        filter(!is.na(probe) & !is.na(chr) & !is.na(TSS))
+            by = "ensg_id",
+            all.x = FALSE) %>%   # inner join: retain only annotated genes
+        filter(!is.na(chr) & !is.na(TSS)) %>%
+        # gene_symbol for .opi NAME: use ensg_to_sym_map, fall back to ensg_id
+        mutate(opi_name = ifelse(
+            ensg_id %in% names(ensg_to_sym_map),
+            ensg_to_sym_map[ensg_id],
+            ensg_id))
     cat(sprintf("[%s] %d genes retained after annotation merge\n", cc, nrow(merged_data)))
     if (nrow(merged_data) == 0) stop(paste0(
-        "[", cc, "] No genes matched gene_annotation after Ensembl→symbol translation. ",
-        "Check that ENSG_TO_SYMBOL_PATH and GENE_ANNOT_PATH use compatible gene symbols."))
+        "[", cc, "] No genes matched gene_loc_v2 after ENSG merge. ",
+        "Ensure gene_loc_v2.txt was built from the same h5ad gene universe. ",
+        "Run: Rscript regenerate_gene_loc.R --expr-csv <expression_matrix_ds.csv> --out gene_loc_v2.txt"))
 
-    # Update phenotype and match order
-    phenotype = phenotype[rownames(phenotype) %in% merged_data$NAME, ]
-    phenotype = phenotype[match(merged_data$NAME, rownames(phenotype)), ]
-
-    merged_data = merged_data %>%
-    filter(NAME %in% rownames(phenotype)) %>%
-    arrange(match(NAME, rownames(phenotype)))
+    # Re-align phenotype to merged gene order
+    phenotype = phenotype[match(merged_data$ensg_id, rownames(phenotype)), , drop = FALSE]
 
     # Write outputs
     write.table(as.data.frame(t(phenotype)) %>% rownames_to_column("participant_id") %>%
@@ -309,7 +325,8 @@ for (cc in common_prefixes) {
                 paste0(OUTPUT_DIR, "/Phenotype_", cc, "_osca.txt"),
                 quote = FALSE, sep = "\t", row.names = FALSE)
 
-    write.table(merged_data %>% select(chr, NAME, TSS, probe, strand),
+    # .opi: chr, NAME (gene_symbol or ENSG fallback), TSS, probe (ENSG), strand
+    write.table(merged_data %>% select(chr, opi_name, TSS, ensg_id, strand),
                     paste0(OUTPUT_DIR, "/Upprobe_", cc, ".opi"),
                 quote = FALSE, sep = "\t", row.names = FALSE, col.names = FALSE)
 

@@ -21,8 +21,13 @@ def run(df: pd.DataFrame, out_dir: Path, gene_loc_df=None, padj_thresh: float = 
     padj_snp = df.get("padj_snp", pd.Series(np.nan, index=df.index))
     sig_mask = padj_snp < padj_thresh
 
+    # Build ensg_id → gene_symbol map for output
+    sym_map: dict = {}
+    if "gene_symbol" in df.columns:
+        sym_map = df.drop_duplicates("ensg_id").set_index("ensg_id")["gene_symbol"].to_dict()
+
     records = []
-    for gene, grp in df.groupby("Gene"):
+    for gene, grp in df.groupby("ensg_id"):
         n_sig = int(sig_mask.reindex(grp.index).fillna(False).sum())
         if n_sig == 0:
             continue
@@ -30,7 +35,8 @@ def run(df: pd.DataFrame, out_dir: Path, gene_loc_df=None, padj_thresh: float = 
         ranked = grp["p"].rank(method="min", ascending=True)
         sig_ranks = ranked[sig_mask.reindex(grp.index).fillna(False)].values.astype(int)
         records.append({
-            "Gene": gene,
+            "ensg_id": gene,
+            "gene_symbol": sym_map.get(gene),
             "n_sig_snps": n_sig,
             "rank_of_top_sig_snp": int(sig_ranks.min()),
             "all_sig_ranks": ",".join(map(str, sorted(sig_ranks))),

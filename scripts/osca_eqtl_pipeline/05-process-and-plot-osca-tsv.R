@@ -1,17 +1,28 @@
 # 05-process-and-plot-osca-tsv.R — Apply two-stage FDR to OSCA output; save RDS; generate plots.
 #
 # Arguments:
-#   --path / -p   (required) Path to eqtl_{cell_class}.tsv produced by step 3.
-#                            File must be named eqtl_{cell_class}.tsv; cell_class is extracted
-#                            from the filename as everything after the leading "eqtl_" prefix.
-#   --out-dir / -o (optional) Output directory. Defaults to dirname(--path).
+#   --path / -p         (required) Path to eqtl_{cell_class}.tsv produced by step 3.
+#                                  File must be named eqtl_{cell_class}.tsv; cell_class is extracted
+#                                  from the filename as everything after the leading "eqtl_" prefix.
+#   --out-dir / -o      (optional) Output directory. Defaults to dirname(--path).
+#   --ensg-to-symbol /  (optional) ENSG→symbol CSV (ensembl_gene_id,hgnc_symbol);
+#   -E                             default: /mnt/accessory/seq_data/pd-freeze/sn-vta/subsets/latest/ensg_to_symbol.csv
 #
 # Two-stage FDR procedure:
-#   1. Within each gene (Probe): Bonferroni across all cis-SNPs → p_bonf
+#   1. Within each gene (Probe/ensg_id): Bonferroni across all cis-SNPs → p_bonf
 #   2. Minimum p_bonf per gene → BH across genes → padj_gene
 #   3. eGenes: padj_gene < FDR_THRESH
 #   4. Within eGenes: BH across all SNPs → padj_snp
 #   5. Significant eSNPs: padj_gene < FDR_THRESH AND padj_snp < FDR_THRESH
+#
+# v2 RDS column schema:
+#   SNP, Chr, BP, A1, A2, Freq — unchanged
+#   ensg_id     — Ensembl gene ID (was Probe)
+#   gene_symbol — HGNC symbol or NA (new; best-effort join from ensg_to_symbol.csv)
+#   Probe_Chr, Probe_bp — gene chr + TSS (unchanged names)
+#   Orientation — strand (unchanged)
+#   b, SE, p, padj_gene, padj_snp — unchanged
+#   is_significant_gene, is_significant_snp — unchanged
 #
 # Outputs (in out-dir):
 #   eqtl_{cell_class}.rds       — full data frame with FDR columns
@@ -32,8 +43,9 @@ suppressMessages(suppressWarnings(library(ggrepel)))
 
 print("**************** PARSING ARGUMENTS ****************")
 spec = matrix(c(
-    'path', 'p', 1, "character",
-    'out-dir', 'o', 1, "character"
+    'path',           'p', 1, "character",
+    'out-dir',        'o', 1, "character",
+    'ensg-to-symbol', 'E', 1, "character"
 ), byrow = TRUE, ncol = 4)
 
 opt = getopt(spec)
@@ -42,6 +54,20 @@ if (is.null(opt[["out-dir"]])) {
     OUT_DIR = dirname(PATH)
 } else {
     OUT_DIR = opt[["out-dir"]]
+}
+ENSG_TO_SYMBOL_PATH = if (!is.null(opt[["ensg-to-symbol"]])) opt[["ensg-to-symbol"]] else
+    "/mnt/accessory/seq_data/pd-freeze/sn-vta/subsets/latest/ensg_to_symbol.csv"
+
+# Load ENSG→symbol mapping (best-effort; non-fatal if absent)
+ensg_to_sym_map = setNames(character(0), character(0))
+if (file.exists(ENSG_TO_SYMBOL_PATH)) {
+    ensg_to_sym = read.csv(ENSG_TO_SYMBOL_PATH) %>%
+        filter(!is.na(hgnc_symbol) & hgnc_symbol != "") %>%
+        distinct(ensembl_gene_id, .keep_all = TRUE)
+    ensg_to_sym_map = setNames(ensg_to_sym$hgnc_symbol, ensg_to_sym$ensembl_gene_id)
+    cat(sprintf("Loaded %d ENSG→symbol mappings\n", length(ensg_to_sym_map)))
+} else {
+    cat("Warning: ensg_to_symbol CSV not found; gene_symbol column will be NA for all genes\n")
 }
 
 base = dirname(PATH)
@@ -67,22 +93,34 @@ df$BP = as.numeric(df$BP)
 df$negative_log10_p = -log10(df$p)
 df$negative_log10_p[df$negative_log10_p > HARD_CAP] = HARD_CAP
 
+# v2: Probe column = ENSG ID; Gene column = ENSG (duplicate of Probe from .opi probe field)
+# Rename Probe → ensg_id; drop Gene (redundant); add gene_symbol via join.
+df = df %>%
+    rename(ensg_id = Probe) %>%
+    select(-any_of("Gene")) %>%
+    mutate(gene_symbol = ifelse(
+        ensg_id %in% names(ensg_to_sym_map),
+        ensg_to_sym_map[ensg_id],
+        NA_character_))
+cat(sprintf("Mapped gene_symbol for %d / %d unique genes\n",
+    sum(!is.na(unique(df$gene_symbol[df$ensg_id %in% names(ensg_to_sym_map)]))),
+    length(unique(df$ensg_id))))
+
 # Two-stage FDR: within-gene Bonferroni → BH across genes (padj_gene) → BH within eGenes (padj_snp).
-# The commented-out alternative approaches were explored during development; active implementation below.
 
 cat(paste0("\n PERFORMING TWO-STAGE FDR\n"))
 cat(paste0("\n Step 1: Find lead SNPs per gene\n"))
 
 # Step 1: Bonferroni correction within each gene
 df_probe = df %>%
-    group_by(Probe) %>%
+    group_by(ensg_id) %>%
     mutate(p_bonf = p * n()) %>%
     mutate(p_bonf = ifelse(p_bonf > 1, 1, p_bonf)) %>%
     ungroup()
 
 # Step 2: Get the minimum p_bonf per gene
 df_min_p_probe = df_probe %>%
-    group_by(Probe) %>%
+    group_by(ensg_id) %>%
     summarise(min_p_gene = min(p_bonf)) %>%
     ungroup()
 
@@ -93,17 +131,17 @@ df_min_p_probe = df_min_p_probe %>%
 # Step 4: Identify eGenes (FDR < threshold)
 eGenes = df_min_p_probe %>%
     filter(padj_gene < FDR_THRESH) %>%
-    pull(Probe)
+    pull(ensg_id)
 
 # Step 5: Apply BH FDR to SNPs within eGenes
 df_eGenes = df %>%
-    filter(Probe %in% eGenes) %>%
+    filter(ensg_id %in% eGenes) %>%
     mutate(padj_snp = p.adjust(p, method = "BH"))
 
 # Step 6: Merge the min_p_gene and padj_gene back to the df
 df = df %>%
-    left_join(df_min_p_probe[, c("Probe", "min_p_gene", "padj_gene")], by = "Probe") %>%
-    left_join(df_eGenes[, c("SNP", "Probe", "padj_snp")], by = c("SNP", "Probe")) %>%
+    left_join(df_min_p_probe[, c("ensg_id", "min_p_gene", "padj_gene")], by = "ensg_id") %>%
+    left_join(df_eGenes[, c("SNP", "ensg_id", "padj_snp")], by = c("SNP", "ensg_id")) %>%
     mutate(
         padj_snp = ifelse(is.na(padj_snp), 1, padj_snp),
         is_significant_gene = padj_gene < FDR_THRESH,
@@ -244,13 +282,16 @@ axis_df = chr_info %>%
     mutate(center = tot + chr_len / 2)
 
 # Pick top distinct significant genes by p-value (higher y)
+# Label with gene_symbol; fall back to ensg_id if symbol is NA
 top_genes = df_plot %>%
     filter(negative_log10_padj_snp > -log10(FDR_THRESH)) %>%
     arrange(desc(negative_log10_padj_snp)) %>%
-    distinct(Probe, .keep_all = TRUE) %>%
-    top_n(25, negative_log10_padj_snp)
+    distinct(ensg_id, .keep_all = TRUE) %>%
+    top_n(25, negative_log10_padj_snp) %>%
+    mutate(plot_label = ifelse(!is.na(gene_symbol), gene_symbol, ensg_id))
 
-yint = min(df_plot$negative_log10_padj_snp[df_plot$is_significant_snp])
+sig_vals = df_plot$negative_log10_padj_snp[df_plot$is_significant_snp]
+yint = if (length(sig_vals) > 0) min(sig_vals) else NA_real_
 
 cat(paste0("\n MAKING MANHATTAN PLOT\n"))
 # Manhattan plot
@@ -266,13 +307,13 @@ m = (
     # Points
     geom_point(aes(color = is_significant_snp), alpha = 0.75, size = 1.2) +
 
-    # Horizontal threshold line
-    geom_hline(yintercept = yint, linetype = "dotted", color = "red") +
+    # Horizontal threshold line (omit if no significant SNPs)
+    { if (!is.na(yint)) geom_hline(yintercept = yint, linetype = "dotted", color = "red") else geom_blank() } +
 
-    # Labels for top 20 genes
+    # Labels for top 25 genes (gene_symbol or ensg_id fallback)
     geom_label_repel(
         data = top_genes,
-        aes(label = Probe),
+        aes(label = plot_label),
         size = 6,
         box.padding = 0.5,
         nudge_y = 1,
@@ -283,8 +324,8 @@ m = (
     # Customize scales and theme
     scale_x_continuous(labels = axis_df$Chr, breaks = axis_df$center) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
-    scale_fill_manual(values = c("white", "grey75")) +
-    scale_color_manual(values = rep(c("black", "steelblue"), length.out = length(unique(df_plot$Chr)))) +
+    scale_fill_manual(values = c("0" = "white", "1" = "grey75")) +
+    scale_color_manual(values = c("FALSE" = "grey60", "TRUE" = "steelblue")) +
 
     labs(x = "Chromosome", y = expression(-log[10]("BH adjusted p-value"))) +
 

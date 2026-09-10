@@ -23,16 +23,16 @@ def run(df: pd.DataFrame, out_dir: Path, gene_loc_df=None, padj_thresh: float = 
 
     df_work = df.copy()
     df_work["Chr"] = df_work["Chr"].astype(str)
-    df_work["Gene"] = df_work["Gene"].astype(str)
+    df_work["ensg_id"] = df_work["ensg_id"].astype(str)
 
-    # Total tested genes per chrom (one entry per unique Gene-Chrom pair)
-    per_gene = df_work.drop_duplicates(subset=["Gene", "Chr"])
-    total_per_chrom = per_gene.groupby("Chr")["Gene"].nunique()
+    # Total tested genes per chrom (one entry per unique ensg_id-Chrom pair)
+    per_gene = df_work.drop_duplicates(subset=["ensg_id", "Chr"])
+    total_per_chrom = per_gene.groupby("Chr")["ensg_id"].nunique()
 
     # Significant eGenes per chrom
     padj_gene = df_work.get("padj_gene", pd.Series(np.nan, index=df_work.index))
-    sig_genes_df = df_work[padj_gene < padj_thresh].drop_duplicates(subset=["Gene", "Chr"])
-    sig_per_chrom = sig_genes_df.groupby("Chr")["Gene"].nunique()
+    sig_genes_df = df_work[padj_gene < padj_thresh].drop_duplicates(subset=["ensg_id", "Chr"])
+    sig_per_chrom = sig_genes_df.groupby("Chr")["ensg_id"].nunique()
 
     chrom_order = [str(i) for i in range(1, 23)] + ["X", "Y", "MT"]
     chroms = [c for c in chrom_order if c in total_per_chrom.index]

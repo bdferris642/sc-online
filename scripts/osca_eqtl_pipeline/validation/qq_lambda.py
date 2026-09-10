@@ -131,9 +131,8 @@ def run(df: pd.DataFrame, out_dir: Path, gene_loc_df=None, expr_csv=None, **kwar
         raise ValueError("expr_csv must have columns: gene_id, mean_expr")
     expr_map = dict(zip(expr_df["gene_id"].astype(str), expr_df["mean_expr"]))
 
-    # Join on Probe (gene symbol) — Gene column is Entrez int, Probe is symbol
-    probe_col = "Probe" if "Probe" in df.columns else "Gene"
-    gene_expr = df[probe_col].astype(str).map(expr_map)
+    # Join on ensg_id (v2 schema; Probe was renamed to ensg_id in step 5)
+    gene_expr = df["ensg_id"].astype(str).map(expr_map)
     n_mapped = gene_expr.notna().sum()
     print(f"  [qq_lambda] Mapped expression for {n_mapped:,}/{len(df):,} rows.")
     if n_mapped < 100:

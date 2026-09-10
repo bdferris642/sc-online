@@ -425,20 +425,58 @@ fi
 
 if [ $START_AT_STEP -le 9 ] && [ $STOP_AFTER_STEP -ge 9 ]; then
     echo "************************************* STEP 9 *************************************"
-    echo "************************************* eQTL VALIDATION ****************************"
+    echo "************************************* eQTL VALIDATION (parallel per CC) **********"
     VALIDATION_OUT="${VALIDATION_OUT:-${OSCA_OUTPUT_DIR}/validation}"
+    mkdir -p "${VALIDATION_OUT}"
     _GTEX="${GTEX_SN_EQTL:-${SANDBOX}/resources/gtex_sn_signif_pairs.txt.gz}"
     _ATAC="${ATAC_BED:-${SANDBOX}/resources/corces_2020_da_atac_peaks.bed.gz}"
-    "${PYTHON}" "${SCRIPT_DIR}/09-eqtl-validation.py" \
-        --eqtl-dir    "${OSCA_OUTPUT_DIR}" \
-        --gene-loc    "${SCRIPT_DIR}/gene_loc_new.txt" \
-        --gtex-sn     "${_GTEX}" \
-        --atac-bed    "${_ATAC}" \
-        --go-bp-gmt   "/home/ferris/cc-sandbox/gene_sets/GO_Biological_Process_2025.gmt" \
-        --go-mf-gmt   "/home/ferris/cc-sandbox/gene_sets/GO_Molecular_Function_2025.gmt" \
-        --out-dir     "${VALIDATION_OUT}" && {
-            echo "STEP 9 SUCCESSFULLY ran eQTL validation."
-        } || { echo "STEP 9 FAILED."; exit 1; }
+
+    # Discover cell classes from eqtl_*.rds (exclude _sig and present_in_all)
+    # Launch one background process per CC; bash `wait` provides the parallelism.
+    _step9_pids=()
+    _step9_ccs=()
+    for _rds in "${OSCA_OUTPUT_DIR}"/eqtl_*.rds; do
+        _basename="$(basename "${_rds}" .rds)"
+        # skip _sig and present_in_all files
+        if [[ "${_basename}" == *"_sig"* ]] || [[ "${_basename}" == *"present_in_all"* ]]; then
+            continue
+        fi
+        CC="${_basename#eqtl_}"
+        LOG="${VALIDATION_OUT}/${CC}_step9.log"
+        echo "[step 9] Launching validation for cell class: ${CC} → ${LOG}"
+        "${PYTHON}" "${SCRIPT_DIR}/09-eqtl-validation.py" \
+            --eqtl-dir      "${OSCA_OUTPUT_DIR}" \
+            --gene-loc      "${SCRIPT_DIR}/gene_loc_v2.txt" \
+            --pb-output-dir "${PB_OUTPUT_DIR}" \
+            --gtex-sn       "${_GTEX}" \
+            --atac-bed      "${_ATAC}" \
+            --go-bp-gmt     "${SANDBOX}/gene_sets/GO_Biological_Process_2025.gmt" \
+            --go-mf-gmt     "${SANDBOX}/gene_sets/GO_Molecular_Function_2025.gmt" \
+            --out-dir       "${VALIDATION_OUT}" \
+            --cell-class    "${CC}" \
+            > "${LOG}" 2>&1 &
+        _step9_pids+=($!)
+        _step9_ccs+=("${CC}")
+    done
+
+    if [ ${#_step9_pids[@]} -eq 0 ]; then
+        echo "WARNING: No eqtl_*.rds files found in ${OSCA_OUTPUT_DIR} — step 9 skipped."
+    else
+        echo "[step 9] Waiting for ${#_step9_pids[@]} cell class job(s) to complete..."
+        _step9_failed=0
+        for i in "${!_step9_pids[@]}"; do
+            wait "${_step9_pids[$i]}" || {
+                echo "STEP 9 FAILED for cell class: ${_step9_ccs[$i]}"
+                echo "  See log: ${VALIDATION_OUT}/${_step9_ccs[$i]}_step9.log"
+                _step9_failed=$((_step9_failed + 1))
+            }
+        done
+        if [ "${_step9_failed}" -gt 0 ]; then
+            echo "STEP 9: ${_step9_failed} cell class(es) FAILED. Check logs in ${VALIDATION_OUT}."
+            exit 1
+        fi
+        echo "STEP 9 SUCCESSFULLY ran eQTL validation for all cell classes."
+    fi
 else
     echo "************************************* SKIPPING STEP 9 ****************************"
 fi

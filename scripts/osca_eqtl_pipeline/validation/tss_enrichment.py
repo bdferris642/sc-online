@@ -18,13 +18,13 @@ def run(df: pd.DataFrame, out_dir: Path, gene_loc_df=None, padj_thresh: float = 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Join Probe_bp from gene_loc if needed; fall back to df["Probe_bp"] column directly
+    # Join Probe_bp from gene_loc_v2 (ensg_id-keyed) if needed; fall back to df["Probe_bp"] directly
     if "Probe_bp" in df.columns:
         probe_bp = df["Probe_bp"]
     elif gene_loc_df is not None:
-        # gene_loc named cols: entrez, chr, TSS, symbol, strand
-        tss_map = dict(zip(gene_loc_df["entrez"].astype(str), gene_loc_df["TSS"]))
-        probe_bp = df["Gene"].astype(str).map(tss_map)
+        # gene_loc_v2 cols: ensg_id, chr, TSS, gene_symbol, strand
+        tss_map = dict(zip(gene_loc_df["ensg_id"].astype(str), gene_loc_df["TSS"]))
+        probe_bp = df["ensg_id"].astype(str).map(tss_map)
     else:
         print("  [tss_enrichment] No Probe_bp or gene_loc — skipping.")
         return

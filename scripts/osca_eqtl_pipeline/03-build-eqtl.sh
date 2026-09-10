@@ -38,6 +38,9 @@ qcovar_file=$6 # cov2*.txt. Quantitative covariate file from OSCA_formatting-sca
 cores=$7 # number of cores to use
 final_output=$8 # output prefix
 
+# MKL libraries required by the OSCA binary
+export LD_LIBRARY_PATH="/mnt/accessory/anaconda3/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+
 # CIS_WIND unit is Kb. 1000 Kb = 1 Mb (standard cis-eQTL window).
 # OSCA's default is 2000 Kb (2 Mb). We use 1 Mb here.
 CIS_WIND=1000

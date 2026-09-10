@@ -433,10 +433,121 @@ Rscript 07-run-mashr.R \
 
 ---
 
-### Step 8: `gcloud storage cp -r` (optional)
+### Step 8: `08-run-smr.sh` — SMR + HEIDI (optional)
+
+**Purpose:** Summary-based Mendelian Randomization tests whether GWAS signals at cis-eQTL loci are consistent with a single shared causal variant (pleiotropy) rather than two independent causal variants in LD (linkage). HEIDI test discriminates these scenarios.
+
+Skipped gracefully if `--smr-gwas` or `--smr-bfile` are not provided.
+
+**Usage** (called by orchestrator):
+```bash
+bash 08-run-smr.sh \
+  --eqtl-dir  /path/to/eqtl_final_outs/my_run \
+  --bfile     /path/to/ld_reference_bfile_prefix \
+  --gwas      /path/to/gwas.ma \
+  --out-dir   /path/to/smr_output \
+  [--smr-bin  /path/to/smr] \
+  [--rscript  /path/to/Rscript]
+```
+
+**Pipeline per cell class:**
+0. Build rs-only bfile from LD reference (filters non-rsID SNPs; done once)
+1. Locate or build rs-only SMR qfile TSV from OSCA TSV or RDS
+2. Create BESD (SMR binary eQTL format)
+3. Run SMR + HEIDI against GWAS summary statistics
+
+**Outputs (in `--out-dir`):**
+- `{vcf_prefix}_rs_only.{bed,bim,fam}` — rs-only LD reference bfile (step 0)
+- `eqtl_{cc}_rs_only.tsv` — rs-only SMR qfile (step 1)
+- `eqtl_{cc}.{esi,bim,besd}` — BESD binary eQTL format (step 2)
+- `eqtl_{cc}_smr.smr` — SMR + HEIDI results (step 3)
+
+**Orchestrator args:**
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--smr-gwas` | *(none — step skipped)* | GWAS summary stats in SMR `.ma` format |
+| `--smr-bfile` | *(none — step skipped)* | PLINK bfile prefix for LD reference panel |
+| `--smr-out-dir` | `{OSCA_OUTPUT_DIR}/smr` | Output directory |
+
+---
+
+### Step 9: `09-eqtl-validation.py` — eQTL Validation
+
+**Purpose:** 10 quality-control and biological validation analyses run once per cell class.
+
+**Usage** (called by orchestrator, or directly):
+```bash
+python 09-eqtl-validation.py \
+  --eqtl-dir  /path/to/eqtl_final_outs/my_run \
+  --gene-loc  /path/to/gene_loc_new.txt \
+  --out-dir   /path/to/validation \
+  [--gtex-sn  /path/to/gtex_sn_signif_pairs.txt.gz] \
+  [--atac-bed /path/to/corces_2020_da_atac_peaks.bed.gz] \
+  [--go-bp-gmt /path/to/GO_Biological_Process_2025.gmt] \
+  [--go-mf-gmt /path/to/GO_Molecular_Function_2025.gmt] \
+  [--padj-thresh 0.05] \
+  [--threads 4]
+```
+
+**Analyses:**
+
+| # | Module | Description |
+|---|--------|-------------|
+| 1 | `qq_lambda` | QQ plot + λ_GC stratified by MAF bin (`<0.10`, `0.10–0.25`, `0.25–0.50`) |
+| 2 | `pi1_replication` | π₁ replication rate vs GTEx v8 Brain_Substantia_nigra; Storey's method with bootstrap CI |
+| 3 | `effect_size_maf` | Mean \|β\| vs MAF bins; hexbin scatter + line overlay (all tested vs significant) |
+| 4 | `tss_enrichment` | Histogram + fold-enrichment of sig SNPs in TSS distance bins |
+| 5 | `atac_enrichment` | Fisher's exact OR for sig SNPs vs Corces 2020 ATAC peaks, per brain cell type |
+| 6 | `egene_chrom` | eGenes per chromosome: raw count + normalized (sig/total); chr6 + chr17 annotated |
+| 7 | `go_enrichment` | GO-BP and GO-MF enrichment of eGenes (gseapy; lollipop plot) |
+| 8 | `cis_distance` | Lead eQTL SNP cis-distance histogram (log₁₀ scale) with median and 90th pctile |
+| 9 | `eqtl_per_gene` | Distribution of eSNPs per eGene (log₁₀ histogram) |
+| 10 | `top_snp_fraction` | Rank of top significant SNP within gene; well-calibrated FDR → most at rank 1 |
+
+**Orchestrator args:**
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--gtex-sn-eqtl` | `{SANDBOX}/resources/gtex_sn_signif_pairs.txt.gz` | GTEx SN significant pairs (downloaded by setup.sh) |
+| `--atac-bed` | `{SANDBOX}/resources/corces_2020_da_atac_peaks.bed.gz` | Corces 2020 ATAC peaks (downloaded by setup.sh) |
+| `--validation-out-dir` | `{OSCA_OUTPUT_DIR}/validation` | Validation output root |
+
+**Outputs per cell class** (`{OSCA_OUTPUT_DIR}/validation/{cell_class}/`):
+```
+qq_by_maf_bin.{png,svg,csv}        qq_by_maf_bin_4panel.{png,svg}
+pi1_gtex_sn.{png,svg,csv}
+effect_size_vs_maf.{png,svg,csv}
+tss_enrichment.{png,svg,csv}
+atac_enrichment.{png,svg,csv}
+egene_per_chrom.{png,svg,csv}
+go_enrichment.{png,svg}  go_enrichment_BP.csv  go_enrichment_MF.csv
+cis_distance.{png,svg,csv}
+eqtls_per_gene.{png,svg,csv}
+top_snp_fraction.{png,svg,csv}
+```
+
+---
+
+### Step 10: `gcloud storage cp -r` (optional)
 
 Archives the entire `--osca-input-dir` (inputs + all outputs) to:
 `gs://macosko_data/ferris/eqtl_outs/{pipeline_slogan}/`
+
+(Previously step 8; renumbered to accommodate steps 8 and 9.)
+
+---
+
+## Downloaded Resources (`setup.sh`)
+
+`setup.sh` downloads two reference datasets to `${SANDBOX}/resources/`:
+
+| File | Source | Size | Used by |
+|------|--------|------|---------|
+| `gtex_sn_signif_pairs.txt.gz` | GTEx v8 Brain_Substantia_nigra significant variant-gene pairs | ~5 MB | Step 9 π₁ analysis |
+| `corces_2020_da_atac_peaks.bed.gz` | Corces 2020 snATAC-seq peaks (GSE147672) | ~5 MB | Step 9 ATAC enrichment |
+
+If either download fails, provide the file manually at the expected path and re-run setup.sh (it will skip already-present files).
 
 ---
 
@@ -496,7 +607,10 @@ Use `--start-at-step` and `--stop-after-step` to run subsets of the pipeline:
 | Just run OSCA (inputs already formatted) | `--start-at-step 3 --stop-after-step 3` |
 | Process outputs only (OSCA done) | `--start-at-step 5 --stop-after-step 7` |
 | Re-run mashr only | `--start-at-step 7` |
-| Skip GCS backups (steps 4 and 8) | `--start-at-step 1 --stop-after-step 7` |
+| Run SMR only | `--start-at-step 8 --stop-after-step 8 --smr-gwas ... --smr-bfile ...` |
+| Run validation only | `--start-at-step 9 --stop-after-step 9` |
+| Skip GCS backups (steps 4 and 10) | `--start-at-step 1 --stop-after-step 9` |
+| Full pipeline with SMR + validation | *(default; add `--smr-gwas` + `--smr-bfile` to enable step 8)* |
 
 Note: step 1 uses `--start-at-step` without `--stop-after-step` check (always runs if `START_AT_STEP <= 1`). All other steps check both flags.
 

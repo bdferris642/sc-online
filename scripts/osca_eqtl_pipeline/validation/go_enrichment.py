@@ -120,22 +120,25 @@ def run(df: pd.DataFrame, out_dir: Path, gene_loc_df=None,
         print(f"  [go_enrichment] GMT files not found — skipping.")
         return
 
-    # Build Entrez → symbol map from gene_loc
-    entrez_to_sym: Dict[str, str] = {}
-    if gene_loc_df is not None:
-        # gene_loc named cols: entrez, chr, TSS, symbol, strand
-        for _, row in gene_loc_df.iterrows():
-            entrez_to_sym[str(row["entrez"])] = str(row["symbol"])
-
     padj_gene = df.get("padj_gene", pd.Series(np.nan, index=df.index))
-    sig_df = df[padj_gene < padj_thresh].drop_duplicates(subset=["Gene"])
-    all_df = df.drop_duplicates(subset=["Gene"])
+    sig_df = df[padj_gene < padj_thresh].drop_duplicates(subset=["ensg_id"])
+    all_df = df.drop_duplicates(subset=["ensg_id"])
 
-    sig_syms = [entrez_to_sym.get(str(g), str(g)) for g in sig_df["Gene"].astype(str)]
-    bg_syms = [entrez_to_sym.get(str(g), str(g)) for g in all_df["Gene"].astype(str)]
-    # Remove unknowns
-    sig_syms = [s for s in sig_syms if not s.startswith("nan")]
-    bg_syms = [s for s in bg_syms if not s.startswith("nan")]
+    # Use gene_symbol column for GMT lookup (display-only); ensg_id identifies the gene
+    def _to_sym(row_df: "pd.DataFrame") -> "List[str]":
+        """Return symbol list from gene_symbol col (fallback: gene_loc_v2, then skip)."""
+        if "gene_symbol" in row_df.columns:
+            syms = row_df["gene_symbol"].astype(str).tolist()
+        elif gene_loc_df is not None:
+            sym_map = dict(zip(gene_loc_df["ensg_id"].astype(str),
+                               gene_loc_df["gene_symbol"].astype(str)))
+            syms = [sym_map.get(str(g), "nan") for g in row_df["ensg_id"].astype(str)]
+        else:
+            syms = ["nan"] * len(row_df)
+        return [s for s in syms if s not in ("nan", "None", "")]
+
+    sig_syms = _to_sym(sig_df)
+    bg_syms  = _to_sym(all_df)
 
     if len(sig_syms) < 5:
         print(f"  [go_enrichment] Only {len(sig_syms)} sig gene symbols — skipping.")

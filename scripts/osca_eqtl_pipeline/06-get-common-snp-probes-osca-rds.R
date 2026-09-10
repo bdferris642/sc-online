@@ -37,7 +37,7 @@ for (slogan in names(files)) {
     cat(paste0("READING ", slogan, "\n"))
     rds = readRDS(files[[slogan]])
     rds$cell_class = slogan
-    rds$SNP_probe = paste(rds$SNP, rds$Probe, sep="_")
+    rds$SNP_probe = paste(rds$SNP, rds$ensg_id, sep="_")
     rds_list[[slogan]] = rds
 
     this_snp_probe_set = unique(rds$SNP_probe)

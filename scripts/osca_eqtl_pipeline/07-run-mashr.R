@@ -145,10 +145,20 @@ data.strong = mash_set_data(
 )
 
 cat("RUNNING PCA\n")
-# Use strong tests to set up data-driven covariances
-U.pca = cov_pca(data.strong,5)
-U.ed = cov_ed(data.strong, U.pca)
+# Use strong tests to set up data-driven covariances.
+# cov_pca requires npc > 1 which needs n_conditions >= 3.
+# With fewer conditions, skip data-driven covariances and use canonical only.
+n_cond = ncol(eqtl_wide_b)
+npc_use = min(5L, n_cond - 1L)
 U.c = cov_canonical(data.random)
+if (npc_use >= 2L) {
+    U.pca = cov_pca(data.strong, npc_use)
+    U.ed  = cov_ed(data.strong, U.pca)
+} else {
+    cat("  Skipping data-driven covariances: n_conditions =", n_cond, "(< 3)\n")
+    U.pca = list()
+    U.ed  = list()
+}
 
 cat("SETTING UP CUSTOM COVARIANCES\n")
 # FIX: replaced hard-coded per-column which() calls with a config list + helper.
@@ -160,22 +170,24 @@ cat("SETTING UP CUSTOM COVARIANCES\n")
 NEURON_CLASSES <- c("da", "nonda")
 GLIA_CLASSES   <- c("astro", "mg", "oligo")
 
-# Helper: return column indices for a set of class names; stop if none found.
+# Helper: return column indices for a set of class names.
+# Returns NULL (with a warning) if none are found — custom covariance is skipped.
 get_col_inds <- function(class_names, mat) {
     inds <- which(colnames(mat) %in% class_names)
     if (length(inds) == 0) {
-        stop(paste0(
+        warning(paste0(
             "None of the expected cell classes [",
             paste(class_names, collapse = ", "),
-            "] were found in the data columns [",
+            "] found in [",
             paste(colnames(mat), collapse = ", "),
-            "]. Check NEURON_CLASSES / GLIA_CLASSES config."
+            "] — custom covariance will be skipped."
         ))
+        return(NULL)
     }
     missing <- setdiff(class_names, colnames(mat))
     if (length(missing) > 0) {
         warning(paste0(
-            "Some expected cell classes not found in data and will be skipped: ",
+            "Some expected cell classes not found and will be skipped: ",
             paste(missing, collapse = ", ")
         ))
     }
@@ -187,19 +199,22 @@ n_classes <- ncol(eqtl_wide_b)
 neuron_inds <- get_col_inds(NEURON_CLASSES, eqtl_wide_b)
 glia_inds   <- get_col_inds(GLIA_CLASSES,   eqtl_wide_b)
 
-cat("Neuron class columns:", paste(colnames(eqtl_wide_b)[neuron_inds], collapse=", "), "\n")
-cat("Glia class columns:  ", paste(colnames(eqtl_wide_b)[glia_inds],   collapse=", "), "\n")
+cat("Neuron class columns:", if (!is.null(neuron_inds)) paste(colnames(eqtl_wide_b)[neuron_inds], collapse=", ") else "none", "\n")
+cat("Glia class columns:  ", if (!is.null(glia_inds))   paste(colnames(eqtl_wide_b)[glia_inds],   collapse=", ") else "none", "\n")
 
-neurons_only <- matrix(0, nrow = n_classes, ncol = n_classes)
-neurons_only[neuron_inds, neuron_inds] <- 1
-
-glia_only <- matrix(0, nrow = n_classes, ncol = n_classes)
-glia_only[glia_inds, glia_inds] <- 1
-
-U.custom = list(
-    neurons_only = neurons_only,
-    glia_only = glia_only
-)
+U.custom = list()
+if (!is.null(neuron_inds)) {
+    neurons_only <- matrix(0, nrow = n_classes, ncol = n_classes)
+    neurons_only[neuron_inds, neuron_inds] <- 1
+    U.custom[["neurons_only"]] <- neurons_only
+}
+if (!is.null(glia_inds)) {
+    glia_only <- matrix(0, nrow = n_classes, ncol = n_classes)
+    glia_only[glia_inds, glia_inds] <- 1
+    U.custom[["glia_only"]] <- glia_only
+}
+if (length(U.custom) == 0)
+    cat("  No custom covariances (cell class names don't match config — canonical only)\n")
 
 cat("FITTING MASH -- RANDOM DATA\n")
 m = mash(data.random, Ulist = c(U.ed,U.c,U.custom))
