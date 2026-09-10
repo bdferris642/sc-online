@@ -161,43 +161,16 @@ if (npc_use >= 2L) {
 }
 
 cat("SETTING UP CUSTOM COVARIANCES\n")
-# FIX: replaced hard-coded per-column which() calls with a config list + helper.
-# The helper stops immediately with a clear message if any required cell class
-# is absent from the data, rather than silently returning an empty index.
+# Cell classes containing "neuron" (case-insensitive) are treated as neurons;
+# all remaining classes are treated as glia.
 
-# --- Cell-class groupings for custom covariances ---
-# Edit these vectors if your experiment uses different cell classes.
-NEURON_CLASSES <- c("da", "nonda")
-GLIA_CLASSES   <- c("astro", "mg", "oligo")
+n_classes   <- ncol(eqtl_wide_b)
+all_classes <- colnames(eqtl_wide_b)
 
-# Helper: return column indices for a set of class names.
-# Returns NULL (with a warning) if none are found — custom covariance is skipped.
-get_col_inds <- function(class_names, mat) {
-    inds <- which(colnames(mat) %in% class_names)
-    if (length(inds) == 0) {
-        warning(paste0(
-            "None of the expected cell classes [",
-            paste(class_names, collapse = ", "),
-            "] found in [",
-            paste(colnames(mat), collapse = ", "),
-            "] — custom covariance will be skipped."
-        ))
-        return(NULL)
-    }
-    missing <- setdiff(class_names, colnames(mat))
-    if (length(missing) > 0) {
-        warning(paste0(
-            "Some expected cell classes not found and will be skipped: ",
-            paste(missing, collapse = ", ")
-        ))
-    }
-    inds
-}
-
-n_classes <- ncol(eqtl_wide_b)
-
-neuron_inds <- get_col_inds(NEURON_CLASSES, eqtl_wide_b)
-glia_inds   <- get_col_inds(GLIA_CLASSES,   eqtl_wide_b)
+neuron_inds <- grep("neuron", all_classes, ignore.case = TRUE)
+glia_inds   <- setdiff(seq_len(n_classes), neuron_inds)
+if (length(glia_inds)   == 0) glia_inds   <- NULL
+if (length(neuron_inds) == 0) neuron_inds <- NULL
 
 cat("Neuron class columns:", if (!is.null(neuron_inds)) paste(colnames(eqtl_wide_b)[neuron_inds], collapse=", ") else "none", "\n")
 cat("Glia class columns:  ", if (!is.null(glia_inds))   paste(colnames(eqtl_wide_b)[glia_inds],   collapse=", ") else "none", "\n")

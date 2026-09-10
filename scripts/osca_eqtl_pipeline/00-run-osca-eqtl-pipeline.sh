@@ -169,24 +169,32 @@ if [ -z "$PARTICIPANT_FNAME" ] && [ -z "$ID_MAP_PATH" ]; then
 fi
 
 
-# include date in log filenames
-DATE_TIME=$(date +'%Y-%m-%d_%H-%M-%S')
-GOOGLE_BUCKET=gs://macosko_data/ferris/eqtl_outs/$PIPELINE_SLOGAN
-LOG_DIR="${OSCA_INPUT_DIR}/logs"
-mkdir -p "$LOG_DIR"
-LOG_FNAME="${LOG_DIR}/osca_eqtl_pipeline_${PIPELINE_SLOGAN}_${DATE_TIME}.log"
-# redirect stdout and stderr to log file and terminal
-exec > >(tee -i "$LOG_FNAME") 2>&1
-echo "Logging to: $LOG_FNAME"
-
-# store git branch and commit hash to log file so pipeline can be replicated later
-branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
-commit_hash=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
-
-echo "Branch: $branch"
-echo "Commit: $commit_hash"
-
-OSCA_OUTPUT_DIR=$OSCA_INPUT_DIR/eqtl_final_outs/$PIPELINE_SLOGAN
+  +# include date in log filenames                                                                                               
+  +DATE_TIME=$(date +'%Y-%m-%d_%H-%M-%S')                                                                                        
+  +GOOGLE_BUCKET=gs://macosko_data/ferris/eqtl_outs/$PIPELINE_SLOGAN                                                             
+  +                                                                                                                              
+  +# Derive and create output dir now so the primary log can live inside it.                                                     
+  +OSCA_OUTPUT_DIR=$OSCA_INPUT_DIR/eqtl_final_outs/$PIPELINE_SLOGAN                                                              
+  +mkdir -p "$OSCA_OUTPUT_DIR"                                                                                                   
+  +                                                                                                                              
+  +# Primary log: inside the run output dir (provenance co-located with results).                                                
+  +LOG_FNAME="${OSCA_OUTPUT_DIR}/pipeline_run_${DATE_TIME}.log"                                                                  
+  +# Secondary log: shared global log dir (for quick cross-run comparison).                                                      
+  +GLOBAL_LOG_DIR="/mnt/accessory/analysis/eqtl/logs"                                                                            
+  +mkdir -p "$GLOBAL_LOG_DIR" 2>/dev/null || true                                                                                
+  +GLOBAL_LOG_FNAME="${GLOBAL_LOG_DIR}/osca_eqtl_pipeline_${PIPELINE_SLOGAN}_${DATE_TIME}.log"                                   
+  +                                                                                                                              
+  # Tee stdout+stderr to both log files and the terminal.
+  exec > >(tee -i "$LOG_FNAME" "$GLOBAL_LOG_FNAME") 2>&1
+  echo "Logging to (primary):  $LOG_FNAME"
+  echo "Logging to (global):   $GLOBAL_LOG_FNAME"
+  
+  # store git branch and commit hash to log file so pipeline can be replicated later
+  branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+  commit_hash=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+  
+  echo "Branch: $branch"
+  echo "Commit: $commit_hash"
 
 if [ ! -d "$PB_OUTPUT_DIR" ]; then
     mkdir -p "$PB_OUTPUT_DIR"
