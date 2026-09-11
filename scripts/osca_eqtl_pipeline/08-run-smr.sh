@@ -140,6 +140,7 @@ for RDS in "${RDS_FILES[@]}"; do
             suppressMessages(library(dplyr))
             tsv <- read.table('${EQTL_TSV}', header=TRUE, sep='\t', stringsAsFactors=FALSE)
             qfile <- tsv %>%
+                rename(any_of(c(Probe='ensg_id', Gene='gene_symbol'))) %>%
                 filter(grepl('^rs', SNP)) %>%
                 select(SNP, Chr, BP, A1, A2, Freq, Probe, Probe_Chr, Probe_bp,
                        Gene, Orientation, b, se=SE, p)
@@ -152,6 +153,7 @@ for RDS in "${RDS_FILES[@]}"; do
             suppressMessages(library(dplyr))
             rds <- readRDS('${RDS}')
             qfile <- rds %>%
+                rename(any_of(c(Probe='ensg_id', Gene='gene_symbol'))) %>%
                 filter(grepl('^rs', SNP)) %>%
                 select(SNP, Chr, BP, A1, A2, Freq, Probe, Probe_Chr, Probe_bp,
                        Gene, Orientation, b, se=SE, p)

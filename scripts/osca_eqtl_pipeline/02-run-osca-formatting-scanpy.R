@@ -259,11 +259,16 @@ for (cc in common_prefixes) {
 
     pcs = as.data.frame(top_30_pcs) %>% rownames_to_column("participant_id") %>%
         mutate(participant_id = as.character(participant_id))
+    # Drop any metadata columns from the composition file that overlap with CAT_COVARS/QUANT_COVARS.
+    # The composition CSV written by step 01 includes all obs metadata columns alongside the cell-class
+    # count column. Keeping them causes merge() to produce .x/.y suffixes for the conflicting names,
+    # which makes the downstream constant-covariate check see NULL for every covariate and drop all of them.
     clusters =  (
         read.csv(cfile) %>%
         filter(X %in% colnames(edata)) %>%
         rename(participant_id=X) %>%
-        mutate(participant_id = as.character(participant_id)))
+        mutate(participant_id = as.character(participant_id)) %>%
+        select(participant_id, -any_of(c(CAT_COVARS, QUANT_COVARS))))
 
     print("Merging metadata and svs with pcs:")
     scaled_quant_covars = if (length(QUANT_COVARS) > 0) paste0(QUANT_COVARS, "_scaled") else character(0)

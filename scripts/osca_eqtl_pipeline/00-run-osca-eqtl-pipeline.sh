@@ -428,8 +428,16 @@ if [ $START_AT_STEP -le 9 ] && [ $STOP_AFTER_STEP -ge 9 ]; then
     echo "************************************* eQTL VALIDATION (parallel per CC) **********"
     VALIDATION_OUT="${VALIDATION_OUT:-${OSCA_OUTPUT_DIR}/validation}"
     mkdir -p "${VALIDATION_OUT}"
-    _GTEX="${GTEX_SN_EQTL:-${SANDBOX}/resources/gtex_sn_signif_pairs.txt.gz}"
+    #_GTEX="${GTEX_SN_EQTL:-${SANDBOX}/resources/gtex_sn_signif_pairs.txt.gz}"
+    # hardcode for now
+    _GTEX="${GTEX_SN_EQTL:-/home/ferris/sc-online/scripts/osca_eqtl_pipeline/Brain_Substantia_nigra.v8.signif_variant_gene_pairs.txt.gz}"
     _ATAC="${ATAC_BED:-${SANDBOX}/resources/corces_2020_da_atac_peaks.bed.gz}"
+
+    # hardcode these 
+    # _GO_BP="${SANDBOX}/gene_sets/GO_Biological_Process_2025.gmt"
+    # _GO_MF="${SANDBOX}/gene_sets/GO_Molecular_Function_2025.gmt"
+    _GO_BP=/home/ferris/sc-online/genesets/latest/GO_Biological_Process_2025.gmt
+    _GO_MF=/home/ferris/sc-online/genesets/latest/GO_Molecular_Function_2025.gmt
 
     # Discover cell classes from eqtl_*.rds (exclude _sig and present_in_all)
     # Launch one background process per CC; bash `wait` provides the parallelism.
@@ -450,8 +458,8 @@ if [ $START_AT_STEP -le 9 ] && [ $STOP_AFTER_STEP -ge 9 ]; then
             --pb-output-dir "${PB_OUTPUT_DIR}" \
             --gtex-sn       "${_GTEX}" \
             --atac-bed      "${_ATAC}" \
-            --go-bp-gmt     "${SANDBOX}/gene_sets/GO_Biological_Process_2025.gmt" \
-            --go-mf-gmt     "${SANDBOX}/gene_sets/GO_Molecular_Function_2025.gmt" \
+            --go-bp-gmt     "${_GO_BP}" \
+            --go-mf-gmt     "${_GO_MF}" \            
             --out-dir       "${VALIDATION_OUT}" \
             --cell-class    "${CC}" \
             > "${LOG}" 2>&1 &
