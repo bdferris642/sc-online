@@ -459,7 +459,7 @@ if [ $START_AT_STEP -le 9 ] && [ $STOP_AFTER_STEP -ge 9 ]; then
             --gtex-sn       "${_GTEX}" \
             --atac-bed      "${_ATAC}" \
             --go-bp-gmt     "${_GO_BP}" \
-            --go-mf-gmt     "${_GO_MF}" \            
+            --go-mf-gmt     "${_GO_MF}" \
             --out-dir       "${VALIDATION_OUT}" \
             --cell-class    "${CC}" \
             > "${LOG}" 2>&1 &
