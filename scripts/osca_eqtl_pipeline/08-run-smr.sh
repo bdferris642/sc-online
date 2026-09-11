@@ -159,9 +159,20 @@ for RDS in "${RDS_FILES[@]}"; do
         "${RSCRIPT}" --no-save --no-restore -e "
             suppressMessages(library(dplyr))
             rds <- readRDS('${RDS}')
+            # Symbols that map to >1 ENSG in this dataset are non-unique probe labels;
+            # fall back to ENSG for those to avoid duplicate SNP+Probe rows in the qfile.
+            dup_symbols <- rds %>%
+                filter(!is.na(gene_symbol)) %>%
+                distinct(ensg_id, gene_symbol) %>%
+                count(gene_symbol) %>%
+                filter(n > 1) %>%
+                pull(gene_symbol)
+            if (length(dup_symbols) > 0)
+                cat(sprintf('  NOTE: %d symbol(s) map to multiple ENSGs; using ENSG as Probe for those.\n', length(dup_symbols)))
             qfile <- rds %>%
                 mutate(
-                    Probe = dplyr::coalesce(gene_symbol, ensg_id),
+                    Probe = ifelse(!is.na(gene_symbol) & !(gene_symbol %in% dup_symbols),
+                                   gene_symbol, ensg_id),
                     Gene  = ensg_id
                 ) %>%
                 filter(grepl('^rs', SNP)) %>%

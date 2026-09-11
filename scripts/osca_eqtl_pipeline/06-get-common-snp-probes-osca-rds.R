@@ -21,9 +21,9 @@ base = opt[["base"]]
 PADJ_THRESH = if (is.null(opt[["padj-thresh"]])) 0.05 else opt[["padj-thresh"]]
 cat("padj threshold for sig_in_one:", PADJ_THRESH, "\n")
 
-# list files in base ending in .rds, NOT ending in _sig.rds
-files = list.files(base, pattern = "\\.rds$", full.names = T)
-files = files[!grepl("_sig.rds", files)]
+# Only read per-cell-class eqtl_{cc}.rds files; exclude _sig.rds, present_in_all, and mash outputs
+files = list.files(base, pattern = "^eqtl_.+\\.rds$", full.names = TRUE)
+files = files[!grepl("_sig\\.rds$|present_in_all", files)]
 
 names(files) = sapply(files, get_fname_slogan)
 
