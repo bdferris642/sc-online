@@ -406,6 +406,11 @@ for (cc in common_prefixes) {
                         names(clusters)[-1]),
                 paste0(OUTPUT_DIR, "/cov2_", cc, ".txt"),
                 quote = FALSE, sep = "\t", row.names = FALSE)
+
+    # Restore originals so per-CC constant drops don't bleed into subsequent cell classes
+    CAT_COVARS          <- orig_cat_covars
+    QUANT_COVARS        <- orig_quant_covars
+    scaled_quant_covars <- if (length(QUANT_COVARS) > 0) paste0(QUANT_COVARS, "_scaled") else character(0)
 }
 
 

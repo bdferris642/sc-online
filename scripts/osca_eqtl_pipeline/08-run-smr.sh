@@ -173,12 +173,8 @@ for RDS in "${RDS_FILES[@]}"; do
     fi
 
     # ── Step 2: create BESD (SMR binary eQTL format) ──────────────────────────
-    if [ ! -f "${PREFIX}.besd" ]; then
-        echo "[${CC}] Creating BESD file ..."
-        "${SMR_BIN}" --qfile "${QFILE}" --make-besd --out "${PREFIX}"
-    else
-        echo "[${CC}] BESD already exists: ${PREFIX}.besd"
-    fi
+    echo "[${CC}] Creating BESD file ..."
+    "${SMR_BIN}" --qfile "${QFILE}" --make-besd --out "${PREFIX}"
 
     # ── Step 3: run SMR + HEIDI ───────────────────────────────────────────────
     echo "[${CC}] Running SMR + HEIDI ..."

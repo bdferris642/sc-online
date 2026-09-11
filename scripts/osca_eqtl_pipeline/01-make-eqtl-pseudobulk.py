@@ -153,6 +153,11 @@ for file in input_files:
     adata.obs.loc[mask, "study"] = "Estiar"
     print(f"ONE-OFF: normalized {mask.sum()} cells with study containing 'Estiar' to 'Estiar'.")
 
+    # ONE-OFF: if brain_bank contains "aryland", normalize to "Maryland"
+    mask = adata.obs["brain_bank"].str.contains("aryland", na=False)
+    adata.obs.loc[mask, "brain_bank"] = "Maryland"
+    print(f"ONE-OFF: normalized {mask.sum()} cells with brain_bank containing 'aryland' to 'Maryland'.")
+
     # Determine cell type. If multiple are present, keep only the majority class.
     cell_classes = adata.obs[CT_ID].unique().tolist()
     if len(cell_classes) != 1:
