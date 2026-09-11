@@ -139,8 +139,15 @@ for RDS in "${RDS_FILES[@]}"; do
         "${RSCRIPT}" --no-save --no-restore -e "
             suppressMessages(library(dplyr))
             tsv <- read.table('${EQTL_TSV}', header=TRUE, sep='\t', stringsAsFactors=FALSE)
+            # TSV Probe column = ENSG; no gene_symbol available — symbols come from step 5 RDS.
+            # Gene col in OSCA TSV may also be ENSG or NA; treat as unavailable.
             qfile <- tsv %>%
-                rename(any_of(c(Probe='ensg_id', Gene='gene_symbol'))) %>%
+                rename(ensg_id = Probe) %>%
+                mutate(
+                    gene_symbol = NA_character_,
+                    Probe = dplyr::coalesce(gene_symbol, ensg_id),
+                    Gene  = ensg_id
+                ) %>%
                 filter(grepl('^rs', SNP)) %>%
                 select(SNP, Chr, BP, A1, A2, Freq, Probe, Probe_Chr, Probe_bp,
                        Gene, Orientation, b, se=SE, p)
@@ -153,7 +160,10 @@ for RDS in "${RDS_FILES[@]}"; do
             suppressMessages(library(dplyr))
             rds <- readRDS('${RDS}')
             qfile <- rds %>%
-                rename(any_of(c(Probe='ensg_id', Gene='gene_symbol'))) %>%
+                mutate(
+                    Probe = dplyr::coalesce(gene_symbol, ensg_id),
+                    Gene  = ensg_id
+                ) %>%
                 filter(grepl('^rs', SNP)) %>%
                 select(SNP, Chr, BP, A1, A2, Freq, Probe, Probe_Chr, Probe_bp,
                        Gene, Orientation, b, se=SE, p)

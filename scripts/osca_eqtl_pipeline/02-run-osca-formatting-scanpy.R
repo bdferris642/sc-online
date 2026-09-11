@@ -270,6 +270,19 @@ for (cc in common_prefixes) {
         mutate(participant_id = as.character(participant_id)) %>%
         select(participant_id, -any_of(c(CAT_COVARS, QUANT_COVARS))))
 
+    # --- DIAGNOSTIC LOGGING ---
+    cat(sprintf("[%s] clusters columns (%d): %s\n", cc, ncol(clusters),
+                paste(colnames(clusters), collapse=", ")))
+    conflict_with_covs <- intersect(colnames(clusters), c(CAT_COVARS, QUANT_COVARS))
+    if (length(conflict_with_covs) > 0)
+        warning(paste0("[", cc, "] clusters still has covariate-overlapping columns (will cause .x/.y rename): ",
+                       paste(conflict_with_covs, collapse=", ")))
+
+    cat(sprintf("[%s] covs1: %d rows; sample participant_ids: %s\n", cc, nrow(covs1),
+                paste(head(covs1$participant_id, 3), collapse=", ")))
+    cat(sprintf("[%s] pcs: %d rows; genotype_pcs: %d rows; phenotype: %d rows\n",
+                cc, nrow(pcs), nrow(genotype_pcs), nrow(phenotype)))
+
     print("Merging metadata and svs with pcs:")
     scaled_quant_covars = if (length(QUANT_COVARS) > 0) paste0(QUANT_COVARS, "_scaled") else character(0)
     masterdf = merge(
@@ -282,6 +295,33 @@ for (cc in common_prefixes) {
                           ~ (. - min(., na.rm = TRUE)) / (max(., na.rm = TRUE) - min(., na.rm = TRUE)),
                           .names = "{.col}_scaled")),
         clusters, by = "participant_id")
+
+    # --- DIAGNOSTIC LOGGING: masterdf integrity check ---
+    cat(sprintf("[%s] masterdf: %d rows, %d cols\n", cc, nrow(masterdf), ncol(masterdf)))
+    conflict_cols <- grep("\\.x$|\\.y$", colnames(masterdf), value=TRUE)
+    if (length(conflict_cols) > 0)
+        warning(paste0("[", cc, "] masterdf has .x/.y columns from name conflicts: ",
+                       paste(conflict_cols, collapse=", "),
+                       " — affected covariates will appear NULL in the constant check!"))
+    for (v in CAT_COVARS) {
+        val <- masterdf[[v]]
+        if (is.null(val)) {
+            cat(sprintf("[%s]   [WARN] CAT_COVAR '%s' is NULL in masterdf (name conflict)\n", cc, v))
+        } else {
+            uniq <- unique(na.omit(val))
+            cat(sprintf("[%s]   CAT_COVAR '%s': %d unique = {%s}\n", cc, v,
+                        length(uniq), paste(head(uniq, 6), collapse=", ")))
+        }
+    }
+    for (v in QUANT_COVARS) {
+        val <- masterdf[[v]]
+        if (is.null(val)) {
+            cat(sprintf("[%s]   [WARN] QUANT_COVAR '%s' is NULL in masterdf (name conflict)\n", cc, v))
+        } else {
+            cat(sprintf("[%s]   QUANT_COVAR '%s': range [%.2f, %.2f], %d unique\n", cc, v,
+                        min(val, na.rm=TRUE), max(val, na.rm=TRUE), length(unique(na.omit(val)))))
+        }
+    }
 
     # Drop covariates with a single unique value across participants in this cell class.
     # Constant covariates cause rank deficiency in model.matrix() and must be excluded.
@@ -345,8 +385,8 @@ for (cc in common_prefixes) {
                 paste0(OUTPUT_DIR, "/Phenotype_", cc, "_osca.txt"),
                 quote = FALSE, sep = "\t", row.names = FALSE)
 
-    # .opi: chr, NAME (gene_symbol or ENSG fallback), TSS, probe (ENSG), strand
-    write.table(merged_data %>% select(chr, opi_name, TSS, ensg_id, strand),
+    # .opi: chr, ProbeID (ENSG — must match BOD probe IDs), TSS, GeneName (gene_symbol or ENSG fallback), strand
+    write.table(merged_data %>% select(chr, ensg_id, TSS, opi_name, strand),
                     paste0(OUTPUT_DIR, "/Upprobe_", cc, ".opi"),
                 quote = FALSE, sep = "\t", row.names = FALSE, col.names = FALSE)
 
