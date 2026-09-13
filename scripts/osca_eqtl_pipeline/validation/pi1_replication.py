@@ -60,15 +60,20 @@ def run(df: pd.DataFrame, out_dir: Path, gene_loc_df=None, gtex_sn=None, **kwarg
     df_match = df[["ensg_id", "Chr", "BP", "p", "SNP"]
                   + (["gene_symbol"] if "gene_symbol" in df.columns else [])].copy()
     df_match["ensg_id"] = df_match["ensg_id"].astype(str).astype(object)
-    df_match["Chr"] = df_match["Chr"].astype(str).astype(object)
+    # Normalize Chr: strip ".0" suffix from float-typed int columns (e.g. 9.0 → "9")
+    df_match["Chr"] = (df_match["Chr"].astype(str)
+                       .str.replace(r"\.0$", "", regex=True)
+                       .astype(object))
     df_match["BP"] = pd.to_numeric(df_match["BP"], errors="coerce")
-    df_match = df_match.dropna(subset=["BP"]).sort_values(["ensg_id", "Chr", "BP"])
+    df_match = df_match.dropna(subset=["BP"])
+    df_match["BP"] = df_match["BP"].astype(np.int64)
+    df_match = df_match.sort_values("BP")  # merge_asof requires global sort on 'on' key
 
     gtex_s = gtex_matched[["ensg_base", "chrom", "pos", "pval_nominal"]].copy()
     gtex_s["pos"] = gtex_s["pos"].astype(int)
     gtex_s["chrom"] = gtex_s["chrom"].astype(object)
     gtex_s["ensg_base"] = gtex_s["ensg_base"].astype(object)
-    gtex_s = gtex_s.sort_values(["ensg_base", "chrom", "pos"])
+    gtex_s = gtex_s.sort_values("pos")  # merge_asof requires global sort on 'on' key
 
     # merge_asof matches each eQTL row to the nearest GTEx position within ±10 bp,
     # on the same (ensg_id, Chr) key.

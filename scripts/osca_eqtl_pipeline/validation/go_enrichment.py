@@ -61,19 +61,24 @@ def _load_gmt_filtered(gmt_path: Path, min_size: int, max_size: int) -> Dict[str
 def _run_enrich(
     gene_list:   List[str],
     background:  List[str],
-    gene_sets,
+    gmt_path:    Path,
     label:       str,
     out_dir:     Path,
     min_overlap: int = 3,
+    min_size:    int = 10,
+    max_size:    int = 200,
 ) -> pd.DataFrame | None:
     import logging as _logging
     _gseapy_log = _logging.getLogger("gseapy")
     _prev_level  = _gseapy_log.level
     _gseapy_log.setLevel(_logging.CRITICAL)
+    # Guard: ensure gene_list and background contain only non-empty strings
+    gene_list  = [g for g in gene_list  if isinstance(g, str) and g]
+    background = [g for g in background if isinstance(g, str) and g]
     try:
         enr = gp.enrich(
             gene_list  = gene_list,
-            gene_sets  = gene_sets,
+            gene_sets  = str(gmt_path),
             background = background,
             outdir     = None,
             verbose    = False,
@@ -87,9 +92,11 @@ def _run_enrich(
             res = res.sort_values("Adjusted P-value")
         elif "P-value" in res.columns:
             res = res.sort_values("P-value")
-        if "Overlap" in res.columns and min_overlap > 1:
-            overlap_k = res["Overlap"].str.split("/").str[0].astype(int)
-            res = res[overlap_k >= min_overlap].reset_index(drop=True)
+        if "Overlap" in res.columns:
+            overlap_k = res["Overlap"].astype(str).str.split("/").str[0]
+            overlap_k = pd.to_numeric(overlap_k, errors="coerce").fillna(0).astype(int)
+            if min_overlap > 1:
+                res = res[overlap_k >= min_overlap].reset_index(drop=True)
         if res.empty:
             return None
         res.to_csv(out_dir / f"go_enrichment_{label}.csv", index=False)
@@ -151,8 +158,8 @@ def run(df: pd.DataFrame, out_dir: Path, gene_loc_df=None,
     for label, gmt_path in [("BP", go_bp_gmt), ("MF", go_mf_gmt)]:
         ann_genes = _annotated_genes_from_gmt(gmt_path)
         bg_filtered = [g for g in bg_syms if g in ann_genes]
-        gene_sets = _load_gmt_filtered(gmt_path, min_size, max_size)
-        res = _run_enrich(sig_syms, bg_filtered, gene_sets, label, out_dir, min_overlap)
+        res = _run_enrich(sig_syms, bg_filtered, gmt_path, label, out_dir,
+                          min_overlap, min_size, max_size)
         results[label] = res
 
     # Lollipop plot: top 20 terms combined
