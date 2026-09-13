@@ -59,13 +59,15 @@ def run(df: pd.DataFrame, out_dir: Path, gene_loc_df=None, gtex_sn=None, **kwarg
     # Vectorized via merge_asof: O((N+M) log N) instead of O(N×M) row iteration.
     df_match = df[["ensg_id", "Chr", "BP", "p", "SNP"]
                   + (["gene_symbol"] if "gene_symbol" in df.columns else [])].copy()
-    df_match["ensg_id"] = df_match["ensg_id"].astype(str)
-    df_match["Chr"] = df_match["Chr"].astype(str)
+    df_match["ensg_id"] = df_match["ensg_id"].astype(str).astype(object)
+    df_match["Chr"] = df_match["Chr"].astype(str).astype(object)
     df_match["BP"] = pd.to_numeric(df_match["BP"], errors="coerce")
     df_match = df_match.dropna(subset=["BP"]).sort_values(["ensg_id", "Chr", "BP"])
 
     gtex_s = gtex_matched[["ensg_base", "chrom", "pos", "pval_nominal"]].copy()
     gtex_s["pos"] = gtex_s["pos"].astype(int)
+    gtex_s["chrom"] = gtex_s["chrom"].astype(object)
+    gtex_s["ensg_base"] = gtex_s["ensg_base"].astype(object)
     gtex_s = gtex_s.sort_values(["ensg_base", "chrom", "pos"])
 
     # merge_asof matches each eQTL row to the nearest GTEx position within ±10 bp,

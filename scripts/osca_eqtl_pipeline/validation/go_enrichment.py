@@ -135,7 +135,8 @@ def run(df: pd.DataFrame, out_dir: Path, gene_loc_df=None,
             syms = [sym_map.get(str(g), "nan") for g in row_df["ensg_id"].astype(str)]
         else:
             syms = ["nan"] * len(row_df)
-        return [s for s in syms if s not in ("nan", "None", "")]
+        _NA_STRS = {"nan", "None", "", "<NA>", "NA", "NaN"}
+        return [s for s in syms if s not in _NA_STRS]
 
     sig_syms = _to_sym(sig_df)
     bg_syms  = _to_sym(all_df)
