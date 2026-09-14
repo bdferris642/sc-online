@@ -27,7 +27,10 @@
 # Outputs (in out-dir):
 #   eqtl_{cell_class}.rds       — full data frame with FDR columns
 #   eqtl_{cell_class}_sig.rds   — significant rows only
-#   plots/eqtl_{cell_class}_manhattan.png
+#   plots/eqtl_{cell_class}_manhattan_capped.png   — y-axis capped at HARD_CAP
+#   plots/eqtl_{cell_class}_manhattan_capped.svg
+#   plots/eqtl_{cell_class}_manhattan_uncapped.png  — y-axis uncapped
+#   plots/eqtl_{cell_class}_manhattan_uncapped.svg
 #   plots/eqtl_{cell_class}_min_p_gene_hist.png
 #   plots/eqtl_{cell_class}_padj_gene_hist.png
 #   plots/eqtl_{cell_class}_pval_hist.png
@@ -90,8 +93,6 @@ FDR_THRESH = 0.05
 cat(paste0("\n READING DataFrame from", PATH, "\n"))
 df = read.table(PATH, header = T, sep = "\t")
 df$BP = as.numeric(df$BP)
-df$negative_log10_p = -log10(df$p)
-df$negative_log10_p[df$negative_log10_p > HARD_CAP] = HARD_CAP
 
 # v2: Probe column = ENSG ID; Gene column = ENSG (duplicate of Probe from .opi probe field)
 # Rename Probe → ensg_id; drop Gene (redundant); add gene_symbol via join.
@@ -148,8 +149,10 @@ df = df %>%
         is_significant_snp = padj_snp < FDR_THRESH
     )
 
-df$negative_log10_padj_snp = -log10(df$padj_snp)
-df$negative_log10_padj_snp[df$negative_log10_padj_snp > HARD_CAP] = HARD_CAP
+df$negative_log10_p_raw        = -log10(df$p)            # raw SNP p; never capped; used for ranking
+
+df$negative_log10_padj_snp_raw = -log10(df$padj_snp)     # uncapped; used for uncapped plot
+df$negative_log10_padj_snp     = pmin(df$negative_log10_padj_snp_raw, HARD_CAP)  # capped plot
 
 df$negative_log10_padj_gene = -log10(df$padj_gene)
 df$negative_log10_padj_gene[df$negative_log10_padj_gene > HARD_CAP] = HARD_CAP
@@ -281,67 +284,127 @@ df_plot = df_plot %>%
 axis_df = chr_info %>%
     mutate(center = tot + chr_len / 2)
 
-# Pick top distinct significant genes by p-value (higher y)
-# Label with gene_symbol; fall back to ensg_id if symbol is NA
+# Pick top 25 annotatable genes for labeling.
+# Rules:
+#   1. Must be a significant eSNP (padj_snp < FDR_THRESH).
+#   2. Exclude genes without a resolved symbol (ENSG fallback), LINCs, antisense (-AS),
+#      divergent transcripts (-DT), and readthrough (-IT/-OT) loci — these clutter plots
+#      without conveying biological meaning.
+#   3. Rank by raw uncapped -log10(p) (not the capped padj_snp column) to break ties
+#      at the hard cap and always surface the most extreme hits.
+#   4. One representative SNP per gene (lowest raw p), top 25.
+JUNK_PATTERN = "^LINC|^ENSG|^AC[0-9]|^AL[0-9]|^AP[0-9]|-AS[0-9]*$|-DT$|-IT[0-9]*$|-OT$"
 top_genes = df_plot %>%
-    filter(negative_log10_padj_snp > -log10(FDR_THRESH)) %>%
-    arrange(desc(negative_log10_padj_snp)) %>%
+    filter(is_significant_snp) %>%
+    filter(!is.na(gene_symbol)) %>%
+    filter(!grepl(JUNK_PATTERN, gene_symbol)) %>%
+    arrange(desc(negative_log10_p_raw)) %>%
     distinct(ensg_id, .keep_all = TRUE) %>%
-    top_n(25, negative_log10_padj_snp) %>%
-    mutate(plot_label = ifelse(!is.na(gene_symbol), gene_symbol, ensg_id))
+    slice_head(n = 25) %>%
+    mutate(plot_label = gene_symbol)
+
+cat(sprintf("  Annotating %d genes in Manhattan plot\n", nrow(top_genes)))
 
 sig_vals = df_plot$negative_log10_padj_snp[df_plot$is_significant_snp]
 yint = if (length(sig_vals) > 0) min(sig_vals) else NA_real_
 
-cat(paste0("\n MAKING MANHATTAN PLOT\n"))
-# Manhattan plot
-m = (
-    ggplot(df_plot, aes(x = BP_cum, y = negative_log10_padj_snp)) +
-    ggtitle(paste0("eQTL Manhattan Plot:\n", cell_class)) +
+# Shared theme and layer factory for the two Manhattan plots
+manhattan_layers = function(df_plot, y_col, y_label, title_suffix, top_genes_y, yint_val) {
+    # y-headroom: 35% above the highest label point so repel has space to work
+    y_max_data  = max(df_plot[[y_col]], na.rm = TRUE)
+    y_max_label = if (nrow(top_genes_y) > 0) max(top_genes_y[[y_col]], na.rm = TRUE) else y_max_data
+    y_ceiling   = max(y_max_data, y_max_label) * 1.35
 
-    # Alternating background rectangles for chromosomes
+    ggplot(df_plot, aes_string(x = "BP_cum", y = y_col)) +
+    ggtitle(paste0("eQTL Manhattan Plot", title_suffix, ":\n", cell_class)) +
+
     geom_rect(data = axis_df,
-            aes(xmin = tot, xmax = tot + chr_len, ymin = -Inf, ymax = Inf, fill = as.factor(as.numeric(Chr) %% 2)),
-            alpha = 0.1, inherit.aes = FALSE) +
+        aes(xmin = tot, xmax = tot + chr_len, ymin = -Inf, ymax = Inf,
+            fill = as.factor(as.numeric(Chr) %% 2)),
+        alpha = 0.1, inherit.aes = FALSE) +
 
-    # Points
     geom_point(aes(color = is_significant_snp), alpha = 0.75, size = 1.2) +
 
-    # Horizontal threshold line (omit if no significant SNPs)
-    { if (!is.na(yint)) geom_hline(yintercept = yint, linetype = "dotted", color = "red") else geom_blank() } +
+    { if (!is.na(yint_val))
+        geom_hline(yintercept = yint_val, linetype = "dotted", color = "red")
+      else geom_blank() } +
 
-    # Labels for top 25 genes (gene_symbol or ensg_id fallback)
-    geom_label_repel(
-        data = top_genes,
-        aes(label = plot_label),
-        size = 6,
-        box.padding = 0.5,
-        nudge_y = 1,
-        segment.color = 'grey50',
-        max.overlaps = Inf
+    geom_text_repel(
+        data = top_genes_y,
+        aes_string(label = "plot_label"),
+        size          = 3.8,
+        box.padding   = 0.7,
+        point.padding = 0.4,
+        force         = 4,
+        force_pull    = 0.3,
+        min.segment.length = 0,
+        segment.color = "grey40",
+        segment.size  = 0.35,
+        max.overlaps  = Inf,
+        max.iter      = 20000,
+        seed          = 42
     ) +
 
-    # Customize scales and theme
     scale_x_continuous(labels = axis_df$Chr, breaks = axis_df$center) +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+    scale_y_continuous(limits = c(0, y_ceiling),
+                       expand = expansion(mult = c(0, 0))) +
     scale_fill_manual(values = c("0" = "white", "1" = "grey75")) +
     scale_color_manual(values = c("FALSE" = "grey60", "TRUE" = "steelblue")) +
 
-    labs(x = "Chromosome", y = expression(-log[10]("BH adjusted p-value"))) +
+    labs(x = "Chromosome", y = y_label) +
 
     theme_minimal(base_size = 14) +
     theme(
-        legend.position = "none",
+        legend.position    = "none",
         panel.grid.major.x = element_blank(),
         panel.grid.minor.x = element_blank(),
-        axis.text.x = element_text(angle = 0, vjust = 0.5, size=14),
-        axis.text.y = element_text(size=14),
-        axis.title = element_text(size=18),
-        plot.title = element_text(size = 22)
+        axis.text.x  = element_text(angle = 0, vjust = 0.5, size = 14),
+        axis.text.y  = element_text(size = 14),
+        axis.title   = element_text(size = 18),
+        plot.title   = element_text(size = 22)
     )
-)
+}
 
-print(m)
+cat(paste0("\n MAKING MANHATTAN PLOTS (capped and uncapped)\n"))
+
+# --- Plot 1: capped at HARD_CAP ---
+# top_genes y-position for the capped plot uses the capped column
+top_genes_capped = top_genes %>%
+    mutate(!!sym("negative_log10_padj_snp") := pmin(negative_log10_padj_snp_raw, HARD_CAP))
+
+m_capped = manhattan_layers(
+    df_plot      = df_plot,
+    y_col        = "negative_log10_padj_snp",
+    y_label      = bquote(-log[10]("BH adj. p") ~ "(capped at" ~ .(HARD_CAP) * ")"),
+    title_suffix = paste0(" (capped -log10p ≤ ", HARD_CAP, ")"),
+    top_genes_y  = top_genes_capped,
+    yint_val     = yint
+)
+print(m_capped)
 ggsave(
-    file.path(plot_dir, paste0(slogan, "_manhattan.png")),
-    plot=m, width=20, height=12, dpi=800)
+    file.path(plot_dir, paste0(slogan, "_manhattan_capped.png")),
+    plot = m_capped, width = 20, height = 12, dpi = 800)
+ggsave(
+    file.path(plot_dir, paste0(slogan, "_manhattan_capped.svg")),
+    plot = m_capped, width = 20, height = 12)
+
+# --- Plot 2: uncapped ---
+yint_uncapped = if (length(sig_vals) > 0) {
+    min(-log10(df_plot$padj_snp[df_plot$is_significant_snp]), na.rm = TRUE)
+} else NA_real_
+
+m_uncapped = manhattan_layers(
+    df_plot      = df_plot %>% mutate(negative_log10_padj_snp_raw = -log10(padj_snp)),
+    y_col        = "negative_log10_padj_snp_raw",
+    y_label      = expression(-log[10]("BH adj. p")),
+    title_suffix = " (uncapped)",
+    top_genes_y  = top_genes,   # already has negative_log10_padj_snp_raw
+    yint_val     = yint_uncapped
+)
+print(m_uncapped)
+ggsave(
+    file.path(plot_dir, paste0(slogan, "_manhattan_uncapped.png")),
+    plot = m_uncapped, width = 20, height = 12, dpi = 800)
+ggsave(
+    file.path(plot_dir, paste0(slogan, "_manhattan_uncapped.svg")),
+    plot = m_uncapped, width = 20, height = 12)
