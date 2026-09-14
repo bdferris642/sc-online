@@ -92,11 +92,17 @@ for file in input_files:
             continue
 
     # Load the h5ad file
+    print(f"  Loading {file} ...")
     adata = sc.read_h5ad(file)
+    print(f"  Loaded: {adata.n_obs} cells x {adata.n_vars} genes | "
+          f"layers: {list(adata.layers.keys())} | "
+          f"obs cols: {list(adata.obs.columns)}")
+
     if "counts" not in adata.layers:
         raise ValueError(f"'counts' layer not found in {file}. "
                          f"Available layers: {list(adata.layers.keys())}")
     adata.X = adata.layers["counts"]
+    print(f"  X set to 'counts' layer (sparse={hasattr(adata.X, 'toarray')})")
 
     # Validate required obs columns exist before any downstream use
     for col in [SAMPLE_ID, CT_ID]:
@@ -104,22 +110,26 @@ for file in input_files:
             raise ValueError(f"{col!r} not found in adata.obs. "
                              f"Available columns: {list(adata.obs.columns)}")
 
-    adata.X = adata.X.toarray() # convert from sparse to dense
+    gene_sums = np.asarray(adata.X.sum(axis=0)).ravel()
+    cell_sums = np.asarray(adata.X.sum(axis=1)).ravel()
+    print(f"  Removing {(gene_sums == 0).sum()} genes with zero counts")
+    print(f"  Removing {(cell_sums == 0).sum()} cells with zero counts")
 
-    print(f"removing {(adata.X.sum(axis=0) == 0).sum()} genes with zero counts")
-    print(f" removing {(adata.X.sum(axis=1) == 0).sum()} cells have zero counts")
-
-    adata = adata[:, adata.X.sum(axis=0) > 0]  # Remove genes with 0 expression
-    adata = adata[adata.X.sum(axis=1) > 0, :]  # Remove cells with 0 expression
+    adata = adata[:, gene_sums > 0]  # Remove genes with 0 expression
+    adata = adata[cell_sums > 0, :]  # Remove cells with 0 expression
+    print(f"  After zero-count filter: {adata.n_obs} cells x {adata.n_vars} genes")
 
     num_nas_sample = adata.obs[SAMPLE_ID].isna().sum()
-    num_nas_ct = adata.obs[CT_ID].isna().sum()  # Count NaNs in CT_ID
-    print(f"removing {num_nas_sample} samples with missing sample ID and {num_nas_ct} cells with missing cell type ID")
+    num_nas_ct = adata.obs[CT_ID].isna().sum()
+    print(f"  Removing {num_nas_sample} cells with missing {SAMPLE_ID!r} and "
+          f"{num_nas_ct} cells with missing {CT_ID!r}")
     adata = adata[~adata.obs[SAMPLE_ID].isna() & ~adata.obs[CT_ID].isna(), :]
+    print(f"  After NaN filter: {adata.n_obs} cells x {adata.n_vars} genes")
 
     # Cast SAMPLE_ID to str and strip whitespace
     adata.obs[SAMPLE_ID] = adata.obs[SAMPLE_ID].astype(str).str.strip()
-    print(f"Cast {SAMPLE_ID} to str and stripped whitespace.")
+    print(f"  Cast {SAMPLE_ID!r} to str and stripped whitespace | "
+          f"{adata.obs[SAMPLE_ID].nunique()} unique samples")
 
     # If an ID map was provided, restrict to mapped participants and remap IDs
     if ID_MAP is not None:
@@ -131,13 +141,13 @@ for file in input_files:
         n_before = adata.n_obs
         adata = adata[adata.obs[SAMPLE_ID].isin(mapping), :]
         n_after = adata.n_obs
-        print(f"Restricted to {n_after} / {n_before} cells with participant IDs in id_map.")
+        print(f"  ID map: restricted to {n_after} / {n_before} cells with participant IDs in id_map.")
         if n_after == 0:
             raise ValueError(f"No cells remain after restricting to participants in {ID_MAP}. "
                              f"Check that {SAMPLE_ID} values match nucseq_participant_id column.")
 
         adata.obs[SAMPLE_ID] = adata.obs[SAMPLE_ID].map(mapping)
-        print(f"Remapped {SAMPLE_ID} to vcf_sample_id using {ID_MAP}.")
+        print(f"  Remapped {SAMPLE_ID!r} to vcf_sample_id using {ID_MAP}.")
 
     # ONE-OFF: if a participant has multiple ages recorded, use the oldest
     age_per_participant = adata.obs.groupby(SAMPLE_ID)["age"].max()
@@ -170,16 +180,16 @@ for file in input_files:
     # Sanitize for use in filenames — spaces break shell pipelines in step 3.
     # Keep original cell_class for decoupler suffix stripping below (obs_names use the raw value).
     cell_class_safe = cell_class.replace(" ", "_")
-    print(f"Cell class: {cell_class} (safe: {cell_class_safe})")
+    print(f"  Cell class: {cell_class!r} (safe name: {cell_class_safe!r})")
 
     output_file1    = os.path.join(OUTPUT_DIR, f"{cell_class_safe}_expression_matrix_ds.csv")
     output_file2    = os.path.join(OUTPUT_DIR, f"{cell_class_safe}_composition_matrix_ds.csv")
     output_metadata = os.path.join(OUTPUT_DIR, f"{cell_class_safe}_obs_metadata.csv")
     if all(os.path.exists(f) for f in [output_file1, output_file2, output_metadata]):
-        print(f"Skipping {cell_class}: all 3 output CSVs already exist.")
+        print(f"  Skipping {cell_class!r}: all 3 output CSVs already exist.")
         continue
 
-    print(f"adata shape: {adata.shape}")
+    print(f"  Pre-pseudobulk adata shape: {adata.shape}")
 
     # Composition matrix: cell count per sample (one column = this cell type).
     # Indexed by SAMPLE_ID; used later to align with the expression matrix.
@@ -189,10 +199,11 @@ for file in input_files:
         .set_index(SAMPLE_ID)
     )
     combined_df_corrected = pd.concat([sample_obs, cell_counts], axis=1)
-    print(f"combined_df_corrected shape: {combined_df_corrected.shape}")
+    print(f"  Composition matrix shape: {combined_df_corrected.shape}")
 
     # Pseudobulk aggregation (decoupler >= 2.x API)
     n_samples_before = adata.obs[SAMPLE_ID].nunique()
+    print(f"  Running pseudobulk aggregation on {n_samples_before} samples ...")
     pdata = dc.pp.pseudobulk(
         adata,
         sample_col=SAMPLE_ID,
@@ -200,27 +211,35 @@ for file in input_files:
         skip_checks=True,
         mode="sum",
     )
+    print(f"  Pseudobulk raw shape: {pdata.n_obs} samples x {pdata.n_vars} genes")
+
     # Filter samples with too few cells or too few counts (was done inside get_pseudobulk in v1)
     keep = (pdata.obs["psbulk_cells"] >= MIN_NUM_CELLS) & (pdata.obs["psbulk_counts"] >= MIN_COUNTS)
     pdata = pdata[keep].copy()
     n_samples_after = pdata.n_obs
-    print(f"pseudobulk: {n_samples_after} / {n_samples_before} samples kept "
-          f"(dropped {n_samples_before - n_samples_after} with < {MIN_NUM_CELLS} cells or < {MIN_COUNTS} counts)")
+    print(f"  Sample QC: {n_samples_after} / {n_samples_before} kept "
+          f"(dropped {n_samples_before - n_samples_after} with "
+          f"< {MIN_NUM_CELLS} cells or < {MIN_COUNTS} counts)")
 
     # Normalize total counts and log-transform
+    print(f"  Normalizing (CPM) and log1p-transforming ...")
     sc.pp.normalize_total(pdata, target_sum=1e6)
     sc.pp.log1p(pdata)
 
     # Filter genes with mean log-transformed expression >= GENE_LOG_EXPR_THRESHOLD
-    gene_filter = pdata.X.mean(axis=0) >= GENE_LOG_EXPR_THRESHOLD
+    gene_filter = np.asarray(pdata.X.mean(axis=0)).ravel() >= GENE_LOG_EXPR_THRESHOLD
+    n_genes_before = pdata.n_vars
     pdata = pdata[:, gene_filter]
+    print(f"  Gene expression filter (mean log-expr >= {GENE_LOG_EXPR_THRESHOLD}): "
+          f"{pdata.n_vars} / {n_genes_before} genes kept")
 
     # Scale the data to a maximum value
+    print(f"  Scaling (max_value={MAX_SCALE_EXPR_VALUE}) ...")
     sc.pp.scale(pdata, max_value=MAX_SCALE_EXPR_VALUE)
 
     # Save the processed data as a CSV file
-    data=pd.DataFrame(pdata.X, index=pdata.obs_names, columns=pdata.var_names)
-    print(f"cleaned pseudobulk (data) shape: {data.shape}")
+    data = pd.DataFrame(pdata.X, index=pdata.obs_names, columns=pdata.var_names)
+    print(f"  Final pseudobulk matrix: {data.shape[0]} samples x {data.shape[1]} genes")
 
     # decoupler.pp.pseudobulk constructs obs_names as "{sample_id}_{groups_col_value}".
     # Strip the exact known suffix rather than splitting on all underscores, which breaks
@@ -233,13 +252,13 @@ for file in input_files:
     data.index = [i[:-len(suffix)] for i in data.index]
 
     common_samples = data.index.intersection(combined_df_corrected.index)
-    print(f"Number of common samples: {len(common_samples)}")
+    print(f"  Common samples between expression and composition: {len(common_samples)}")
 
     # Filter both datasets to only include common samples
     data_aligned = data.loc[common_samples]
     combined_df_corrected_aligned = combined_df_corrected.loc[common_samples]
-    print(f"Aligned data shape: {data_aligned.shape}")
-    print(f"Aligned combined_df_corrected shape: {combined_df_corrected_aligned.shape}")
+    print(f"  Aligned expression matrix: {data_aligned.shape}")
+    print(f"  Aligned composition matrix: {combined_df_corrected_aligned.shape}")
 
     data_aligned.to_csv(output_file1)
     combined_df_corrected_aligned.to_csv(output_file2)
@@ -255,7 +274,7 @@ for file in input_files:
     )
     sample_meta.to_csv(output_metadata, index=False)
 
-    print(f"Saved {output_file1}")
-    print(f"Saved {output_file2}")
-    print(f"Saved {output_metadata}")
+    print(f"  Saved expression matrix ({data_aligned.shape}): {output_file1}")
+    print(f"  Saved composition matrix ({combined_df_corrected_aligned.shape}): {output_file2}")
+    print(f"  Saved obs metadata ({sample_meta.shape}): {output_metadata}")
 print("Processing completed.")
