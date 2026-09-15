@@ -22,6 +22,10 @@
 #   --out-dir DIR        Output directory for SMR results
 #
 # Optional arguments:
+#   --exclude-bed FILE   BED file of regions to block-list (SNPs AND probes overlapping
+#                        any region are removed from the qfile before BESD creation).
+#                        Use resources/h1h2_region_hg38.bed to exclude the chr17 H1/H2
+#                        inversion locus.  [no exclusion by default]
 #   --smr-bin PATH       Path to SMR binary              [auto-detected from PATH]
 #   --rscript PATH       Path to Rscript                  [auto-detected from PATH]
 
@@ -42,18 +46,20 @@ EQTL_DIR=""
 BFILE=""
 GWAS=""
 OUT_DIR=""
+EXCLUDE_BED=""
 SMR_BIN="${ENV_BIN}/smr"
 RSCRIPT="${ENV_BIN}/Rscript"
 
 # ── Parse arguments ───────────────────────────────────────────────────────────
 while [[ "$#" -gt 0 ]]; do
     case $1 in
-        --eqtl-dir)  EQTL_DIR="$2";  shift ;;
-        --bfile)     BFILE="$2";     shift ;;
-        --gwas)      GWAS="$2";      shift ;;
-        --out-dir)   OUT_DIR="$2";   shift ;;
-        --smr-bin)   SMR_BIN="$2";   shift ;;
-        --rscript)   RSCRIPT="$2";   shift ;;
+        --eqtl-dir)    EQTL_DIR="$2";    shift ;;
+        --bfile)       BFILE="$2";       shift ;;
+        --gwas)        GWAS="$2";        shift ;;
+        --out-dir)     OUT_DIR="$2";     shift ;;
+        --exclude-bed) EXCLUDE_BED="$2"; shift ;;
+        --smr-bin)     SMR_BIN="$2";     shift ;;
+        --rscript)     RSCRIPT="$2";     shift ;;
         *) echo "Unknown parameter: $1"; exit 1 ;;
     esac
     shift
@@ -161,6 +167,23 @@ for RDS in "${RDS_FILES[@]}"; do
                 filter(grepl('^rs', SNP)) %>%
                 select(SNP, Chr, BP, A1, A2, Freq, Probe, Probe_Chr, Probe_bp,
                        Gene, Orientation, b, se=SE, p)
+            # Apply block-listed regions if a BED file was provided
+            exclude_bed_path <- '${EXCLUDE_BED}'
+            if (nchar(exclude_bed_path) > 0 && file.exists(exclude_bed_path)) {
+                bed <- read.table(exclude_bed_path, header=FALSE, comment.char='#',
+                                  col.names=c('chrom','start','end'))
+                bed\$chr_int <- as.integer(sub('^chr', '', bed\$chrom))
+                n_before <- nrow(qfile)
+                for (i in seq_len(nrow(bed))) {
+                    ec <- bed\$chr_int[i]; es <- bed\$start[i]; ee <- bed\$end[i]
+                    qfile <- qfile[!(
+                        (qfile\$Chr == ec & qfile\$BP >= es & qfile\$BP <= ee) |
+                        (qfile\$Probe_Chr == ec & qfile\$Probe_bp >= es & qfile\$Probe_bp <= ee)
+                    ), ]
+                }
+                cat(sprintf('  Block-listed regions removed %d / %d rows\n',
+                            n_before - nrow(qfile), n_before))
+            }
             write.table(qfile, '${QFILE}', sep='\t', quote=FALSE, row.names=FALSE)
             cat(sprintf('  Written %d rows to ${QFILE}\n', nrow(qfile)))
         "
@@ -189,6 +212,23 @@ for RDS in "${RDS_FILES[@]}"; do
                 filter(grepl('^rs', SNP)) %>%
                 select(SNP, Chr, BP, A1, A2, Freq, Probe, Probe_Chr, Probe_bp,
                        Gene, Orientation, b, se=SE, p)
+            # Apply block-listed regions if a BED file was provided
+            exclude_bed_path <- '${EXCLUDE_BED}'
+            if (nchar(exclude_bed_path) > 0 && file.exists(exclude_bed_path)) {
+                bed <- read.table(exclude_bed_path, header=FALSE, comment.char='#',
+                                  col.names=c('chrom','start','end'))
+                bed\$chr_int <- as.integer(sub('^chr', '', bed\$chrom))
+                n_before <- nrow(qfile)
+                for (i in seq_len(nrow(bed))) {
+                    ec <- bed\$chr_int[i]; es <- bed\$start[i]; ee <- bed\$end[i]
+                    qfile <- qfile[!(
+                        (qfile\$Chr == ec & qfile\$BP >= es & qfile\$BP <= ee) |
+                        (qfile\$Probe_Chr == ec & qfile\$Probe_bp >= es & qfile\$Probe_bp <= ee)
+                    ), ]
+                }
+                cat(sprintf('  Block-listed regions removed %d / %d rows\n',
+                            n_before - nrow(qfile), n_before))
+            }
             write.table(qfile, '${QFILE}', sep='\t', quote=FALSE, row.names=FALSE)
             cat(sprintf('  Written %d rows to ${QFILE}\n', nrow(qfile)))
         "

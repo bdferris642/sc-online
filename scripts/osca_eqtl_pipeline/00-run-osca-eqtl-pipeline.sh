@@ -406,11 +406,12 @@ if [ $START_AT_STEP -le 7 ] && [ $STOP_AFTER_STEP -ge 7 ]; then
     MASHR_PLOT_DIR="${OSCA_OUTPUT_DIR}/mashr_plots"
     if [ -f "${MASHR_SIG}" ]; then
         "$RSCRIPT" "$SCRIPT_DIR/07b-plot-mashr.R" \
-            --mashr-sig "${MASHR_SIG}" \
-            --eqtl-dir  "${OSCA_OUTPUT_DIR}" \
-            --eqtl-long "${OSCA_OUTPUT_DIR}/eqtl_present_in_all.rds" \
-            --out-dir   "${MASHR_PLOT_DIR}" \
-            --gene-loc  "${SCRIPT_DIR}/gene_loc_v2.txt" && {
+            --mashr-sig    "${MASHR_SIG}" \
+            --mashr-random "${OSCA_OUTPUT_DIR}/eqtl_present_in_all__mash_results_random.rds" \
+            --eqtl-dir     "${OSCA_OUTPUT_DIR}" \
+            --eqtl-long    "${OSCA_OUTPUT_DIR}/eqtl_present_in_all.rds" \
+            --out-dir      "${MASHR_PLOT_DIR}" \
+            --gene-loc     "${SCRIPT_DIR}/gene_loc_v2.txt" && {
                 echo "STEP 7b SUCCESSFULLY generated mashr plots."
             } || {
                 echo "STEP 7b FAILED to generate mashr plots."
