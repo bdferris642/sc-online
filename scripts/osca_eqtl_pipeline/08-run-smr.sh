@@ -134,19 +134,29 @@ for RDS in "${RDS_FILES[@]}"; do
     # is the idempotent checkpoint that avoids redundant work on re-runs.
     # Source priority: OSCA TSV in eqtl-dir (fast) → RDS (slower, full reload).
     EQTL_TSV="${EQTL_DIR}/eqtl_${CC}.tsv"
+    # Default ENSG→symbol path (same default as step 5).
+    ENSG_TO_SYMBOL="/mnt/accessory/seq_data/pd-freeze/sn-vta/subsets/latest/ensg_to_symbol.csv"
     if [ -f "${EQTL_TSV}" ]; then
         echo "[${CC}] Step 1: filtering OSCA TSV → rs-only qfile ..."
         "${RSCRIPT}" --no-save --no-restore -e "
             suppressMessages(library(dplyr))
             tsv <- read.table('${EQTL_TSV}', header=TRUE, sep='\t', stringsAsFactors=FALSE)
-            # TSV Probe column = ENSG; no gene_symbol available — symbols come from step 5 RDS.
-            # Gene col in OSCA TSV may also be ENSG or NA; treat as unavailable.
+            # Load ENSG→symbol map; TSV has no gene_symbol column so we join it here.
+            sym_map <- setNames(character(0), character(0))
+            if (file.exists('${ENSG_TO_SYMBOL}')) {
+                sym_df  <- read.csv('${ENSG_TO_SYMBOL}')
+                sym_df  <- sym_df[!is.na(sym_df\$hgnc_symbol) & sym_df\$hgnc_symbol != '', ]
+                sym_map <- setNames(sym_df\$hgnc_symbol, sym_df\$ensembl_gene_id)
+                cat(sprintf('  Loaded %d ENSG→symbol mappings\n', length(sym_map)))
+            } else {
+                cat('  WARNING: ensg_to_symbol CSV not found; Gene column will use ENSG IDs\n')
+            }
             qfile <- tsv %>%
                 rename(ensg_id = Probe) %>%
                 mutate(
-                    gene_symbol = NA_character_,
+                    gene_symbol = ifelse(ensg_id %in% names(sym_map), sym_map[ensg_id], NA_character_),
                     Probe = dplyr::coalesce(gene_symbol, ensg_id),
-                    Gene  = ensg_id
+                    Gene  = dplyr::coalesce(gene_symbol, ensg_id)
                 ) %>%
                 filter(grepl('^rs', SNP)) %>%
                 select(SNP, Chr, BP, A1, A2, Freq, Probe, Probe_Chr, Probe_bp,
@@ -173,7 +183,8 @@ for RDS in "${RDS_FILES[@]}"; do
                 mutate(
                     Probe = ifelse(!is.na(gene_symbol) & !(gene_symbol %in% dup_symbols),
                                    gene_symbol, ensg_id),
-                    Gene  = ensg_id
+                    Gene  = ifelse(!is.na(gene_symbol) & !(gene_symbol %in% dup_symbols),
+                                   gene_symbol, ensg_id)
                 ) %>%
                 filter(grepl('^rs', SNP)) %>%
                 select(SNP, Chr, BP, A1, A2, Freq, Probe, Probe_Chr, Probe_bp,

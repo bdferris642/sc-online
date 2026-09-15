@@ -399,6 +399,26 @@ if [ $START_AT_STEP -le 7 ] && [ $STOP_AFTER_STEP -ge 7 ]; then
             echo "STEP 7 FAILED to run mashr."
             exit 1
         }
+
+    echo "************************************* STEP 7b ************************************"
+    echo "************************************* MASHR PLOTS ********************************"
+    MASHR_SIG="${OSCA_OUTPUT_DIR}/eqtl_present_in_all__mash_results_sig.rds"
+    MASHR_PLOT_DIR="${OSCA_OUTPUT_DIR}/mashr_plots"
+    if [ -f "${MASHR_SIG}" ]; then
+        "$RSCRIPT" "$SCRIPT_DIR/07b-plot-mashr.R" \
+            --mashr-sig "${MASHR_SIG}" \
+            --eqtl-dir  "${OSCA_OUTPUT_DIR}" \
+            --eqtl-long "${OSCA_OUTPUT_DIR}/eqtl_present_in_all.rds" \
+            --out-dir   "${MASHR_PLOT_DIR}" \
+            --gene-loc  "${SCRIPT_DIR}/gene_loc_v2.txt" && {
+                echo "STEP 7b SUCCESSFULLY generated mashr plots."
+            } || {
+                echo "STEP 7b FAILED to generate mashr plots."
+                exit 1
+            }
+    else
+        echo "STEP 7b SKIPPED: mashr sig RDS not found at ${MASHR_SIG}"
+    fi
 else
     echo "************************************* SKIPPING STEP 7 ****************************"
 fi

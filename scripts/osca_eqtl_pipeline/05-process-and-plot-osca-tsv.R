@@ -28,9 +28,7 @@
 #   eqtl_{cell_class}.rds       — full data frame with FDR columns
 #   eqtl_{cell_class}_sig.rds   — significant rows only
 #   plots/eqtl_{cell_class}_manhattan_capped.png   — y-axis capped at HARD_CAP
-#   plots/eqtl_{cell_class}_manhattan_capped.svg
 #   plots/eqtl_{cell_class}_manhattan_uncapped.png  — y-axis uncapped
-#   plots/eqtl_{cell_class}_manhattan_uncapped.svg
 #   plots/eqtl_{cell_class}_min_p_gene_hist.png
 #   plots/eqtl_{cell_class}_padj_gene_hist.png
 #   plots/eqtl_{cell_class}_pval_hist.png
@@ -310,9 +308,16 @@ yint = if (length(sig_vals) > 0) min(sig_vals) else NA_real_
 
 # Shared theme and layer factory for the two Manhattan plots
 manhattan_layers = function(df_plot, y_col, y_label, title_suffix, top_genes_y, yint_val) {
-    # y-headroom: 35% above the highest label point so repel has space to work
-    y_max_data  = max(df_plot[[y_col]], na.rm = TRUE)
-    y_max_label = if (nrow(top_genes_y) > 0) max(top_genes_y[[y_col]], na.rm = TRUE) else y_max_data
+    # y-headroom: 35% above the highest finite label/data point so repel has space to work.
+    # Guard against Inf (e.g. from padj_snp underflowing to 0 → -log10(0) = Inf).
+    finite_y    = df_plot[[y_col]][is.finite(df_plot[[y_col]])]
+    y_max_data  = if (length(finite_y) > 0) max(finite_y) else 10
+    if (nrow(top_genes_y) > 0) {
+        finite_label = top_genes_y[[y_col]][is.finite(top_genes_y[[y_col]])]
+        y_max_label  = if (length(finite_label) > 0) max(finite_label) else y_max_data
+    } else {
+        y_max_label = y_max_data
+    }
     y_ceiling   = max(y_max_data, y_max_label) * 1.35
 
     ggplot(df_plot, aes_string(x = "BP_cum", y = y_col)) +
@@ -384,27 +389,25 @@ print(m_capped)
 ggsave(
     file.path(plot_dir, paste0(slogan, "_manhattan_capped.png")),
     plot = m_capped, width = 20, height = 12, dpi = 800)
-ggsave(
-    file.path(plot_dir, paste0(slogan, "_manhattan_capped.svg")),
-    plot = m_capped, width = 20, height = 12)
 
 # --- Plot 2: uncapped ---
+# negative_log10_padj_snp_raw is already in df_plot (computed from df above).
+# Clamp any Inf values (padj_snp underflowed to 0) to finite before passing to the layer
+# factory, so y_ceiling stays finite. Points with padj_snp=0 are shown at the ceiling.
 yint_uncapped = if (length(sig_vals) > 0) {
-    min(-log10(df_plot$padj_snp[df_plot$is_significant_snp]), na.rm = TRUE)
+    raw_sig = df_plot$negative_log10_padj_snp_raw[df_plot$is_significant_snp]
+    min(raw_sig[is.finite(raw_sig)], na.rm = TRUE)
 } else NA_real_
 
 m_uncapped = manhattan_layers(
-    df_plot      = df_plot %>% mutate(negative_log10_padj_snp_raw = -log10(padj_snp)),
+    df_plot      = df_plot,
     y_col        = "negative_log10_padj_snp_raw",
     y_label      = expression(-log[10]("BH adj. p")),
     title_suffix = " (uncapped)",
-    top_genes_y  = top_genes,   # already has negative_log10_padj_snp_raw
+    top_genes_y  = top_genes,
     yint_val     = yint_uncapped
 )
 print(m_uncapped)
 ggsave(
     file.path(plot_dir, paste0(slogan, "_manhattan_uncapped.png")),
     plot = m_uncapped, width = 20, height = 12, dpi = 800)
-ggsave(
-    file.path(plot_dir, paste0(slogan, "_manhattan_uncapped.svg")),
-    plot = m_uncapped, width = 20, height = 12)

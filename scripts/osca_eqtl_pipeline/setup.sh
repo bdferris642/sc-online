@@ -63,7 +63,8 @@ CONDA_PKGS_DIRS="${MAMBA_ROOT}/conda-pkgs" \
 "${MAMBA}" install -n "${ENV_NAME}" -y -c conda-forge -c bioconda \
     r-repr r-cairo plink2 \
     scipy matplotlib seaborn gseapy pyreadr ncls \
-    bioconductor-qvalue
+    bioconductor-qvalue \
+    r-pheatmap r-upsetr r-svglite r-optparse
 
 # ── 3. Symlink OSCA binary into env bin (so subshells find it on PATH) ────────
 OSCA_SRC="/mnt/accessory/analysis/eqtl/osca/osca"
@@ -84,7 +85,7 @@ echo "[R] Verifying installed R packages …"
   cat('\n=== R package verification ===\n')
   pkgs <- c('mashr', 'ashr', 'sva', 'Matrix', 'getopt',
             'tidyverse', 'dplyr', 'ggplot2', 'ggrepel', 'tidyr', 'repr', 'Cairo',
-            'qvalue')
+            'qvalue', 'pheatmap', 'UpSetR', 'svglite', 'optparse')
   missing <- c()
   for (pkg in pkgs) {
     ok <- requireNamespace(pkg, quietly = TRUE)
