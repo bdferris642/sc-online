@@ -410,7 +410,9 @@ def write_in_place(h5ad, pcs, uns_new, backup=True, metadata_csv=None):
 
     if metadata_csv is not None and Path(metadata_csv).exists():
         csv = Path(metadata_csv)
-        df = pd.read_csv(csv, index_col=0, low_memory=False)
+        # round_trip: the default float parser is not exact and would perturb untouched columns
+        df = pd.read_csv(csv, index_col=0, low_memory=False, float_precision="round_trip",
+                         dtype={"participant_id": str})
         df.index = df.index.astype(str)
         if not df.index.equals(obs_after.index.astype(str)):
             raise ValueError(f"{csv} index does not match the h5ad obs index; not rewritten")
@@ -554,6 +556,9 @@ def cmd_select(args):
     names = [str(x) for x in cp["pcs"]]
     chosen = set()
     for kind in args.pcs_to_add:
+        if kind == "all":
+            chosen |= set(names)
+            continue
         key = {"elbow": "elbow_pcs", "significant": "significant_pcs"}[kind]
         chosen |= {str(x) for x in cp[key]}
     out = [n for i, n in enumerate(names) if n in chosen and i + 1 <= args.pc_max]
@@ -588,7 +593,8 @@ def main():
     c.add_argument("--no-backup", action="store_true", help="skip the obs/uns sidecar backup (not recommended)")
     s = sub.add_parser("select", help="print PCs to add from uns/control_pca")
     s.add_argument("--h5ad", required=True)
-    s.add_argument("--pcs-to-add", nargs="+", choices=["elbow", "significant"], required=True)
+    s.add_argument("--pcs-to-add", nargs="+", choices=["elbow", "significant", "all"], required=True,
+                   help="union of these sets; 'all' = every computed PC (control_PC_01..) up to --pc-max")
     s.add_argument("--pc-max", type=int, default=20)
     a = ap.parse_args()
     {"compute": cmd_compute, "select": cmd_select}[a.cmd](a)

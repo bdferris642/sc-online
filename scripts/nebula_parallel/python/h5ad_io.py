@@ -107,8 +107,8 @@ REGION_DUMMIES = {"region_SN": "SN", "region_VTA": "VTA"}
 def read_obs_derived(h5ad_path, cols, derive_region_dummies=False):
     """read_obs, optionally rebuilding region_SN / region_VTA from `region`.
 
-    Coding (identical in every sn-vta latest object): SN -> (1, 0), VTA -> (0, 1),
-    anything else (SN_VTA, RRF) -> (0, 0). Fails if the rebuilt values disagree with any
+    Coding: region_SN = region contains "SN", region_VTA = region contains "VTA", so
+    SN -> (1, 0), VTA -> (0, 1), SN_VTA -> (1, 1), anything else -> (0, 0). Fails if the rebuilt values disagree with any
     non-missing stored value; logs how many missing values were filled. Needed for the
     oligodendrocyte object, whose spatial SN cells have region_VTA = NaN.
     """
@@ -119,13 +119,13 @@ def read_obs_derived(h5ad_path, cols, derive_region_dummies=False):
     obs = read_obs(h5ad_path, list(cols) + extra)
     region = obs["region"].astype(str)
     for c in derived:
-        new = (region == REGION_DUMMIES[c]).astype(np.int64)
+        new = region.str.contains(REGION_DUMMIES[c], regex=False).astype(np.int64)
         old = obs[c]
         known = old.notna()
         bad = int((old[known].astype(float) != new[known]).sum())
         if bad:
             raise ValueError(f"--derive-region-dummies: rebuilt {c} disagrees with {bad} stored non-missing values")
-        print(f"[derive-region-dummies] {c} = (region == '{REGION_DUMMIES[c]}'); "
+        print(f"[derive-region-dummies] {c} = (region contains '{REGION_DUMMIES[c]}'); "
               f"filled {int((~known).sum())} missing values, all stored values reproduced", flush=True)
         obs[c] = new
     return obs.drop(columns=extra)

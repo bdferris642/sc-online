@@ -51,12 +51,12 @@ bash /home/ferris/cc-sandbox/run_nebula_parallel/setup.sh
 | `--n-hvgs`, `--n-pcs`, `--pc-fdr` | 2000, 30, 0.05 | PCA size; FDR cut for "significant" |
 | `--pc-test-covs` | `age,sex,log10_nUMI,frac_mito,frac_intronic,chemistry` | donor-level covariates of the PC case/control test |
 | `--pca-model-dir` | `<h5ad dir>/pca_models` | where the PCA model and test table go |
-| `--pcs-to-add` | – | one or more of `elbow`, `significant`; their **union** (index ≤ `--pc-max`) is appended to `--covs` |
+| `--pcs-to-add` | – | one or more of `elbow`, `significant`, `all`; their **union** (index ≤ `--pc-max`) is appended to `--covs`. `all` = every computed PC, i.e. `control_PC_01..--pc-max` |
 | `--pc-max` | 20 | highest PC index that may be added |
 | `--get-rank-purity` | 0 | 1 = add a `rank_purity` column |
 | `--purity-scale` | `log-rate` | `log-rate` (NEBULA's scale, recommended) or `mean` of `--purity-layer` |
 | `--purity-layer` | `norm_log` | only used with `--purity-scale mean` |
-| `--derive-region-dummies` | 0 | rebuild `region_SN`/`region_VTA` from `region` |
+| `--derive-region-dummies` | 0 | rebuild `region_SN`/`region_VTA` from `region` (contains rule: SN_VTA → 1,1) |
 | `--save-tmp`, `--suffix` | 0, – | keep the tmp dir / output-name suffix |
 
 **Fail-fast rules:**
@@ -86,8 +86,8 @@ bash /home/ferris/cc-sandbox/run_nebula_parallel/setup.sh
    4. Donor-level case/control test per PC (see "Choosing PCs").
       - Output: `<slogan>_control_pc_test.csv` (beta, se, t, df, p, fdr, n_donors).
    5. In-place h5ad update (details below).
-1. **PC selection** (`control_pcs.py select`, if `--pcs-to-add`): elbow ∪ significant, index ≤
-   `--pc-max`, read from `uns/control_pca`. The final covariates are logged and saved to
+1. **PC selection** (`control_pcs.py select`, if `--pcs-to-add`): the union of the requested sets
+   (elbow / significant / all), index ≤ `--pc-max`, read from `uns/control_pca`. The final covariates are logged and saved to
    `logs/run_args_*.json` (`covs_final`, `pcs_added`, `control_pca_created`).
 2. **Chunking** (`python/h5ad_to_gene_chunks.py` + `R/write_chunk_qs.R`): gene-range chunks are
    written straight from the CSR layer as Seurat `.qs` files (all cells × a gene range). The
@@ -164,6 +164,9 @@ for example a shift in cell state or composition. Adjusting for it removes real 
 for a mediator). Selecting covariates by their association with the tested contrast, in the same
 data, also biases the DE results. Elbow PCs are chosen without looking at the contrast, so
 `--pcs-to-add elbow` is the conservative choice. `--pc-max` keeps low-variance PCs out either way.
+`--pcs-to-add all --pc-max K` takes PCs 01..K regardless of elbow or test, which is also chosen
+without looking at the contrast and covers cell-type / composition axes beyond the elbow (useful
+when PCs are shared across objects, e.g. one pan-neuron PCA applied to per-cell-type subsets).
 
 ## Rank purity
 `python/rank_purity.py` ports `compute_rank_purity()` (`~/sc-online/add_rank_purity.R`,
