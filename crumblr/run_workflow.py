@@ -5,6 +5,11 @@ run_workflow.py  –  crumblr proportion-change workflow
 Aggregates cell-level data to sample-level counts, calls the R crumblr
 analysis, then generates comprehensive Python-side plots.
 
+Covariates are aggregated per sample: numeric -> mean; categoricals constant
+within every sample -> their value; categoricals varying within any sample ->
+fractional dummies frac_{col}_{level} (reference = alphabetically first level
+omitted); varying 0/1 indicators -> frac_{col}. See build_metadata().
+
 Environment Setup (one-time)
 -----------------------------
 Run setup_env.sh once to install all dependencies into a self-contained
@@ -76,11 +81,15 @@ import sys
 from pathlib import Path
 
 # ── Self-activating: re-exec with crumblr-venv Python if not already using it ─
-_VENV_PYTHON = Path(__file__).parent.parent / "crumblr-venv" / "bin" / "python3"
-if Path(sys.executable).resolve() != _VENV_PYTHON.resolve():
+# Use sys.prefix (the venv root when inside a venv) rather than sys.executable,
+# because the venv python3 may be a symlink to the system Python and .resolve()
+# would make both paths identical, suppressing the re-exec.
+_VENV_DIR    = Path(__file__).parent.parent / "crumblr-venv"
+_VENV_PYTHON = _VENV_DIR / "bin" / "python3"
+if Path(sys.prefix) != _VENV_DIR.resolve():
     if not _VENV_PYTHON.is_file():
         sys.exit(
-            f"ERROR: crumblr-venv not found at {_VENV_PYTHON.parent.parent}.\n"
+            f"ERROR: crumblr-venv not found at {_VENV_DIR}.\n"
             f"Run setup first:  bash {Path(__file__).parent / 'setup_env.sh'}"
         )
     os.execv(str(_VENV_PYTHON), [str(_VENV_PYTHON)] + sys.argv)
@@ -88,6 +97,7 @@ if Path(sys.executable).resolve() != _VENV_PYTHON.resolve():
 
 import argparse
 import json
+import re
 import subprocess
 import tempfile
 
@@ -133,20 +143,99 @@ def aggregate_counts(
     return counts
 
 
+def _r_safe(s: str) -> str:
+    """Sanitise a level string into an R-syntactic name fragment."""
+    return re.sub(r"_+", "_", re.sub(r"[^A-Za-z0-9]+", "_", str(s))).strip("_")
+
+
 def build_metadata(
     df: pd.DataFrame,
     sample_col: str,
     covariate_cols: list[str],
-) -> pd.DataFrame:
-    """Return one row per sample with covariate values (first-occurrence).
+    fixed_effects: list[str],
+    must_be_constant: list[str],
+) -> tuple[pd.DataFrame, list[str], dict]:
+    """Return one row per sample, converting within-sample-varying covariates.
+
+    Numeric covariates are averaged per sample (NaN cells ignored); a 0/1
+    indicator that varies within any sample is renamed frac_{col}.
+    Categorical covariates constant within every sample keep their value.
+    A categorical that varies within any sample is replaced by fractional
+    dummies frac_{col}_{level} (per-sample fraction of non-NaN cells at that
+    level) for all levels except the reference (alphabetically first, as R's
+    treatment coding would drop).
+
+    Columns in must_be_constant (contrast, random effects) raise ValueError if
+    they vary within a sample.
 
     sample_col is excluded from covariate_cols because it is the groupby key
     and becomes the index automatically — this handles the common case where
     --sample-col, --donor-col, and a random-effect term all refer to the same
     column.
+
+    Returns (metadata, fixed_effects with converted names substituted,
+    conversion log {col: {...}}).
     """
     cols = [c for c in covariate_cols if c != sample_col]
-    return df.groupby(sample_col)[cols].first()
+    g = df.groupby(sample_col, sort=True)
+    n_samples = g.ngroups
+    out = {}
+    renames: dict[str, list[str]] = {}
+    conversions: dict[str, dict] = {}
+
+    for c in cols:
+        s = df[c]
+        n_mixed = int((g[c].nunique(dropna=True) > 1).sum())
+        if n_mixed and c in must_be_constant:
+            raise ValueError(
+                f"Column '{c}' (contrast/random effect) varies within "
+                f"{n_mixed}/{n_samples} samples; it must be constant per sample."
+            )
+        is_numeric = (pd.api.types.is_numeric_dtype(s)
+                      and not pd.api.types.is_bool_dtype(s))
+        if is_numeric:
+            mean = g[c].mean()
+            vals = set(pd.unique(s.dropna()))
+            if n_mixed and vals <= {0, 1}:
+                new = f"frac_{c}"
+                out[new] = mean
+                renames[c] = [new]
+                conversions[c] = {"type": "binary_indicator", "n_mixed": n_mixed,
+                                  "n_samples": n_samples, "columns": [new]}
+                print(f"  '{c}' varies within {n_mixed}/{n_samples} samples "
+                      f"-> {new}")
+            else:
+                out[c] = mean
+            continue
+
+        if not n_mixed:
+            out[c] = g[c].first()
+            continue
+
+        levels = sorted(s.dropna().astype(str).unique())
+        ref, others = levels[0], levels[1:]
+        tab = pd.crosstab(df[sample_col], s.astype(str).where(s.notna()))
+        tab = tab.reindex(index=sorted(g.groups), columns=levels, fill_value=0)
+        frac = tab.div(tab.sum(axis=1).replace(0, np.nan), axis=0)
+        new_cols = [f"frac_{c}_{_r_safe(l)}" for l in others]
+        if len(set(new_cols)) != len(new_cols):
+            raise ValueError(
+                f"Levels of '{c}' collide after sanitising: "
+                f"{dict(zip(others, new_cols))}"
+            )
+        for lvl, nc in zip(others, new_cols):
+            out[nc] = frac[lvl]
+        renames[c] = new_cols
+        conversions[c] = {"type": "categorical", "n_mixed": n_mixed,
+                          "n_samples": n_samples, "reference": ref,
+                          "columns": dict(zip(others, new_cols))}
+        print(f"  '{c}' varies within {n_mixed}/{n_samples} samples -> "
+              f"fractional dummies {new_cols} (reference '{ref}')")
+
+    metadata = pd.DataFrame(out)
+    metadata.index.name = sample_col
+    fixed_out = [n for f in fixed_effects for n in renames.get(f, [f])]
+    return metadata, fixed_out, conversions
 
 
 # ── Step 1b: validate random effects ─────────────────────────────────────────
@@ -906,7 +995,14 @@ def main(argv: list[str] | None = None) -> None:
                          ({args.donor_col} if args.donor_col else set()))
     all_meta_cols = [c for c in all_meta_cols if c in df.columns]
 
-    metadata = build_metadata(df, sample_col, all_meta_cols)
+    must_be_constant = [args.contrast, args.donor_col] + list(args.random_effects)
+    # Build metadata from retained samples only, so conversion decisions and
+    # mixed-sample counts reflect the samples actually modelled.
+    metadata, fixed_effects, conversions = build_metadata(
+        df[df[sample_col].isin(counts.index)], sample_col, all_meta_cols,
+        args.fixed_effects, must_be_constant)
+    with open(out_dir / "covariate_conversion.json", "w") as _f:
+        json.dump(conversions, _f, indent=2)
     metadata = relevel(metadata, args.contrast, args.ref_level)
     validate_random_effects(metadata, sample_col, args.random_effects)
 
@@ -922,7 +1018,7 @@ def main(argv: list[str] | None = None) -> None:
     metadata.to_csv(meta_path)
 
     # ── Build formula ─────────────────────────────────────────────────────────
-    formula = build_formula(args.contrast, args.fixed_effects, args.random_effects)
+    formula = build_formula(args.contrast, fixed_effects, args.random_effects)
     print(f"[3/6] Formula: {formula}")
 
     # ── Run R crumblr ─────────────────────────────────────────────────────────

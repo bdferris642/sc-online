@@ -143,6 +143,7 @@ All files are written to `--output-dir`:
 | `counts_matrix.csv` | Aggregated sample × cell-type count matrix passed to R |
 | `metadata.csv` | Sample-level metadata passed to R |
 | `run_args.json` | Record of all CLI arguments used |
+| `covariate_conversion.json` | Covariates converted to fractional dummies (reference level, number of mixed samples, new column names) |
 | `volcano_<coeff>.pdf/png` | Volcano plot: log2FC vs −log10(FDR) per contrast coefficient |
 | `forest_<coeff>.pdf` | Forest plot of effect sizes with 95% CIs (generated in R) |
 | `logfc_bar_<coeff>.pdf/png` | Horizontal bar chart of log2FC for all cell types |
@@ -158,6 +159,7 @@ All files are written to `--output-dir`:
 
 1. **Aggregate** — cell-level rows are grouped by `--sample-col` and `--proportion-col` to produce a sample × cell-type count matrix
 2. **Filter** — samples and cell types below minimum cell thresholds are dropped
+2b. **Sample-level covariates** — numeric covariates are averaged per sample. A categorical covariate that is constant within every sample keeps its value; one that varies within any sample (e.g. `dapi_nurr`, `chemistry`, `study`) is replaced by fractional dummies `frac_{col}_{level}` (fraction of the sample's cells at that level; the alphabetically first level is the reference and is omitted). A 0/1 indicator that varies within a sample (e.g. `region_SN`) becomes `frac_{col}`. The formula uses the converted names. The contrast, donor and random-effect columns must be constant per sample, or the run stops with an error. Conversions are logged and written to `covariate_conversion.json`
 3. **CLR transform** — `crumblr()` applies a centered log-ratio transformation and computes precision weights that account for library-size variation
 4. **Model fit** — `dream()` (lme4-based mixed-effects) or `lmFit` (fixed-effects only) is fit per cell type; collinear covariates are detected and dropped automatically with a warning
 5. **Results** — `topTable()` extracts log2FC, t-statistics, p-values, and BH-adjusted FDR per cell type per contrast coefficient

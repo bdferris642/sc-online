@@ -63,6 +63,11 @@ else
     bioconductor-ggtree
 fi
 
+# ── 2b. Rfast (crumblr dependency) from conda-forge ──────────────────────────
+# Rfast fails to compile from source against the system g++/TBB headers, so
+# install the conda-forge binary before remotes::install_github('crumblr').
+"${MAMBA}" install -n "${ENV_NAME}" -y -c conda-forge r-rfast
+
 # ── 3. Install BiocManager, upgrade variancePartition, install crumblr ───────
 # conda-forge only ships variancePartition 1.36.2; crumblr requires >=1.36.3.
 # Install BiocManager from CRAN and use it to pull the newer Bioconductor build.
